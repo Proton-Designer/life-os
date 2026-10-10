@@ -33,7 +33,7 @@ describe("WeeklySummaryStrip", () => {
     expect(screen.getByText("10")).toBeInTheDocument();
   });
 
-  it("Deen Mode OFF drops the Qur'an KPI (and its icon) and leaves the other three", () => {
+  it("Faith Mode OFF drops the Qur'an KPI (and its icon) and leaves the other three", () => {
     const { container } = render(<WeeklySummaryStrip snapshots={snapshots()} deenMode={false} />);
     expect(screen.queryByText("Qur'an pages")).not.toBeInTheDocument();
     expect(screen.queryByText("12")).not.toBeInTheDocument();

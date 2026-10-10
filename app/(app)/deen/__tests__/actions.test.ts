@@ -48,10 +48,10 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/deen/deen-mode-guard", () => ({
   isDeenModeOnForRequest: vi.fn(async () => true),
   getRequestTimezone: vi.fn(async () => "America/Chicago"),
-  DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
+  DEEN_MODE_OFF_MESSAGE: "Faith Mode is off",
 }));
 
-describe("Deen actions", () => {
+describe("Faith actions", () => {
   beforeEach(() => {
     getClaimsMock.mockClear();
     fromMock.mockClear();

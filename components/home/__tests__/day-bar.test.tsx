@@ -164,7 +164,7 @@ describe("DayBar (HOME-02)", () => {
     expect(screen.getByTestId("day-bar-prayer-dhuhr")).toHaveAttribute("data-current", "true");
   });
 
-  it("Deen OFF: no prayer bands (a ribbon with no spans draws none)", () => {
+  it("Faith OFF: no prayer bands (a ribbon with no spans draws none)", () => {
     const noPrayer = computeDayRibbon({ dayBounds: { start: at("2026-10-05T05:00:00"), end: at("2026-10-05T23:00:00") }, prayers: [], activities: [], now: at("2026-10-05T11:45:00") })!;
     render(<DayBar {...props} layout={noPrayer} />);
     expect(screen.queryByTestId("day-bar-prayer-dhuhr")).not.toBeInTheDocument();
@@ -279,7 +279,7 @@ describe("DayBar (HOME-02)", () => {
       })!;
     const lateStart = { ...whole, layout: prayerLayout(false), wokeAtIso: at("2026-10-05T19:50:00").toISOString(), nowIso: at("2026-10-05T19:55:00").toISOString() };
 
-    it("A (late Start Day, Deen ON, nothing scheduled): a 24 h bar with the Started marker at 7:50 PM, awake shading from it to NOW, thin prayer strip, empty note", () => {
+    it("A (late Start Day, Faith ON, nothing scheduled): a 24 h bar with the Started marker at 7:50 PM, awake shading from it to NOW, thin prayer strip, empty note", () => {
       vi.setSystemTime(at("2026-10-05T19:55:00"));
       render(<DayBar {...lateStart} />);
       const started = parseFloat(screen.getByTestId("day-bar-started").style.left);
@@ -335,7 +335,7 @@ describe("DayBar (HOME-02)", () => {
       expect(screen.queryByTestId("day-bar-started-now-label")).not.toBeInTheDocument();
     });
 
-    it("C (Deen OFF, no events): no prayer strip, the empty note, still a whole-day bar with Started + NOW", () => {
+    it("C (Faith OFF, no events): no prayer strip, the empty note, still a whole-day bar with Started + NOW", () => {
       vi.setSystemTime(at("2026-10-05T11:45:00"));
       render(<DayBar {...whole} layout={null} />);
       expect(screen.queryByTestId("day-bar-prayer-strip")).not.toBeInTheDocument();

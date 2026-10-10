@@ -71,7 +71,7 @@ function SmallMultiple({
 // — kill_list/workout/school_co_op/noise/other_work don't exist in this
 // model). Matches checkin_allocations.domain exactly, plus "wasted".
 const SEGMENT_LABEL: Record<string, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   school: "School",
   fitness: "Fitness",
@@ -183,7 +183,6 @@ export default async function InsightsPage({
     { data: recapKillListRows },
     { data: recapQuranRows },
     { data: recapCheckinRows },
-    { data: previousDeenGoal },
     domainWeights,
     layout,
   ] = await Promise.all([
@@ -225,15 +224,6 @@ export default async function InsightsPage({
       .eq("user_id", userId)
       .eq("kind", "allocation")
       .gte("window_start", recapSnWeeks[0].weekStartIso),
-    deenMode
-      ? supabase
-          .from("weekly_goals")
-          .select("quran_page_target")
-          .eq("user_id", userId)
-          .eq("domain", "deen")
-          .eq("week_start_date", previousWeekStart)
-          .maybeSingle()
-      : Promise.resolve({ data: null as { quran_page_target: number | null } | null }),
     getUserDomainWeights(userId),
     getPageLayout("insights"),
   ]);
@@ -480,9 +470,7 @@ export default async function InsightsPage({
             caption={
               lastRecapWeekBeforeFloor
                 ? "before you started tracking"
-                : previousDeenGoal?.quran_page_target
-                  ? `target: ${previousDeenGoal.quran_page_target}`
-                  : "last week"
+                : "last week"
             }
             sparkline={recap.map((r) => r.quranPages)}
           />
@@ -562,15 +550,9 @@ export default async function InsightsPage({
                 centerLabel="Ratio"
                 centerValue={rangeSn.display}
               />
-              {/* UX-05: the rule itself (an unconfirmed Lock-In hour counts as
-                  Wasted regardless of real work done) is unchanged and stays
-                  in lib/checkins/session-hour-status.ts -- this only makes it
-                  visible. See that file's own header + docs/superpowers/specs/
-                  2026-08-19-missed-lockin-hours.md for why silence resolves to
-                  wasted rather than pending forever. */}
               <p className="text-xs text-muted-foreground">
-                Wasted includes any Lock-In hour you never confirmed, not just idle time — during a
-                session, tap &quot;Still on it&quot; to keep a real work hour out of this count.
+                Deep Work and Deep Study sessions count on their own: Deep Work to Business, Deep Study to School. They are
+                never asked about and never counted as Wasted.
               </p>
             </>
           ) : (
@@ -617,12 +599,7 @@ export default async function InsightsPage({
             {wastedSegment && (
               <li className="flex items-center gap-3 rounded-lg border border-border/40 px-4 py-3 text-sm text-muted-foreground">
                 <span className="size-8 shrink-0" aria-hidden />
-                <div className="flex flex-1 flex-col">
-                  <span>Wasted</span>
-                  {/* UX-05: same rule as the Signal:Noise panel above, restated
-                      briefly here since this row can be read on its own. */}
-                  <span className="text-xs">includes unconfirmed Lock-In hours, not just idle time</span>
-                </div>
+                <span className="flex-1">Wasted</span>
                 <span className="font-mono font-medium tabular-nums">
                   {formatElapsedDuration(wastedSegment.minutes * 60_000)} · {Math.round(wastedSegment.pct)}%
                 </span>

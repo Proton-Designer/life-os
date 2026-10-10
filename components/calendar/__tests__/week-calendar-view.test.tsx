@@ -10,16 +10,16 @@ const base = {
   business: { headline: "Ship the landing page", milestones: [] },
 };
 
-describe("WeekCalendarView -- Deen Mode", () => {
-  it("ON shows the Deen goal slot", () => {
+describe("WeekCalendarView -- Faith Mode", () => {
+  it("ON shows the Faith goal slot", () => {
     render(<WeekCalendarView data={{ ...base, deenMode: true }} onSaveDeen={noop} onSaveBusiness={noop} />);
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
     expect(screen.getByText("Finish Surah Kahf")).toBeInTheDocument();
   });
 
-  it("OFF hides the Deen slot even if a deen goal is in the data, and keeps Business", () => {
+  it("OFF hides the Faith slot even if a deen goal is in the data, and keeps Business", () => {
     render(<WeekCalendarView data={{ ...base, deenMode: false }} onSaveDeen={noop} onSaveBusiness={noop} />);
-    expect(screen.queryByText("Deen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faith")).not.toBeInTheDocument();
     expect(screen.queryByText("Finish Surah Kahf")).not.toBeInTheDocument();
     expect(screen.getByText("Ship the landing page")).toBeInTheDocument();
   });

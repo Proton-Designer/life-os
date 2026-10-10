@@ -176,7 +176,7 @@ describe("CalendarDialogTrigger", () => {
 
     // Save while that revalidation is still in flight — this must start a
     // genuinely new fetch (call #3), not be satisfied by the pending one.
-    await user.click(screen.getByRole("button", { name: "Edit Deen goal" }));
+    await user.click(screen.getByRole("button", { name: "Edit Faith goal" }));
     await user.type(await screen.findByPlaceholderText("This week's headline goal"), "New headline");
     const savePromise = user.click(screen.getByRole("button", { name: "Save goal" }));
     await waitFor(() => expect(screen.getByText("post-save headline")).toBeInTheDocument());

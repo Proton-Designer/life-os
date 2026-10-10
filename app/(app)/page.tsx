@@ -195,7 +195,7 @@ export default async function HomePage() {
       getDayShape(userId, now),
       supabase
         .from("weekly_goals")
-        .select("domain, headline, milestones, quran_page_target")
+        .select("domain, headline, milestones")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
         .in("domain", weeklyGoalDomains(domainsState, deenMode)),
@@ -343,7 +343,7 @@ export default async function HomePage() {
         }
       >
         <LayoutSlot layout={layoutMap} widgetKey="weekly_goals_header">
-          {/* Only an account with a saved Deen goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
+          {/* Only an account with a saved Faith goal needs the Quran numbers from the (streamed) snapshots; everyone else renders at once. */}
           {hasFaith && deenGoalRow ? (
             <Stream promise={snapshotsPromise} label="Weekly goals" fallback={<WeeklyGoalsHeaderSkeleton />}>
               {(snapshots) => renderGoalsHeader(deenGoalFor(snapshots))}

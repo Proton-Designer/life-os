@@ -5,7 +5,7 @@ const revalidate = vi.fn();
 const update = vi.fn();
 const upsert = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidate(...a) }));
-vi.mock("@/lib/deen/deen-mode-guard", () => ({ isDeenModeOnForRequest: async () => deenOn, DEEN_MODE_OFF_MESSAGE: "Deen Mode is off" }));
+vi.mock("@/lib/deen/deen-mode-guard", () => ({ isDeenModeOnForRequest: async () => deenOn, DEEN_MODE_OFF_MESSAGE: "Faith Mode is off" }));
 // A tiny user_settings client: upsert (ensure the row) then update(...).eq(...).select(...)
 vi.mock("@/lib/supabase/auth", () => ({
   requireUser: async () => ({
@@ -43,9 +43,9 @@ describe("saveQuranReminderWindow", () => {
     expect(await saveQuranReminderWindow({ start: "22:00", end: "25:00" })).toEqual({ ok: false, message: expect.stringMatching(/valid end/) });
     expect(update).not.toHaveBeenCalled();
   });
-  it("Deen Mode OFF: refused server-side, stored data untouched", async () => {
+  it("Faith Mode OFF: refused server-side, stored data untouched", async () => {
     deenOn = false;
-    expect(await saveQuranReminderWindow({ start: "22:00", end: "01:00" })).toEqual({ ok: false, message: "Deen Mode is off" });
+    expect(await saveQuranReminderWindow({ start: "22:00", end: "01:00" })).toEqual({ ok: false, message: "Faith Mode is off" });
     expect(update).not.toHaveBeenCalled();
     expect(upsert).not.toHaveBeenCalled();
   });

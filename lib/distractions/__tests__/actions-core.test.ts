@@ -239,14 +239,14 @@ describe("recordPlanOutcomeCore — \"that plan didn't work\"", () => {
 });
 
 // Deen Mode OFF: refuse NEW deen-domain triggers and reflection tiers (deen data); existing rows untouched.
-describe("Deen Mode gate", () => {
+describe("Faith Mode gate", () => {
   const tz = "America/Chicago";
   const now = new Date("2026-09-08T15:00:00.000Z");
 
   it("OFF refuses a new deen-domain capture and writes nothing", async () => {
     for (const deenMode of [false, null]) {
       const { client, calls } = makeClient({ deenMode });
-      await expect(captureCore(client, "user-1", tz, now, "deen", "phone", null, undefined)).rejects.toThrow(/Deen Mode is off/);
+      await expect(captureCore(client, "user-1", tz, now, "deen", "phone", null, undefined)).rejects.toThrow(/Faith Mode is off/);
       expect(calls.distraction_triggers?.insert ?? []).toHaveLength(0);
       expect(calls.distraction_events?.insert ?? []).toHaveLength(0);
     }
@@ -254,7 +254,7 @@ describe("Deen Mode gate", () => {
 
   it("OFF refuses a reflection tier even on a non-deen domain (it would write a reflection_entries row)", async () => {
     const { client, calls } = makeClient({ deenMode: false });
-    await expect(captureCore(client, "user-1", tz, now, "business", "email", null, 2)).rejects.toThrow(/Deen Mode is off/);
+    await expect(captureCore(client, "user-1", tz, now, "business", "email", null, 2)).rejects.toThrow(/Faith Mode is off/);
     expect(calls.reflection_entries?.insert ?? []).toHaveLength(0);
   });
 
@@ -266,7 +266,7 @@ describe("Deen Mode gate", () => {
 
   it("OFF refuses logEventCore with a tier but allows it without", async () => {
     const off = makeClient({ deenMode: false, maybeSingleSeq: { distraction_triggers: [{ id: "t1" }] } });
-    await expect(logEventCore(off.client, "user-1", tz, now, "t1", 1)).rejects.toThrow(/Deen Mode is off/);
+    await expect(logEventCore(off.client, "user-1", tz, now, "t1", 1)).rejects.toThrow(/Faith Mode is off/);
     expect(off.calls.reflection_entries?.insert ?? []).toHaveLength(0);
 
     const plain = makeClient({ deenMode: false, maybeSingleSeq: { distraction_triggers: [{ id: "t1" }] } });

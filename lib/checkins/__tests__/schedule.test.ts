@@ -7,9 +7,8 @@ import {
   resolveAllocationSlots,
   pendingQueue,
   unknownCount,
-  activeCadence,
   prayerSuppressionRanges,
-  isWindowCoveredBySessionHours,
+  isWindowCoveredBySessions,
   type AllocationWindow,
   type TimeRange,
 } from "../schedule";
@@ -192,16 +191,6 @@ describe("resolveAllocationSlots", () => {
   });
 });
 
-describe("activeCadence", () => {
-  it("is allocation_window with no active Lock-In session", () => {
-    expect(activeCadence(null)).toBe("allocation_window");
-  });
-
-  it("switches to session_hourly during an active Lock-In session", () => {
-    expect(activeCadence({ startedAt: new Date("2026-08-10T13:00:00Z") })).toBe("session_hourly");
-  });
-});
-
 // 2026-08-19 review catch: suppression must be a short nominal span around
 // a prayer's actual clock time, NEVER computePrayerWindows' full validity
 // window (Dhuhr's alone can run 3+ hours) — a check-in landing on that
@@ -248,61 +237,59 @@ describe("prayerSuppressionRanges", () => {
 
 // 2026-08-19: hourly Lock-In confirms. Full-window coverage is the UX
 // shortcut (don't re-ask about a block already fully accounted for
-// hour-by-hour) — the actual double-count guard for a *partially* covered
-// window lives in prefill.ts's subtractResolvedHours, per-hour, since a
-// window can be genuinely partially covered and this function alone can't
-// prevent double-crediting the still-uncovered portion.
-describe("isWindowCoveredBySessionHours", () => {
+// hour-by-hour) — a *partially* covered window is still asked about, pre-filled from the
+// overlap (prefill.ts).
+describe("isWindowCoveredBySessions", () => {
   const window: AllocationWindow = {
     start: new Date("2026-08-10T13:00:00Z"),
     end: new Date("2026-08-10T15:00:00Z"),
   };
 
-  it("is false with no confirmed hours", () => {
-    expect(isWindowCoveredBySessionHours(window, [])).toBe(false);
+  it("is false with no sessions", () => {
+    expect(isWindowCoveredBySessions(window, [])).toBe(false);
   });
 
-  it("is true when two back-to-back confirmed hours exactly span the window", () => {
+  it("is true when two back-to-back sessions exactly span the window", () => {
     const hours: TimeRange[] = [
       { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
       { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
     ];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(true);
   });
 
   it("is false when only part of the window is covered (the partial-coverage case)", () => {
     const hours: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(false);
   });
 
-  it("is true when a single confirmed range spans past both ends of the window", () => {
+  it("is true when a single session spans past both ends of the window", () => {
     const hours: TimeRange[] = [{ start: new Date("2026-08-10T12:30:00Z"), end: new Date("2026-08-10T15:30:00Z") }];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(true);
   });
 
-  it("merges adjacent confirmed hours before checking coverage", () => {
+  it("merges adjacent sessions before checking coverage", () => {
     const hours: TimeRange[] = [
       { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }, // out of order on purpose
       { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
     ];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(true);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(true);
   });
 
-  it("ignores an open-ended (still-active) hour range — coverage requires a concrete end", () => {
+  it("ignores an open-ended (still-running) session — coverage requires a concrete end", () => {
     const hours: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: null }];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(false);
   });
 
-  it("is false when confirmed hours are adjacent to but don't overlap the window", () => {
+  it("is false when sessions are adjacent to but don't overlap the window", () => {
     const hours: TimeRange[] = [{ start: new Date("2026-08-10T11:00:00Z"), end: new Date("2026-08-10T13:00:00Z") }];
-    expect(isWindowCoveredBySessionHours(window, hours)).toBe(false);
+    expect(isWindowCoveredBySessions(window, hours)).toBe(false);
   });
 });
 
-describe("resolveAllocationSlots — confirmedSessionHourRanges", () => {
+describe("resolveAllocationSlots — sessionRanges", () => {
   const bounds = { wakeTime: "08:00", sleepTime: "22:00" };
 
-  it("marks a window covered by confirmed session hours as answered, never queued", () => {
+  it("marks a window the finished sessions cover end to end as answered (the sessions account for it), never queued", () => {
     const now = new Date("2026-08-10T15:30:00Z"); // 10:30 CDT — the 08-10 window has closed
     const slots = resolveAllocationSlots({
       dateStr: "2026-08-10",
@@ -311,7 +298,7 @@ describe("resolveAllocationSlots — confirmedSessionHourRanges", () => {
       suppressionRanges: [],
       now,
       answeredWindowStarts: [],
-      confirmedSessionHourRanges: [
+      sessionRanges: [
         { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
         { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
       ],

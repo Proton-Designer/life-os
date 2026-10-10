@@ -103,14 +103,14 @@ describe("classifyDomain — across migration 115's vocabulary change", () => {
   // post-115 weights lack `personal_growth`, the lookup returns undefined,
   // and Ayman's 2026-08-19 ruling ("Signal = Deen + Business") is silently
   // reversed for every domains-mode user.
-  it("a Faith-essential user's Deen time is signal after the flatten, not noise", () => {
+  it("a Faith-essential user's Faith time is signal after the flatten, not noise", () => {
     const weights: DomainWeights = { faith: "essential", body: "important", learning: "background", work: "important" };
     expect(classifyDomain("deen", weights)).toBe("signal");
   });
 
   // Deselection must survive the remap intact — this is the semantic the
   // pre-existing "never selected at all" test locks, and it stays locked.
-  it("deselection still means other: a user who dropped Faith gets no signal from Deen", () => {
+  it("deselection still means other: a user who dropped Faith gets no signal from Faith", () => {
     const weights: DomainWeights = { body: "essential", work: "essential" };
     expect(classifyDomain("deen", weights)).toBe("other");
   });

@@ -54,13 +54,13 @@ describe("SettingsForm section order (matches the left tabs)", () => {
     return [...container.querySelectorAll("[id]")].map((el) => el.id).filter((id) => known.has(id));
   };
 
-  it("Deen ON: panels render in exactly the tab order", () => {
+  it("Faith ON: panels render in exactly the tab order", () => {
     const { container } = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode slots={slots} />);
     const expected = SETTINGS_SECTIONS.map((x) => x.id).filter((id) => id !== "timezone");
     expect(sectionIds(container)).toEqual(expected);
   });
 
-  it("Deen OFF: Prayer and Location are gone, Timezone takes Location's place, order unchanged", () => {
+  it("Faith OFF: Prayer and Location are gone, Timezone takes Location's place, order unchanged", () => {
     const { container } = render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} slots={slots} />);
     const expected = SETTINGS_SECTIONS.map((x) => x.id).filter((id) => id !== "prayer" && id !== "location");
     expect(sectionIds(container)).toEqual(expected);
@@ -88,17 +88,17 @@ describe("SettingsForm section order (matches the left tabs)", () => {
   });
 });
 
-describe("SettingsForm Deen Mode gating", () => {
+describe("SettingsForm Faith Mode gating", () => {
   beforeEach(() => updateProfile.mockClear());
 
-  it("shows the Prayer panel and its fields when Deen Mode is ON", () => {
+  it("shows the Prayer panel and its fields when Faith Mode is ON", () => {
     render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode />);
     expect(screen.getByText("Prayer")).toBeInTheDocument();
     expect(screen.getByLabelText("Calculation method")).toBeInTheDocument();
     expect(screen.getByLabelText("Asr madhab")).toBeInTheDocument();
   });
 
-  it("hides the Prayer panel and its fields when Deen Mode is OFF", () => {
+  it("hides the Prayer panel and its fields when Faith Mode is OFF", () => {
     render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} />);
     expect(screen.queryByText("Prayer")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Calculation method")).not.toBeInTheDocument();
@@ -117,7 +117,7 @@ describe("SettingsForm Deen Mode gating", () => {
     expect(screen.queryByTestId("timezone-settings")).not.toBeInTheDocument();
   });
 
-  it("saving with Deen Mode OFF never sends prayer_calc_method / asr_madhab (stored values preserved)", async () => {
+  it("saving with Faith Mode OFF never sends prayer_calc_method / asr_madhab (stored values preserved)", async () => {
     const user = userEvent.setup();
     render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode={false} />);
     await user.click(screen.getByRole("button", { name: "Save settings" }));
@@ -128,7 +128,7 @@ describe("SettingsForm Deen Mode gating", () => {
     expect(payload).toHaveProperty("display_name", "Ayman");
   });
 
-  it("saving with Deen Mode ON still sends the prayer fields", async () => {
+  it("saving with Faith Mode ON still sends the prayer fields", async () => {
     const user = userEvent.setup();
     render(<SettingsForm initial={{ ...INITIAL, prayerCalcMethod: "ISNA", asrMadhab: "hanafi" }} email="a@b.c" deenMode />);
     await user.click(screen.getByRole("button", { name: "Save settings" }));

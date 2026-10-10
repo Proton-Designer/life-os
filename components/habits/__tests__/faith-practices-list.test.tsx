@@ -17,7 +17,7 @@ const practice = (over: Partial<FaithPractice> = {}): FaithPractice => ({
 describe("FaithPracticesList (/week step 3)", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("renders nothing when empty (Deen OFF); a row with name, stage and rate otherwise", () => {
+  it("renders nothing when empty (Faith OFF); a row with name, stage and rate otherwise", () => {
     const { container, unmount } = render(<FaithPracticesList practices={[]} />);
     expect(container).toBeEmptyDOMElement();
     unmount();

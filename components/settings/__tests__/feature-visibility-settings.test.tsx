@@ -33,10 +33,10 @@ describe("FeatureVisibilitySettings", () => {
   });
 
   // Deen Mode (profiles.deen_mode) supersedes the "deen" hide entry: one switch, not two.
-  it("does not list Deen; a stored 'deen' value is preserved on the next save", async () => {
+  it("does not list Faith; a stored 'deen' value is preserved on the next save", async () => {
     const user = userEvent.setup();
     render(<FeatureVisibilitySettings initialHidden={["deen"]} />);
-    expect(screen.queryByRole("checkbox", { name: "Deen" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Faith" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Business" }));
 

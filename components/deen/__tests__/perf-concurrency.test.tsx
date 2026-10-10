@@ -44,7 +44,7 @@ function deferred() {
 
 const isActive = (btn: HTMLElement) => !(btn.querySelector("span")?.className ?? "").includes("text-muted-foreground");
 
-describe("Deen controls — concurrency (PerfDeen)", () => {
+describe("Faith controls — concurrency (PerfDeen)", () => {
   beforeEach(() => {
     resetKeyedQueuesForTests();
     markPrayerMock.mockReset();

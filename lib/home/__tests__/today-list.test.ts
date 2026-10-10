@@ -90,7 +90,7 @@ describe("buildTodayList", () => {
     expect(l.completedPlan.map((p) => p.id)).toEqual(["done"]);
   });
 
-  it("Deen mode OFF drops any Deen item defensively; ON keeps nothing prayer-like either way", () => {
+  it("Faith mode OFF drops any Faith item defensively; ON keeps nothing prayer-like either way", () => {
     const deenTask = prio({ id: "task-d", domain: "deen" });
     expect(ids(list([], [deenTask], false))).toEqual([]);
     expect(ids(list([], [deenTask], true))).toEqual(["task-d"]);

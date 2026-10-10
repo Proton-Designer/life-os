@@ -73,9 +73,9 @@ test.describe("Home", () => {
     // silently make goals uneditable with no other signal.
     const weeklyGoalsHeader = page.getByTestId("weekly-goals-header");
     await expect(weeklyGoalsHeader.getByText("This Week's Focus")).toBeVisible();
-    await expect(weeklyGoalsHeader.getByText("Deen", { exact: true })).toBeVisible();
+    await expect(weeklyGoalsHeader.getByText("Faith", { exact: true })).toBeVisible();
     await expect(weeklyGoalsHeader.getByText("Business", { exact: true })).toBeVisible();
-    await expect(weeklyGoalsHeader.getByRole("button", { name: "Edit Deen goal" })).toBeVisible();
+    await expect(weeklyGoalsHeader.getByRole("button", { name: "Edit Faith goal" })).toBeVisible();
     await expect(weeklyGoalsHeader.getByRole("button", { name: "Edit Business goal" })).toBeVisible();
 
     // Sector progress (DomainStatusStack, not wrapped in a Panel — see its

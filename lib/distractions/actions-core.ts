@@ -22,7 +22,7 @@ import type { DistractionDomain } from "./types";
  * OFF). Reads the one profile column directly because this core never calls
  * getProfile() (see header).
  */
-export const DEEN_MODE_OFF_MESSAGE = "Deen Mode is off -- turn it on in Settings to use Deen distractions or reflection tiers.";
+export const DEEN_MODE_OFF_MESSAGE = "Faith Mode is off -- turn it on in Settings to use Faith distractions or reflection tiers.";
 
 async function assertDeenModeOn(supabase: SupabaseClient, userId: string): Promise<void> {
   const { data, error } = await supabase.from("profiles").select("deen_mode").eq("user_id", userId).maybeSingle();

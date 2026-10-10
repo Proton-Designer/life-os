@@ -11,7 +11,7 @@ function dataSourceWith(rows: AllocationRow[]): SnDataSource {
   return {
     getAllocations: async () => rows,
     getStoredAllocationSpans: async () => [],
-    getSessionsWithStoredHours: async () => [],
+    getSessionRanges: async () => [],
     getDomainWeights: async () => null,
   };
 }
@@ -113,7 +113,7 @@ describe("getWeeklySignalNoiseRatio", () => {
     const dataSource: SnDataSource = {
       getAllocations: async () => rows,
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
       getDomainWeights: async () => ({ personal_growth: "background", school: "essential" }),
     };
     const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSource);
@@ -130,7 +130,7 @@ describe("getWeeklySignalNoiseRatio", () => {
     const dataSource: SnDataSource = {
       getAllocations: async () => rows,
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
       getDomainWeights: async () => null,
     };
     const result = await getWeeklySignalNoiseRatio("user-1", new Date("2026-08-09T00:00:00Z"), dataSource);
@@ -149,7 +149,7 @@ describe("getSignalNoiseForRange", () => {
         return [];
       },
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
       getDomainWeights: async () => null,
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
@@ -169,7 +169,7 @@ describe("getSignalNoiseForRange", () => {
         return [];
       },
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
       getDomainWeights: async () => null,
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
@@ -201,7 +201,7 @@ describe("getSignalNoiseForRange", () => {
     const dataSource: SnDataSource = {
       getAllocations: async () => rows,
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
       getDomainWeights: async () => ({ personal_growth: "background" }),
     };
     const result = await getSignalNoiseForRange("user-1", "day", new Date("2026-08-10T00:00:00Z"), dataSource);
@@ -218,43 +218,48 @@ describe("Signal:Noise reads missed Lock-In hours as wasted", () => {
   const anchor = new Date("2026-08-19T00:00:00Z");
   const sessionStart = new Date("2026-08-19T12:00:00.000Z");
 
-  it("a session with one answered hour, one missed hour, and one pending hour totals exactly 120min (2 resolved hours) — the pending hour contributes nothing, the missed hour adds exactly 60", async () => {
-    // 12:00 answered (business, stored, already in getAllocations' rows),
-    // 13:00 fired-and-superseded -> missed, 14:00 is the current due slot -> pending, excluded entirely.
+  it("a Deep Work session counts as Business signal on its own, with nothing confirmed", async () => {
     const now = new Date("2026-08-19T14:05:00.000Z");
     const dataSource: SnDataSource = {
-      getAllocations: async () => [{ domain: "business", minutes: 60, isWasted: false }],
+      getAllocations: async () => [],
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [
-        {
-          startedAt: sessionStart,
-          endedAt: null,
-          storedHours: [{ hourStartIso: "2026-08-19T12:00:00.000Z", domain: "business" }],
-        },
-      ],
+      getSessionRanges: async () => [{ start: sessionStart, end: null, domain: "business" }],
       getDomainWeights: async () => null,
     };
     const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
 
-    expect(result.signalMinutes).toBe(60); // the one answered hour
-    expect(result.wastedMinutes).toBe(60); // exactly the one missed hour, not the pending one
-    expect(result.signalMinutes + result.noiseMinutes).toBe(120); // 2 resolved hours x 60min, pending hour excluded
+    expect(result.signalMinutes).toBe(125); // 12:00 -> 14:05, an open session counts up to now
+    expect(result.wastedMinutes).toBe(0); // never Wasted just because nobody tapped
   });
 
-  it("does not double-count a missed hour whose surrounding 2h window was already confirmed (a wider stored row covers it)", async () => {
+  it("a Deep Study session counts to School, which is an other-commitments (noise-side) domain", async () => {
+    const now = new Date("2026-08-19T14:00:00.000Z");
+    const dataSource: SnDataSource = {
+      getAllocations: async () => [],
+      getStoredAllocationSpans: async () => [],
+      getSessionRanges: async () => [{ start: sessionStart, end: new Date("2026-08-19T13:00:00.000Z"), domain: "school" }],
+      getDomainWeights: async () => null,
+    };
+    const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
+
+    expect(result.otherCommitmentsMinutes).toBe(60);
+    expect(result.signalMinutes).toBe(0);
+    expect(result.wastedMinutes).toBe(0);
+  });
+
+  it("does not count session minutes an answered window already holds", async () => {
     const now = new Date("2026-08-19T14:05:00.000Z");
     const dataSource: SnDataSource = {
-      getAllocations: async () => [{ domain: null, minutes: 120, isWasted: true }], // the confirmed 2h window's own stored total, already includes this hour
+      getAllocations: async () => [{ domain: null, minutes: 120, isWasted: true }], // the person's own answer for 12:00-14:00
       getStoredAllocationSpans: async () => [
         { start: new Date("2026-08-19T12:00:00.000Z"), end: new Date("2026-08-19T14:00:00.000Z") },
       ],
-      getSessionsWithStoredHours: async () => [{ startedAt: sessionStart, endedAt: null, storedHours: [] }],
+      getSessionRanges: async () => [{ start: sessionStart, end: null, domain: "business" }],
       getDomainWeights: async () => null,
     };
     const result = await getSignalNoiseForRange("user-1", "day", anchor, dataSource, now);
 
-    // Without the guard this would be 180 (120 stored + 60 re-added for the
-    // "missed" 13:00 hour the stored window already accounts for).
-    expect(result.wastedMinutes).toBe(120);
+    expect(result.wastedMinutes).toBe(120); // the stored row stands as the person edited it
+    expect(result.signalMinutes).toBe(5); // only 14:00 -> 14:05, outside the stored window
   });
 });

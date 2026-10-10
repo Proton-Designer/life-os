@@ -12,18 +12,12 @@ import { useLockInOverlay } from "@/components/business/lock-in-overlay-context"
 
 export function CheckinToast() {
   const { toast, setOpen, dismissToast } = useAllocationQueue();
-  // Suppressed while the Lock-In overlay is expanded (Phase 5, Opus Lead's
-  // ruling): the overlay itself already shows the pending check-in in that
-  // state (lock-in-overlay.tsx's own in-context presentation, reading the
-  // same useAllocationQueue() this toast does) — showing both at once would
-  // be the same prompt twice, and a toast firing OVER the full-screen
-  // overlay is exactly the "loud, mid-focus-session" interruption Ayman
-  // asked to have toned down. Minimized (or no session at all) still gets
-  // the toast — the overlay isn't visible to show it there.
-  const { session, minimized } = useLockInOverlay();
-  const overlayExpanded = !!session && !minimized;
+  // Never shown during a Deep Work / Deep Study session, expanded or minimized: a session is not interrupted by a
+  // check-in (its minutes account for themselves, lib/checkins/session-accounting.ts). Once the session ends the
+  // check-in is still there to answer.
+  const { session } = useLockInOverlay();
 
-  if (!toast || overlayExpanded) return null;
+  if (!toast || session) return null;
 
   const label = toast.newCount === 1 ? "Check-in available" : `${toast.newCount} check-ins available`;
 

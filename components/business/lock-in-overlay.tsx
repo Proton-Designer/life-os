@@ -14,7 +14,6 @@ import { HourCompleteBanner } from "./hour-complete-banner";
 import { EndOfHourReflection } from "./end-of-hour-reflection";
 import { LockInKillList } from "./lock-in-kill-list";
 import { LockInObjectives } from "./lock-in-objectives";
-import { LockInCheckin } from "./lock-in-checkin";
 import type { KillListSlotData } from "./kill-list";
 import type { SessionObjective } from "@/lib/business/session-objectives";
 import type { HourWorkInterval } from "@/lib/reflection-cards/types";
@@ -100,8 +99,7 @@ function CustomObjectiveHeadline({ objective, onToggle }: { objective: SessionOb
 // Lead review, 2026-08-27) so "full screen" really is full screen on
 // mobile, not covered by the floating nav pill. That in turn puts it above
 // every app Dialog's normal z-50 too, so anything popped up FROM inside the
-// overlay (DistractionCaptureDialog, the allocation check-in gate, the
-// check-in toast) needs to be raised further still while the overlay is
+// overlay (DistractionCaptureDialog) needs to be raised further still while the overlay is
 // open — see the body[data-lock-in-overlay-open] rule in globals.css.
 export function LockInOverlay({
   timezone,
@@ -142,13 +140,7 @@ export function LockInOverlay({
   // null and must render pixel-for-pixel as it did before this feature —
   // bare elapsed counter, no `/ goal`, no progress bar, the old
   // LockInKillList. isGoalBased is that one boolean gate for all of it.
-  // No per-hour resolveSessionHours data at this layer (LockInCheckin owns
-  // that internally) -- a single honest-enough interval covering the last
-  // real 60 minutes, assumed real work since that's what a Lock-In session
-  // IS. Less precise than lock-in-session.tsx's own mostRecentHourAsInterval
-  // (which reads the actual confirmed/wasted hour status), acceptable for
-  // a manually-triggered, off-by-default feature -- not worth threading
-  // LockInCheckin's internal state up through this component for.
+  // A session IS real work (nothing is confirmed hour by hour any more), so the last full hour is one honest interval.
   const hourInterval: HourWorkInterval[] =
     minutes >= 60 ? [{ domain: session.kind, minutes: Math.min(minutes, 60), isDistraction: false }] : [];
   const isGoalBased = session.goalMinutes !== null;
@@ -181,19 +173,12 @@ export function LockInOverlay({
           )}
         >
           {/* A separate layer, not a background on Content itself — the
-              aurora's own opacity-pulse keyframe (globals.css) must dim only
+              aurora's own brightness drift (globals.css) must dim only
               this decorative layer, never the readable title/stopwatch/
               buttons that sit in front of it. -z-10 forces it behind every
-              sibling regardless of their own position (found live at 390px,
-              batch 3: the pulse was originally on Content and washed out
-              the whole card, letting the page behind bleed through). */}
-          <div
-            aria-hidden
-            className={cn(
-              "absolute inset-0 -z-10",
-              session.kind === "deep_work" ? "lock-in-aurora-business" : "lock-in-aurora-school"
-            )}
-          />
+              sibling regardless of their own position. The same black and
+              maroon aurora for Deep Work and Deep Study. */}
+          <div aria-hidden className="lock-in-aurora absolute inset-0 -z-10" />
           <DialogPrimitive.Title className="sr-only">{kindLabel} — locked in</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
             Full-screen Lock-In session view. Minimize to return to the app while the session keeps running.
@@ -281,16 +266,6 @@ export function LockInOverlay({
               />
             )}
           </div>
-
-          {/* A pending allocation check-in, if any — its own slot, below
-              the timer/objectives block and above the End Session row, so
-              it never fights either (Ayman: "visible in the expanded view
-              as well"). max-h-* + overflow-y-auto rather than letting it
-              grow unbounded: the overlay is a fixed-height full-screen
-              surface, and the allocation form (5 domain rows + a drag bar)
-              is tall enough to push End Session off a short 390px viewport
-              if it isn't capped. */}
-          <LockInCheckin className="w-full max-w-sm shrink-0 overflow-y-auto max-h-[40vh]" />
 
           <div className="flex w-full flex-col items-center gap-4 pb-2">
             <DistractionCaptureDialog deenMode={deenMode} />

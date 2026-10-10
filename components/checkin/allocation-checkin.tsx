@@ -38,7 +38,7 @@ import { cn } from "@/lib/utils";
 import { formatClock12 } from "@/lib/date-utils";
 
 const DOMAIN_LABEL: Record<DomainKey, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   school: "School",
   fitness: "Fitness",

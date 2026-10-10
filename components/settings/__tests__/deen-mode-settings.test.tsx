@@ -15,19 +15,19 @@ describe("DeenModeSettings", () => {
 
   it("reflects initialOn", () => {
     const { unmount } = render(<DeenModeSettings initialOn={false} />);
-    expect(screen.getByRole("switch", { name: "Deen Mode" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Faith Mode" })).not.toBeChecked();
     unmount();
     render(<DeenModeSettings initialOn />);
-    expect(screen.getByRole("switch", { name: "Deen Mode" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Faith Mode" })).toBeChecked();
   });
 
   it("turning on / off writes only { deen_mode }", async () => {
     const user = userEvent.setup();
     render(<DeenModeSettings initialOn={false} />);
-    await user.click(screen.getByRole("switch", { name: "Deen Mode" }));
+    await user.click(screen.getByRole("switch", { name: "Faith Mode" }));
     expect(updateProfile).toHaveBeenLastCalledWith({ deen_mode: true });
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Deen Mode" })).not.toBeDisabled());
-    await user.click(screen.getByRole("switch", { name: "Deen Mode" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Faith Mode" })).not.toBeDisabled());
+    await user.click(screen.getByRole("switch", { name: "Faith Mode" }));
     expect(updateProfile).toHaveBeenLastCalledWith({ deen_mode: false });
   });
 
@@ -35,8 +35,8 @@ describe("DeenModeSettings", () => {
     updateProfile.mockRejectedValueOnce(new Error("nope"));
     const user = userEvent.setup();
     render(<DeenModeSettings initialOn={false} />);
-    await user.click(screen.getByRole("switch", { name: "Deen Mode" }));
+    await user.click(screen.getByRole("switch", { name: "Faith Mode" }));
     expect(await screen.findByText("nope")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Deen Mode" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Faith Mode" })).not.toBeChecked();
   });
 });

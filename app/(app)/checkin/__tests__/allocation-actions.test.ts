@@ -50,12 +50,12 @@ describe("saveAllocationCheckin", () => {
     });
   });
 
-  it("Deen Mode OFF: Deen minutes are refused before the RPC; ON (positive control) saves; OFF with deen 0 saves", async () => {
+  it("Faith Mode OFF: Faith minutes are refused before the RPC; ON (positive control) saves; OFF with deen 0 saves", async () => {
     const { saveAllocationCheckin } = await import("../allocation-actions");
     const win: [string, string] = ["2026-08-19T13:00:00.000Z", "2026-08-19T15:00:00.000Z"];
 
     deenModeValue = false;
-    await expect(saveAllocationCheckin(...win, { deen: 15, business: 0 })).rejects.toThrow(/Deen Mode is off/);
+    await expect(saveAllocationCheckin(...win, { deen: 15, business: 0 })).rejects.toThrow(/Faith Mode is off/);
     expect(rpcMock).not.toHaveBeenCalled();
 
     await saveAllocationCheckin(...win, { deen: 0, business: 30 });
@@ -63,7 +63,7 @@ describe("saveAllocationCheckin", () => {
 
     // F1: a non-number deen value ("30") must not slip past the gate -- jsonb casts it to minutes.
     for (const sneaky of ["30", "1", 30.5, true, [15]]) {
-      await expect(saveAllocationCheckin(...win, { deen: sneaky } as never)).rejects.toThrow(/Deen Mode is off/);
+      await expect(saveAllocationCheckin(...win, { deen: sneaky } as never)).rejects.toThrow(/Faith Mode is off/);
     }
     expect(rpcMock).toHaveBeenCalledTimes(1);
     // null / 0 are "no Deen minutes".

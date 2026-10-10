@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase/auth", () => ({
   requireUser: vi.fn(),
 }));
 
-describe("DeenPage Deen Mode gate", () => {
+describe("DeenPage Faith Mode gate", () => {
   beforeEach(() => {
     redirectMock.mockClear();
     fromMock.mockClear();

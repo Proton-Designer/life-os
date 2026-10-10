@@ -146,23 +146,13 @@ export function resolveFireTime(window: AllocationWindow, suppressionRanges: Tim
 }
 
 /**
- * True if every minute of `window` falls inside at least one of
- * `resolvedHourRanges` — the hourly Lock-In hours that have a definite
- * value, each a 60-minute span. Widened 2026-08-19
- * (docs/superpowers/specs/2026-08-19-missed-lockin-hours.md) beyond just
- * explicitly-answered (Yes/No) hours to also include auto-missed hours
- * (superseded, unconfirmed, derived as wasted — see
- * session-hour-status.ts's resolveSessionHours): a missed hour is just as
- * "resolved" as an answered one, only its resolution came from silence
- * instead of a tap. The still-open current due slot is deliberately NOT
- * included by the caller — it has no definite value yet. Used to skip
- * queuing a 2h window that's already been fully accounted for hour-by-hour
- * (answered or missed), so it isn't re-asked about. Ranges are
- * merged/coalesced first so adjacent or overlapping hours combine into one
- * continuous covered span before the containment check.
+ * True if every minute of `window` falls inside at least one of the finished Deep Work / Deep Study sessions in
+ * `sessionRanges` (open-ended ones are ignored -- they have no end yet). Such a window is accounted for by the sessions
+ * themselves (see session-accounting.ts), so it is never queued for a check-in. Ranges are merged first so back-to-back
+ * sessions combine into one continuous covered span before the containment check.
  */
-export function isWindowCoveredBySessionHours(window: AllocationWindow, resolvedHourRanges: TimeRange[]): boolean {
-  const concrete = resolvedHourRanges.filter(
+export function isWindowCoveredBySessions(window: AllocationWindow, sessionRanges: TimeRange[]): boolean {
+  const concrete = sessionRanges.filter(
     (r): r is { start: Date; end: Date } => r.end !== null
   );
   if (concrete.length === 0) return false;
@@ -205,10 +195,10 @@ export function resolveAllocationSlots(opts: {
   now: Date;
   /** Window start times already answered, exact instant match. */
   answeredWindowStarts: Date[];
-  /** Resolved hourly Lock-In hours — answered (Yes/No) or auto-missed (derived wasted); NOT the current pending due slot. A window fully covered by these is treated as answered too, so it's never re-asked about. */
-  confirmedSessionHourRanges?: TimeRange[];
+  /** Today's Deep Work / Deep Study sessions. A window the finished ones cover end to end is treated as answered, so it's never asked about. */
+  sessionRanges?: TimeRange[];
 }): AllocationSlot[] {
-  const { dateStr, bounds, timezone, suppressionRanges, now, answeredWindowStarts, confirmedSessionHourRanges } = opts;
+  const { dateStr, bounds, timezone, suppressionRanges, now, answeredWindowStarts, sessionRanges } = opts;
 
   const windows = computeAllocationWindows(dateStr, bounds, timezone);
   const answered = new Set(answeredWindowStarts.map((d) => d.getTime()));
@@ -216,7 +206,7 @@ export function resolveAllocationSlots(opts: {
   return windows.map((window) => {
     if (
       answered.has(window.start.getTime()) ||
-      isWindowCoveredBySessionHours(window, confirmedSessionHourRanges ?? [])
+      isWindowCoveredBySessions(window, sessionRanges ?? [])
     ) {
       return { window, fireTime: window.end, outcome: "answered" };
     }
@@ -254,16 +244,4 @@ export function pendingQueue(slots: AllocationSlot[]): AllocationSlot[] {
 /** Count of windows that fired, were never answered, and are now permanently `unknown` — must be surfaced on its own, never hidden or folded into noise. */
 export function unknownCount(slots: AllocationSlot[]): number {
   return slots.filter((s) => s.outcome === "expired_unknown").length;
-}
-
-/**
- * Which cadence applies right now. Inside an active Lock-In session the
- * 2-hour allocation clock is suppressed (via the session's own open-ended
- * `TimeRange`, same mechanism as prayer/recurring-block suppression) and an
- * hourly one-tap confirm takes over — reuse
- * `computeSessionCheckinSlots(startedAt, 60, now, answered)` for that half;
- * this function only tells the caller which half is currently live.
- */
-export function activeCadence(activeSession: { startedAt: Date } | null): "session_hourly" | "allocation_window" {
-  return activeSession ? "session_hourly" : "allocation_window";
 }

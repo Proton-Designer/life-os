@@ -156,14 +156,14 @@ describe("saveAllocationCheckinCore — RPC error propagation", () => {
 });
 
 // Deen Mode OFF: Deen minutes are refused server-side (the UI row is only hidden).
-describe("saveAllocationCheckinCore — Deen Mode gate on Deen minutes", () => {
+describe("saveAllocationCheckinCore — Faith Mode gate on Faith minutes", () => {
   const now = new Date("2026-09-08T15:05:00Z");
 
   it("OFF + deen > 0 is refused BEFORE the RPC; no write happens", async () => {
     for (const deenMode of [false, null]) {
       const { client, rpcCalls } = makeClient({ deenMode });
       getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
-      await expect(saveAllocationCheckinCore(client, "user-1", now, { deen: 30 })).rejects.toThrow(/Deen Mode is off/);
+      await expect(saveAllocationCheckinCore(client, "user-1", now, { deen: 30 })).rejects.toThrow(/Faith Mode is off/);
       expect(rpcCalls).toHaveLength(0);
     }
   });

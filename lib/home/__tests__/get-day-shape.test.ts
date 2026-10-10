@@ -305,7 +305,7 @@ describe("getDayShape", () => {
   });
 });
 
-describe("getDayShape -- Deen Mode OFF", () => {
+describe("getDayShape -- Faith Mode OFF", () => {
   const offProfile = async () => ({
     location_lat: 41.83,
     location_lng: -87.75,

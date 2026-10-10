@@ -96,7 +96,7 @@ const DEEN: readonly Omit<WidgetDef, "domainKey" | "defaultPosition">[] = [
   { widgetKey: "salah", label: "Salah", description: "Today's five prayers, logged as you pray them." },
   { widgetKey: "quran", label: "Qur'an", description: "This week's pages read, plus your current surah and juz." },
   { widgetKey: "reflection", label: "Reflection", description: "Your own daily reflection entries." },
-  { widgetKey: "habit_builder", label: "Habit Builder", description: "A focused deen habit and its recent consistency." },
+  { widgetKey: "habit_builder", label: "Habit Builder", description: "A focused faith habit and its recent consistency." },
   { widgetKey: "prayer_consistency", label: "Prayer consistency", description: "Your on-time prayer rate over the last 30 days." },
 ];
 

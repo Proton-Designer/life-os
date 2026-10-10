@@ -33,7 +33,7 @@ export function sanitizeHiddenFeatures(values: readonly string[] | null | undefi
 }
 
 export const FEATURES: Record<FeatureId, { label: string }> = {
-  deen: { label: "Deen" },
+  deen: { label: "Faith" },
   work: { label: "Work" },
   business: { label: "Business" },
   school: { label: "School" },

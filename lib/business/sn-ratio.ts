@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { computeRatioDisplay } from "@/lib/insights/ratio-display";
-import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
-import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
+import { deriveSessionMinutesByDomain, type SessionRange } from "@/lib/checkins/session-accounting";
+import { getStoredAllocationSpans, getSessionRanges } from "@/lib/checkins/session-accounting-queries";
 import { classifyDomain, type DomainWeights } from "./domain-classification";
 import { getUserDomainWeights } from "./domain-weights";
 
@@ -76,14 +76,10 @@ export function bucketAllocationMinutes(
 
 export type SnDataSource = {
   getAllocations: (userId: string, weekStartIso: string, weekEndIso: string) => Promise<AllocationRow[]>;
-  /** Every stored allocation checkin's own [window_start, window_end) span in range, hour-level and window-level alike — used to avoid double-counting a missed hour already covered by a wider confirmed row. See getMissedHourWasteMinutes. */
+  /** Every stored allocation checkin's own [window_start, window_end) span in range -- session minutes inside one are already in that row, so they are not added again. */
   getStoredAllocationSpans: (userId: string, startIso: string, endIso: string) => Promise<{ start: Date; end: Date }[]>;
-  /** Every Lock-In session overlapping the range, with its own stored hourly rows — feeds the same missed-hour-as-wasted derivation the live queue uses (session-hour-status.ts). */
-  getSessionsWithStoredHours: (
-    userId: string,
-    startIso: string,
-    endIso: string
-  ) => Promise<{ startedAt: Date; endedAt: Date | null; storedHours: { hourStartIso: string; domain: "business" | "wasted" }[] }[]>;
+  /** Every Deep Work / Deep Study session overlapping the range, each with the domain its kind is credited to (session-accounting.ts). */
+  getSessionRanges: (userId: string, startIso: string, endIso: string) => Promise<SessionRange[]>;
   /** Ruling (c): the user's real top-level domain weight tiers, or null for
    * a legacy-mode account (no active user_domains rows) — classifyDomain's
    * exact fallback signal. */
@@ -114,31 +110,31 @@ function defaultDataSource(): SnDataSource {
     },
     getDomainWeights: getUserDomainWeights,
     getStoredAllocationSpans,
-    getSessionsWithStoredHours,
+    getSessionRanges,
   };
 }
 
 /**
- * Adds acceptance criterion 1's missing piece
- * (docs/superpowers/specs/2026-08-19-missed-lockin-hours.md): a Lock-In
- * hour that's been superseded and never answered reads as `wasted` here
- * too, not silently absent, without waiting for (or double-counting
- * against) the surrounding 2h allocation window ever being confirmed. See
- * session-hour-status.ts's deriveExtraMissedWasteMinutes for the bound
- * (this range only) and the double-count guard (stored spans).
+ * Deep sessions account for themselves: their minutes count to the session's own domain (Deep Work -> Business, Deep
+ * Study -> School) without anyone confirming an hour, except the minutes an answered allocation window already holds.
+ * See session-accounting.ts's deriveSessionMinutesByDomain for the range bound and the double-count guard.
  */
-async function getMissedHourWasteMinutes(
+async function getSessionAccountedRows(
   userId: string,
   startIso: string,
   endIso: string,
   now: Date,
   dataSource: SnDataSource
-): Promise<number> {
+): Promise<AllocationRow[]> {
   const [storedSpans, sessions] = await Promise.all([
     dataSource.getStoredAllocationSpans(userId, startIso, endIso),
-    dataSource.getSessionsWithStoredHours(userId, startIso, endIso),
+    dataSource.getSessionRanges(userId, startIso, endIso),
   ]);
-  return deriveExtraMissedWasteMinutes(sessions, storedSpans, new Date(startIso), new Date(endIso), now);
+  return deriveSessionMinutesByDomain(sessions, storedSpans, new Date(startIso), new Date(endIso), now).map((d) => ({
+    domain: d.domain,
+    minutes: d.minutes,
+    isWasted: false,
+  }));
 }
 
 /**
@@ -157,24 +153,14 @@ export async function getWeeklySignalNoiseRatio(
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   const weekStartIso = weekStart.toISOString();
   const weekEndIso = weekEnd.toISOString();
-  const [rows, extraWasted, weights] = await Promise.all([
+  const [rows, sessionRows, weights] = await Promise.all([
     dataSource.getAllocations(userId, weekStartIso, weekEndIso),
-    getMissedHourWasteMinutes(userId, weekStartIso, weekEndIso, now, dataSource),
+    getSessionAccountedRows(userId, weekStartIso, weekEndIso, now, dataSource),
     dataSource.getDomainWeights(userId),
   ]);
-  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows, weights);
-  const display = computeRatioDisplay(
-    signalMinutes,
-    noiseMinutes + extraWasted,
-    signalMinutes + noiseMinutes + extraWasted > 0
-  );
-  return {
-    signalMinutes,
-    noiseMinutes: noiseMinutes + extraWasted,
-    otherCommitmentsMinutes,
-    wastedMinutes: wastedMinutes + extraWasted,
-    display,
-  };
+  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes([...rows, ...sessionRows], weights);
+  const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
+  return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
 }
 
 /**
@@ -196,22 +182,12 @@ export async function getSignalNoiseForRange(
   const end = new Date(anchor.getTime() + rangeMs);
   const startIso = anchor.toISOString();
   const endIso = end.toISOString();
-  const [rows, extraWasted, weights] = await Promise.all([
+  const [rows, sessionRows, weights] = await Promise.all([
     dataSource.getAllocations(userId, startIso, endIso),
-    getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
+    getSessionAccountedRows(userId, startIso, endIso, now, dataSource),
     dataSource.getDomainWeights(userId),
   ]);
-  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes(rows, weights);
-  const display = computeRatioDisplay(
-    signalMinutes,
-    noiseMinutes + extraWasted,
-    signalMinutes + noiseMinutes + extraWasted > 0
-  );
-  return {
-    signalMinutes,
-    noiseMinutes: noiseMinutes + extraWasted,
-    otherCommitmentsMinutes,
-    wastedMinutes: wastedMinutes + extraWasted,
-    display,
-  };
+  const { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes } = bucketAllocationMinutes([...rows, ...sessionRows], weights);
+  const display = computeRatioDisplay(signalMinutes, noiseMinutes, signalMinutes + noiseMinutes > 0);
+  return { signalMinutes, noiseMinutes, otherCommitmentsMinutes, wastedMinutes, display };
 }

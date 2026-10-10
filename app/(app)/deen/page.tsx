@@ -99,7 +99,6 @@ export default async function DeenPage() {
   const [
     { data: prayerHistoryRows },
     { data: quranSessionRows },
-    { data: weeklyGoal },
     { data: reflectionRows },
     { data: habitRows },
     { data: habitLogRows },
@@ -119,13 +118,6 @@ export default async function DeenPage() {
       .eq("user_id", userId)
       .gte("date", previousWeekStart)
       .order("date", { ascending: false }),
-    supabase
-      .from("weekly_goals")
-      .select("quran_page_target")
-      .eq("user_id", userId)
-      .eq("domain", "deen")
-      .eq("week_start_date", weekStart)
-      .maybeSingle(),
     supabase
       .from("reflection_entries")
       .select("date, tier, created_at")
@@ -299,8 +291,8 @@ export default async function DeenPage() {
   const previousWeekDates = Array.from({ length: 7 }, (_, i) => addDaysToDateString(previousWeekStart, i));
   const previousWeekPages = bucketPagesByDay(sessions, previousWeekDates).reduce((a, b) => a + b, 0);
   const pagesDelta = weekPagesRead - previousWeekPages;
-  // The weekly target: the plan's (daily pace x 7) while a plan is active, else the manually typed one.
-  const quranTarget = weeklyQuranTarget(quranOverview, weeklyGoal?.quran_page_target ?? null);
+  // The weekly target: the plan's (daily pace x 7) while a plan is active, else none.
+  const quranTarget = weeklyQuranTarget(quranOverview);
   const latestSession = sessions[0] ?? null;
   const weekLabels = weekDates.map((d) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }));
 
@@ -346,7 +338,7 @@ export default async function DeenPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Deen" actions={<WidgetManagerButton domainKey="deen" />} />
+      <PageHeader title="Faith" actions={<WidgetManagerButton domainKey="deen" />} />
 
       <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-1 md:grid md:grid-cols-2 md:overflow-visible lg:grid-cols-3">
         {nextPrayerItem ? (

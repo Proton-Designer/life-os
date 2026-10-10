@@ -6,7 +6,6 @@ import { LockInPanel } from "@/components/business/lock-in-panel";
 import { useLockInOverlay } from "@/components/business/lock-in-overlay-context";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { cn } from "@/lib/utils";
-import type { StoredSessionHour } from "@/components/business/lock-in-session";
 
 /**
  * Business restructure (2026-08-26 night batch 3, per Ayman, verbatim):
@@ -39,15 +38,9 @@ import type { StoredSessionHour } from "@/components/business/lock-in-session";
 export function FocusTimeCard({
   sessionsTodayCount,
   focusMinutesToday,
-  initialSessionId,
-  initialStoredHours,
-  timezone,
 }: {
   sessionsTodayCount: number;
   focusMinutesToday: number;
-  initialSessionId: string | null;
-  initialStoredHours: StoredSessionHour[];
-  timezone: string;
 }) {
   const { session } = useLockInOverlay();
   const showsBigSessionCard = session?.kind === "deep_work";
@@ -79,10 +72,7 @@ export function FocusTimeCard({
       <div className="shrink-0">
         {/* showTodayTotal={false}: the elapsed minutes above already show this exact number. */}
         <LockInPanel
-          initialSessionId={initialSessionId}
-          initialStoredHours={initialStoredHours}
           todayFocusMinutes={focusMinutesToday}
-          timezone={timezone}
           showTodayTotal={false}
         />
       </div>

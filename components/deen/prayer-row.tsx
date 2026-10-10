@@ -90,7 +90,7 @@ export function PrayerRow({
       {/* flex-wrap, no forced-nowrap breakpoint: the label + Upcoming
           indicator + 3 fard buttons + sunnah disclosure don't reliably fit
           on one line — not just at 390px, but also at 1024px on this page,
-          since Deen's grid puts this panel in a column narrower than the
+          since Faith's grid puts this panel in a column narrower than the
           viewport. A real overflow bug at both, caught by the
           layout-overflow spec, not by eyeballing at one width. Wraps
           whenever the row's own available width actually requires it.

@@ -5,11 +5,11 @@ import { shouldSendPrayerPush } from "../../../supabase/functions/dispatch-notif
 const WITH_LOCATION = { location_lat: 41.8, location_lng: -87.7 };
 
 describe("dispatch-notifications prayer push gate", () => {
-  it("sends only when Deen Mode is literally ON and a location exists", () => {
+  it("sends only when Faith Mode is literally ON and a location exists", () => {
     expect(shouldSendPrayerPush({ ...WITH_LOCATION, deen_mode: true })).toBe(true);
   });
 
-  it("skips when Deen Mode is OFF, even with a location (positive control: the old rule sent here)", () => {
+  it("skips when Faith Mode is OFF, even with a location (positive control: the old rule sent here)", () => {
     expect(shouldSendPrayerPush({ ...WITH_LOCATION, deen_mode: false })).toBe(false);
   });
 

@@ -4,8 +4,8 @@ import { PageHeader } from "../page-header";
 
 describe("PageHeader", () => {
   it("renders the title as a top-level heading", () => {
-    render(<PageHeader title="Deen" />);
-    expect(screen.getByRole("heading", { name: "Deen", level: 1 })).toBeInTheDocument();
+    render(<PageHeader title="Faith" />);
+    expect(screen.getByRole("heading", { name: "Faith", level: 1 })).toBeInTheDocument();
   });
 
   it("renders an optional description under the title", () => {

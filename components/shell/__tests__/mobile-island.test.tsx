@@ -32,7 +32,7 @@ import { resetIntentPrefetchForTests } from "../intent-link";
 import { MobileIsland } from "../mobile-island";
 
 describe("MobileIsland", () => {
-  it("renders exactly 7 top-level nav targets — Home, Deen, Business, School, Fitness, Work, More (batch 3, item 2)", () => {
+  it("renders exactly 7 top-level nav targets — Home, Faith, Business, School, Fitness, Work, More (batch 3, item 2)", () => {
     render(<MobileIsland />);
     expect(screen.getAllByTestId(/^mobile-island-item-/)).toHaveLength(7);
   });
@@ -120,7 +120,7 @@ describe("MobileIsland", () => {
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
-    it("Deen Mode OFF (deen folded into hiddenFeatures) hides the Deen slot only", () => {
+    it("Faith Mode OFF (deen folded into hiddenFeatures) hides the Faith slot only", () => {
       render(<MobileIsland hiddenFeatures={["deen"]} />);
       expect(screen.queryByTestId("mobile-island-item-deen")).not.toBeInTheDocument();
       for (const key of ["home", "business", "school", "fitness", "work"]) {

@@ -45,7 +45,7 @@ describe("SidebarNav", () => {
     render(<SidebarNav variant="expanded" />);
     for (const label of [
       "Home",
-      "Deen",
+      "Faith",
       "Business",
       "Fitness",
       "School",
@@ -61,7 +61,7 @@ describe("SidebarNav", () => {
 
   it("marks the active route with aria-current and its domain accent", () => {
     render(<SidebarNav variant="expanded" />);
-    const active = screen.getByRole("link", { name: "Deen" });
+    const active = screen.getByRole("link", { name: "Faith" });
     expect(active).toHaveAttribute("aria-current", "page");
     expect(active.style.color).toContain("--accent-deen");
   });
@@ -95,8 +95,8 @@ describe("SidebarNav", () => {
 
   it("expanded variant shows text labels", () => {
     render(<SidebarNav variant="expanded" />);
-    const link = screen.getByRole("link", { name: "Deen" });
-    expect(within(link).getByText("Deen")).toBeVisible();
+    const link = screen.getByRole("link", { name: "Faith" });
+    expect(within(link).getByText("Faith")).toBeVisible();
   });
 
   it("icon-rail variant renders section dividers instead of labels", () => {
@@ -168,9 +168,9 @@ describe("SidebarNav", () => {
 
   // L10 (docs/ai-connector/PROGRAM-PLAN.md).
   describe("hiddenFeatures", () => {
-    it("Deen Mode OFF (deen folded into hiddenFeatures) hides Deen, keeps the rest", () => {
+    it("Faith Mode OFF (deen folded into hiddenFeatures) hides Faith, keeps the rest", () => {
       render(<SidebarNav variant="expanded" hiddenFeatures={["deen"]} />);
-      expect(screen.queryByRole("link", { name: "Deen" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Faith" })).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Business" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
     });
@@ -180,7 +180,7 @@ describe("SidebarNav", () => {
       expect(screen.queryByRole("link", { name: "Business" })).not.toBeInTheDocument();
       for (const label of [
         "Home",
-        "Deen",
+        "Faith",
         "Fitness",
         "School",
         "Work",
@@ -220,7 +220,7 @@ describe("SidebarNav", () => {
       render(<SidebarNav variant="expanded" />);
       for (const label of [
         "Home",
-        "Deen",
+        "Faith",
         "Business",
         "Fitness",
         "School",

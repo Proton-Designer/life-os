@@ -14,18 +14,18 @@ const state = (
 const labels = (s: UserDomainsState, deen = true) => buildSectorRows(s, deen).map((r) => r.label);
 
 describe("buildSectorRows", () => {
-  it("LEGACY keeps today's five rows (Deen only with Deen Mode) -- positive control for the old fixed list", () => {
-    expect(labels({ mode: "legacy" }, true)).toEqual(["Deen", "Business", "Fitness", "School", "Work"]);
+  it("LEGACY keeps today's five rows (Faith only with Faith Mode) -- positive control for the old fixed list", () => {
+    expect(labels({ mode: "legacy" }, true)).toEqual(["Faith", "Business", "Fitness", "School", "Work"]);
     expect(labels({ mode: "legacy" }, false)).toEqual(["Business", "Fitness", "School", "Work"]);
   });
 
-  it("the user's own account (faith, learning, body, work[co-op job + business tab], school, Deen on) shows the same five in the same order", () => {
+  it("the user's own account (faith, learning, body, work[co-op job + business tab], school, Faith on) shows the same five in the same order", () => {
     const s = state(["faith", "learning", "body", "work", "school"], [
       { key: "business", label: "Business", kind: "business" },
       { key: "co-op", label: "Co-op", kind: "job" },
     ]);
     expect(buildSectorRows(s, true).map((r) => [r.label, r.snapshot, r.href])).toEqual([
-      ["Deen", "deen", "/deen"],
+      ["Faith", "deen", "/deen"],
       ["Business", "business", "/work/business"],
       ["Fitness", "fitness", "/fitness"],
       ["School", "school", "/school"],
@@ -49,8 +49,8 @@ describe("buildSectorRows", () => {
     expect(labels(state(["work"]))).toEqual(["Work"]);
   });
 
-  it("Deen needs BOTH Deen Mode and a faith area", () => {
-    expect(labels(state(["faith"]), true)).toEqual(["Deen"]);
+  it("Faith needs BOTH Faith Mode and a faith area", () => {
+    expect(labels(state(["faith"]), true)).toEqual(["Faith"]);
     expect(labels(state(["faith"]), false)).toEqual([]);
     expect(labels(state(["body"]), true)).toEqual(["Fitness"]);
   });

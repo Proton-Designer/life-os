@@ -33,7 +33,7 @@ describe("AllocationCheckin", () => {
 
   it("renders every domain row with a formatted minutes value, showing '0m' for zero", () => {
     renderCheckin({ initialAllocation: alloc({ deen: 15, business: 60 }) });
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
     expect(screen.getByText("15m")).toBeInTheDocument();
     expect(screen.getByText("1h 00m")).toBeInTheDocument();
     // School/Fitness/Work are all zero — at least one "0m" per unset domain.
@@ -56,20 +56,20 @@ describe("AllocationCheckin", () => {
   it("increments a domain by 15 minutes on +", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
-    await user.click(screen.getByRole("button", { name: "Increase Deen" }));
+    await user.click(screen.getByRole("button", { name: "Increase Faith" }));
     expect(within(screen.getByTestId("row-deen")).getByText("15m")).toBeInTheDocument();
   });
 
   it("decrements a domain by 15 minutes on −", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 30 }) });
-    await user.click(screen.getByRole("button", { name: "Decrease Deen" }));
+    await user.click(screen.getByRole("button", { name: "Decrease Faith" }));
     expect(within(screen.getByTestId("row-deen")).getByText("15m")).toBeInTheDocument();
   });
 
   it("disables − for a domain already at 0", () => {
     renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
-    expect(screen.getByRole("button", { name: "Decrease Deen" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Decrease Faith" })).toBeDisabled();
   });
 
   it("visibly disables + for every domain once the pool is full, rather than letting it silently no-op", async () => {
@@ -85,7 +85,7 @@ describe("AllocationCheckin", () => {
   it("selecting a domain marks it selected and dims the others", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 15, business: 15 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "true");
     expect(screen.getByTestId("row-business")).toHaveAttribute("data-selected", "false");
   });
@@ -93,7 +93,7 @@ describe("AllocationCheckin", () => {
   it("tapping a selected domain again deselects it", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 15 }) });
-    const select = screen.getByRole("button", { name: "Select Deen" });
+    const select = screen.getByRole("button", { name: "Select Faith" });
     await user.click(select);
     await user.click(select);
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
@@ -102,7 +102,7 @@ describe("AllocationCheckin", () => {
   it("clicking outside the bar and the domain rows clears the selection", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 15 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "true");
     await user.click(screen.getByText("Unassigned time counts as wasted."));
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
@@ -111,7 +111,7 @@ describe("AllocationCheckin", () => {
   it("selecting a different domain reassigns selection without clearing it first", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 15, business: 15 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     await user.click(screen.getByRole("button", { name: "Select Business" }));
     expect(screen.getByTestId("row-deen")).toHaveAttribute("data-selected", "false");
     expect(screen.getByTestId("row-business")).toHaveAttribute("data-selected", "true");
@@ -120,14 +120,14 @@ describe("AllocationCheckin", () => {
   it("shows the drag cursor on the bar as soon as a domain is selected, even at 0 minutes", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     expect(screen.getByTestId("allocation-bar").className).toMatch(/cursor-ew-resize/);
   });
 
   it("pressing the bar for a selected domain still at 0 starts a small block instead of doing nothing", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 0 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     fireEvent.pointerDown(screen.getByTestId("allocation-bar"), { clientX: 0, pointerId: 1 });
     expect(within(screen.getByTestId("row-deen")).getByText("5m")).toBeInTheDocument();
   });
@@ -135,7 +135,7 @@ describe("AllocationCheckin", () => {
   it("does not start a block from a bar press when the pool is already full", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 0, business: 120 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
     fireEvent.pointerDown(screen.getByTestId("allocation-bar"), { clientX: 0, pointerId: 1 });
     expect(within(screen.getByTestId("row-deen")).getByText("0m")).toBeInTheDocument();
   });
@@ -143,8 +143,8 @@ describe("AllocationCheckin", () => {
   it("exposes the selected domain's segment as a slider with correct aria bounds", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 30, business: 30 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
-    const slider = screen.getByRole("slider", { name: "Deen minutes" });
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
+    const slider = screen.getByRole("slider", { name: "Faith minutes" });
     expect(slider).toHaveAttribute("aria-valuenow", "30");
     expect(slider).toHaveAttribute("aria-valuemin", "0");
     // ceiling = own (30) + wasted (60) = 90
@@ -159,8 +159,8 @@ describe("AllocationCheckin", () => {
   it("ArrowRight on the slider increments by one step, ArrowLeft decrements", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 30 }) });
-    await user.click(screen.getByRole("button", { name: "Select Deen" }));
-    const slider = screen.getByRole("slider", { name: "Deen minutes" });
+    await user.click(screen.getByRole("button", { name: "Select Faith" }));
+    const slider = screen.getByRole("slider", { name: "Faith minutes" });
     slider.focus();
     await user.keyboard("{ArrowRight}");
     expect(within(screen.getByTestId("row-deen")).getByText("45m")).toBeInTheDocument();
@@ -170,7 +170,7 @@ describe("AllocationCheckin", () => {
 
   it("a full allocation is keyboard-completable without ever dragging — every control is a real, focusable button", () => {
     renderCheckin({ initialAllocation: emptyAllocation() });
-    for (const domain of ["Deen", "Business", "School", "Fitness", "Work"]) {
+    for (const domain of ["Faith", "Business", "School", "Fitness", "Work"]) {
       const plus = screen.getByRole("button", { name: `Increase ${domain}` });
       const minus = screen.getByRole("button", { name: `Decrease ${domain}` });
       const select = screen.getByRole("button", { name: `Select ${domain}` });
@@ -195,7 +195,7 @@ describe("AllocationCheckin", () => {
     expect(wastedRow.innerHTML).not.toMatch(/destructive|accent-noise/i);
   });
 
-  it("showDeen=false hides the Deen row; the other four stay", () => {
+  it("showDeen=false hides the Faith row; the other four stay", () => {
     renderCheckin({ showDeen: false });
     expect(screen.queryByTestId("row-deen")).not.toBeInTheDocument();
     for (const d of ["business", "school", "fitness", "co_op"]) expect(screen.getByTestId(`row-${d}`)).toBeInTheDocument();
@@ -221,7 +221,7 @@ describe("AllocationCheckin", () => {
   it("calls onSave with the current allocation when Done is pressed", async () => {
     const user = userEvent.setup();
     renderCheckin({ initialAllocation: alloc({ deen: 30 }) });
-    await user.click(screen.getByRole("button", { name: "Increase Deen" }));
+    await user.click(screen.getByRole("button", { name: "Increase Faith" }));
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(onSave).toHaveBeenCalledWith(alloc({ deen: 45 }));
   });

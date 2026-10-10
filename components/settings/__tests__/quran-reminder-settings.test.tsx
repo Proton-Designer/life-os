@@ -37,10 +37,10 @@ describe("QuranReminderSettings", () => {
   });
 
   it("relays a server refusal", async () => {
-    save.mockResolvedValueOnce({ ok: false, message: "Deen Mode is off" });
+    save.mockResolvedValueOnce({ ok: false, message: "Faith Mode is off" });
     const user = userEvent.setup();
     render(<QuranReminderSettings initialStart={null} initialEnd={null} />);
     await user.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Deen Mode is off");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Faith Mode is off");
   });
 });

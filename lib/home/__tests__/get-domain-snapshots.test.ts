@@ -151,12 +151,12 @@ describe("getDomainSnapshots", () => {
 
   // QADA-3M-b: Home's doorway count and the Deen card come from ONE window
   // (qadaWindowStart). A miss 67 days back is outside the old 60-day window.
-  describe("qada window parity with the Deen page", () => {
+  describe("qada window parity with the Faith page", () => {
     const PRAYERS = ["fajr", "dhuhr", "asr", "maghrib", "isha"] as const;
     const TODAY = "2026-08-10";
     const OLD_MISS = "2026-06-04"; // 67 days before TODAY
 
-    it("counts a 67-day-old miss exactly like the Deen card does", async () => {
+    it("counts a 67-day-old miss exactly like the Faith card does", async () => {
       let handledRange: [string, string] | null = null;
       const days = (from: string, to: string) => (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1;
       const dataSource = baseDataSource({
@@ -395,7 +395,7 @@ describe("getDomainSnapshots", () => {
   });
 });
 
-describe("getDomainSnapshots -- Deen Mode OFF", () => {
+describe("getDomainSnapshots -- Faith Mode OFF", () => {
   it("skips every deen read, returns a neutral deen snapshot, passes deenOn=false to the pulse, and leaves the other domains alone", async () => {
     const getPrayers = vi.fn(async () => [{ prayer_name: "fajr", status: "on_time" }]);
     const getPrayerHistory = vi.fn(async () => []);

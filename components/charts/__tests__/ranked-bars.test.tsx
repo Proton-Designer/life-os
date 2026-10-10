@@ -8,12 +8,12 @@ describe("RankedBars", () => {
       <RankedBars
         items={[
           { label: "Business", value: 30, colorVar: "--series-business" },
-          { label: "Deen", value: 42, colorVar: "--series-deen" },
+          { label: "Faith", value: 42, colorVar: "--series-deen" },
         ]}
       />
     );
     expect(screen.getByText("Business")).toBeInTheDocument();
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
     expect(screen.getByText("30")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
   });
@@ -24,7 +24,7 @@ describe("RankedBars", () => {
   });
 
   it("does not crash with a single item", () => {
-    render(<RankedBars items={[{ label: "Deen", value: 10, colorVar: "--series-deen" }]} />);
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    render(<RankedBars items={[{ label: "Faith", value: 10, colorVar: "--series-deen" }]} />);
+    expect(screen.getByText("Faith")).toBeInTheDocument();
   });
 });

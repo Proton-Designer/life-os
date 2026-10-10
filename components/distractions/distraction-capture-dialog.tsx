@@ -27,7 +27,7 @@ import { KIND_LABEL } from "@/lib/business/work-session-kind";
 // DOMAIN_ACCENT's own key order.
 const CAPTURE_DOMAINS: DistractionDomain[] = ["deen", "business", "school", "fitness", "co_op"];
 const DOMAIN_LABEL: Record<DistractionDomain, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   school: "School",
   fitness: "Fitness",

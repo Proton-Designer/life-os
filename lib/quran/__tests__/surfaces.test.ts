@@ -43,10 +43,10 @@ describe("surfaces read the same overview", () => {
     expect(khatmScreen(await overview({ status: "completed", completed_on: "2026-12-02", current_page: 605 }, [], "2026-12-03"))).toEqual({ khatmNumber: 1, completedOn: "2026-12-02", juzCompleted: 30 });
     expect(khatmScreen(await overview({ current_page: 11 }))).toBeNull();
   });
-  it("weekly target: derived (pace x 7) while a plan is active, the manual one otherwise", async () => {
-    expect(weeklyQuranTarget(await overview({ current_page: 11 }), 25)).toBe(70);
-    expect(weeklyQuranTarget(await overview(null), 25)).toBe(25);
-    expect(weeklyQuranTarget(await overview({ status: "paused", paused_on: TODAY }), 25)).toBe(25);
-    expect(weeklyQuranTarget(null, null)).toBeNull();
+  it("weekly target: derived (pace x 7) while a plan is active, none otherwise", async () => {
+    expect(weeklyQuranTarget(await overview({ current_page: 11 }))).toBe(70);
+    expect(weeklyQuranTarget(await overview(null))).toBeNull();
+    expect(weeklyQuranTarget(await overview({ status: "paused", paused_on: TODAY }))).toBeNull();
+    expect(weeklyQuranTarget(null)).toBeNull();
   });
 });

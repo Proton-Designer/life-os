@@ -252,10 +252,12 @@ describe("LockInOverlay", () => {
       prefill: { deen: 15, business: 0, school: 0, fitness: 0, co_op: 0 },
     };
 
-    it("shows the check-in form inside the expanded overlay when one is pending — visible in the expanded view, per Ayman's report", async () => {
+    it("never shows a check-in inside the overlay, even when one is pending (sessions account for themselves)", async () => {
       getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
       renderOverlay(SESSION);
-      expect(await screen.findByTestId("allocation-bar")).toBeInTheDocument();
+      await screen.findByText("Deep Work");
+      expect(screen.queryByTestId("allocation-bar")).not.toBeInTheDocument();
+      expect(screen.queryByText("Check-in")).not.toBeInTheDocument();
     });
 
     it("shows nothing check-in-related when the queue is empty", async () => {
@@ -265,22 +267,10 @@ describe("LockInOverlay", () => {
       expect(screen.queryByTestId("allocation-bar")).not.toBeInTheDocument();
     });
 
-    it("answering it from inside the overlay goes through the same saveAllocationCheckin action the sheet uses", async () => {
-      getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
-      renderOverlay(SESSION);
-      await screen.findByTestId("allocation-bar");
-
-      const user = userEvent.setup();
-      await user.click(screen.getByRole("button", { name: "Done" }));
-
-      expect(saveAllocationCheckinMock).toHaveBeenCalledWith(WINDOW_A.windowStartIso, WINDOW_A.windowEndIso, expect.any(Object));
-    });
-
-    it("does not fight the timer/objectives block — both remain present with a check-in showing", async () => {
+    it("keeps the timer, goal and End Session in place", async () => {
       getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "America/Chicago" });
       renderOverlay({ ...SESSION, goalMinutes: 30 });
-      await screen.findByTestId("allocation-bar");
-      expect(screen.getByText("/ 30")).toBeInTheDocument();
+      expect(await screen.findByText("/ 30")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "End Session" })).toBeInTheDocument();
     });
   });

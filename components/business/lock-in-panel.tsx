@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LockInSession, type StoredSessionHour } from "./lock-in-session";
+import { LockInSession } from "./lock-in-session";
 import { useLockInOverlay } from "./lock-in-overlay-context";
 import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { KIND_LABEL } from "@/lib/business/work-session-kind";
@@ -9,25 +9,11 @@ import { Button } from "@/components/ui/button";
 
 // Session identity/start/end/minimize/expand all come from the app-wide
 // LockInOverlayProvider (batch 3) — this panel is purely the /business
-// PRESENTATION of that shared state, plus the one thing only this page
-// knows: the stored hourly allocations for the deep_work session that was
-// already active on THIS page's own server render.
+// PRESENTATION of that shared state.
 export function LockInPanel({
-  initialSessionId,
-  initialStoredHours,
   todayFocusMinutes,
-  timezone,
   showTodayTotal = true,
 }: {
-  // Identifies which session `initialStoredHours` belongs to — a session
-  // the context knows about that this page's render never saw (started
-  // elsewhere, or freshly started right here) always begins at zero hours.
-  initialSessionId: string | null;
-  initialStoredHours: StoredSessionHour[];
-  // A real moment in time (session start), not a calendar date — must
-  // format against the user's PROFILE timezone, not the runtime's local
-  // zone. Threaded down to LockInSession too.
-  timezone: string;
   // Opus Lead review (2026-08-16): idle used to be a single button in an
   // otherwise-empty 7-column panel. Required, not optional — an idle panel
   // with nothing to show isn't a state this composition should silently
@@ -45,17 +31,11 @@ export function LockInPanel({
   const { session, isPending, error, startSession, endSession, expand } = useLockInOverlay();
 
   if (session?.kind === "deep_work") {
-    const storedHours = session.id === initialSessionId ? initialStoredHours : [];
     return (
       <LockInSession
-        // Remounts (resetting hour-confirmation state) whenever the active
-        // session's identity actually changes — ending one and starting
-        // another shouldn't carry the old session's local state forward.
+        // Remounts whenever the active session's identity changes.
         key={session.id}
-        sessionId={session.id}
         startedAtIso={session.startedAtIso}
-        initialStoredHours={storedHours}
-        timezone={timezone}
         onEndSession={endSession}
         onExpand={expand}
       />

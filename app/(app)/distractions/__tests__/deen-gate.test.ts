@@ -30,7 +30,7 @@ function profileChain() {
   return chain;
 }
 
-describe("distractions/actions.ts -- Deen Mode", () => {
+describe("distractions/actions.ts -- Faith Mode", () => {
   beforeEach(() => {
     fromMock.mockReset();
     fromMock.mockImplementation((t: string) => {
@@ -43,19 +43,19 @@ describe("distractions/actions.ts -- Deen Mode", () => {
 
   it("createTriggerAndLog refuses a new deen-domain trigger and writes nothing", async () => {
     const { createTriggerAndLog } = await import("../actions");
-    await expect(createTriggerAndLog({ domain: "deen", name: "x", description: null })).rejects.toThrow(/Deen Mode is off/);
+    await expect(createTriggerAndLog({ domain: "deen", name: "x", description: null })).rejects.toThrow(/Faith Mode is off/);
     expect(fromMock).not.toHaveBeenCalledWith("distraction_triggers");
   });
 
   it("createTriggerAndLog refuses a reflection tier even on a non-deen domain", async () => {
     const { createTriggerAndLog } = await import("../actions");
-    await expect(createTriggerAndLog({ domain: "business", name: "x", description: null, tier: 2 })).rejects.toThrow(/Deen Mode is off/);
+    await expect(createTriggerAndLog({ domain: "business", name: "x", description: null, tier: 2 })).rejects.toThrow(/Faith Mode is off/);
     expect(fromMock).not.toHaveBeenCalledWith("reflection_entries");
   });
 
   it("logDistraction refuses a tier", async () => {
     const { logDistraction } = await import("../actions");
-    await expect(logDistraction("t2", 1)).rejects.toThrow(/Deen Mode is off/);
+    await expect(logDistraction("t2", 1)).rejects.toThrow(/Faith Mode is off/);
     expect(fromMock).not.toHaveBeenCalledWith("reflection_entries");
   });
 

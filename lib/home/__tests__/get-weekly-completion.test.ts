@@ -16,7 +16,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({ fro
 
 const NOW = new Date("2026-08-10T18:00:00Z");
 
-describe("getWeeklyCompletion -- Deen Mode", () => {
+describe("getWeeklyCompletion -- Faith Mode", () => {
   beforeEach(() => {
     fromMock.mockClear();
     tables = {

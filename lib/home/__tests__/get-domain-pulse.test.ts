@@ -15,7 +15,7 @@ function emptyDataSource(overrides: Partial<PulseDataSource> = {}): PulseDataSou
 }
 
 describe("getDomainPulse", () => {
-  it("computes Deen's fraction from prayers only (5 trackables/day)", async () => {
+  it("computes Faith's fraction from prayers only (5 trackables/day)", async () => {
     const dataSource = emptyDataSource({
       getPrayers: async () => [
         { prayer_name: "fajr", status: "on_time" },
@@ -163,7 +163,7 @@ describe("getDomainPulse", () => {
   });
 });
 
-describe("getDomainPulse — Deen Mode OFF", () => {
+describe("getDomainPulse — Faith Mode OFF", () => {
   it("never reads prayers and reports deen: null (nothing tracked, not a fake 0); the other rings are untouched", async () => {
     const getPrayers = vi.fn(async () => [{ prayer_name: "fajr", status: "on_time" }]);
     const pulse = await getDomainPulse(

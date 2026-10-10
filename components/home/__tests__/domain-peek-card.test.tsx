@@ -9,7 +9,7 @@ describe("DomainPeekCard", () => {
         body
       </DomainPeekCard>
     );
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
   });
 
   it("renders an IconChip with the domain's icon", () => {

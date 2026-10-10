@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { deriveExtraMissedWasteMinutes } from "@/lib/checkins/session-hour-status";
-import { getStoredAllocationSpans, getSessionsWithStoredHours } from "@/lib/checkins/missed-hour-queries";
+import { deriveSessionMinutesByDomain, type SessionRange } from "@/lib/checkins/session-accounting";
+import { getStoredAllocationSpans, getSessionRanges } from "@/lib/checkins/session-accounting-queries";
 
 export type FocusMapDataSource = {
   getAllocations: (
@@ -8,13 +8,9 @@ export type FocusMapDataSource = {
     startIso: string,
     endIso: string
   ) => Promise<{ domain: string | null; minutes: number; isWasted: boolean }[]>;
-  /** Same missed-hour-as-wasted derivation sn-ratio.ts uses — see its own doc comment for the range bound and double-count guard. */
+  /** Same session auto-accounting sn-ratio.ts uses -- see its doc comment for the range bound and the double-count guard. */
   getStoredAllocationSpans: (userId: string, startIso: string, endIso: string) => Promise<{ start: Date; end: Date }[]>;
-  getSessionsWithStoredHours: (
-    userId: string,
-    startIso: string,
-    endIso: string
-  ) => Promise<{ startedAt: Date; endedAt: Date | null; storedHours: { hourStartIso: string; domain: "business" | "wasted" }[] }[]>;
+  getSessionRanges: (userId: string, startIso: string, endIso: string) => Promise<SessionRange[]>;
 };
 
 export type FocusMapSegment = { domain: string; minutes: number; pct: number };
@@ -42,23 +38,23 @@ function defaultDataSource(): FocusMapDataSource {
       );
     },
     getStoredAllocationSpans,
-    getSessionsWithStoredHours,
+    getSessionRanges,
   };
 }
 
-/** Same missed-hour-as-wasted derivation as sn-ratio.ts's getMissedHourWasteMinutes — see that function's doc comment for the range bound and double-count guard, and session-hour-status.ts's deriveExtraMissedWasteMinutes for the underlying logic. */
-async function getMissedHourWasteMinutes(
+/** Session minutes (Deep Work -> Business, Deep Study -> School) no answered window already holds -- the same derivation as sn-ratio.ts's getSessionAccountedRows. */
+async function getSessionAccountedRows(
   userId: string,
   startIso: string,
   endIso: string,
   now: Date,
   dataSource: FocusMapDataSource
-): Promise<number> {
+): Promise<{ domain: string; minutes: number }[]> {
   const [storedSpans, sessions] = await Promise.all([
     dataSource.getStoredAllocationSpans(userId, startIso, endIso),
-    dataSource.getSessionsWithStoredHours(userId, startIso, endIso),
+    dataSource.getSessionRanges(userId, startIso, endIso),
   ]);
-  return deriveExtraMissedWasteMinutes(sessions, storedSpans, new Date(startIso), new Date(endIso), now);
+  return deriveSessionMinutesByDomain(sessions, storedSpans, new Date(startIso), new Date(endIso), now);
 }
 
 /**
@@ -88,9 +84,9 @@ export async function getFocusMap(
   const end = new Date(anchor.getTime() + rangeMs);
   const startIso = anchor.toISOString();
   const endIso = end.toISOString();
-  const [rows, extraWasted] = await Promise.all([
+  const [rows, sessionRows] = await Promise.all([
     dataSource.getAllocations(userId, startIso, endIso),
-    getMissedHourWasteMinutes(userId, startIso, endIso, now, dataSource),
+    getSessionAccountedRows(userId, startIso, endIso, now, dataSource),
   ]);
 
   // Real domains and wasted time are aggregated in structurally separate
@@ -102,7 +98,7 @@ export async function getFocusMap(
   // list is built means that collision is structurally impossible, not
   // just unlikely.
   const minutesByDomain = new Map<string, number>();
-  let wastedTotal = extraWasted;
+  let wastedTotal = 0;
   for (const row of rows) {
     if (row.isWasted) {
       wastedTotal += row.minutes;
@@ -110,6 +106,8 @@ export async function getFocusMap(
       minutesByDomain.set(row.domain, (minutesByDomain.get(row.domain) ?? 0) + row.minutes);
     }
   }
+
+  for (const row of sessionRows) minutesByDomain.set(row.domain, (minutesByDomain.get(row.domain) ?? 0) + row.minutes);
 
   const total = [...minutesByDomain.values()].reduce((a, b) => a + b, 0) + wastedTotal;
   const segments = [...minutesByDomain.entries()]

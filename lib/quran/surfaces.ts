@@ -73,7 +73,7 @@ export function khatmScreen(o: QuranOverview | null): KhatmScreen | null {
   return { khatmNumber: o.plan.khatmNumber, completedOn: o.plan.completedOn, juzCompleted: o.juz.completed };
 }
 
-/** The weekly Quran page target: the plan's (daily pace x 7) while a plan is ACTIVE, else the manually typed one. */
-export function weeklyQuranTarget(o: QuranOverview | null, manualTarget: number | null): number | null {
-  return (o?.plan?.status === "active" ? o.week.weeklyTargetPages : null) ?? manualTarget;
+/** The weekly Quran page target: the plan's (daily pace x 7) while a plan is ACTIVE, else none (there is no typed-in target any more). */
+export function weeklyQuranTarget(o: QuranOverview | null): number | null {
+  return o?.plan?.status === "active" ? o.week.weeklyTargetPages : null;
 }

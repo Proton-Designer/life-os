@@ -128,18 +128,18 @@ describe("GoalBoard — creating a goal reflects a server refresh", () => {
   });
 });
 
-describe("GoalBoard — Deen Mode", () => {
+describe("GoalBoard — Faith Mode", () => {
   const DEEN_GOAL: Goal = { ...NEW_GOAL, id: "g2", domain: "deen", title: "Memorise Surah Mulk" };
 
-  it("OFF: an existing deen-tagged goal still shows (rank kept) but its 'Deen' label does not", () => {
+  it("OFF: an existing deen-tagged goal still shows (rank kept) but its 'Faith' label does not", () => {
     render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
     expect(screen.getByText("Memorise Surah Mulk")).toBeInTheDocument();
-    expect(screen.queryByText("Deen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faith")).not.toBeInTheDocument();
   });
 
   it("ON shows the label (positive control)", () => {
     render(<GoalBoard deenMode monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
   });
 });
 

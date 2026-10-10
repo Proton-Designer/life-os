@@ -94,7 +94,7 @@ describe("AllocationCheckinGate", () => {
     expect(screen.getByText("App filled this in")).toBeInTheDocument();
   });
 
-  it("hides the Deen row when Deen Mode is off, and shows it when on (fails closed before the first poll)", async () => {
+  it("hides the Faith row when Faith Mode is off, and shows it when on (fails closed before the first poll)", async () => {
     getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC", deenMode: false });
     const user = userEvent.setup();
     const off = renderGate();

@@ -25,7 +25,7 @@ describe("captureAreaOptions", () => {
     expect(values(captureAreaOptions("domains", withJob))).toEqual(["co_op", "none"]);
   });
 
-  it("no input ever yields a faith/Deen area — tasks have no such home, so Deen OFF cannot leak one", () => {
+  it("no input ever yields a faith/Faith area — tasks have no such home, so Faith OFF cannot leak one", () => {
     for (const o of [...captureAreaOptions("legacy", null), ...captureAreaOptions("domains", nav({ hasPersonalGrowth: true, hasWork: true, hasSchool: true, personalSubdomains: [{ key: "faith", label: "Faith", kind: null }] }))]) {
       expect(o.label.toLowerCase()).not.toMatch(/faith|deen/);
     }

@@ -37,7 +37,7 @@ export function DeenModeSettings({ initialOn }: { initialOn: boolean }) {
         <Switch id="deen-mode" checked={on} disabled={isPending} onCheckedChange={toggle} className="mt-0.5" />
         <div className="flex flex-col">
           <Label htmlFor="deen-mode" className="text-sm">
-            Deen Mode
+            Faith Mode
           </Label>
           <p className="text-xs text-muted-foreground">
             Shows the Faith section — prayer times, Qur&apos;an, sunnah and habits — on Home, in navigation and in

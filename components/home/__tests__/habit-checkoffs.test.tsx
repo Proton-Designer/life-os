@@ -91,7 +91,7 @@ describe("HabitCheckoffs (Home)", () => {
       expect(screen.getByTestId("faith-practice-checkoff")).toBeInTheDocument();
     });
 
-    it("no practices (Deen OFF) and no habits renders nothing", () => {
+    it("no practices (Faith OFF) and no habits renders nothing", () => {
       const { container } = render(<HabitCheckoffs habits={[]} faithPractices={[]} today="2026-10-05" />);
       expect(container).toBeEmptyDOMElement();
     });
@@ -109,7 +109,7 @@ describe("HabitCheckoffs (Home)", () => {
     });
 
     it("a failed write reverts and shows the error", async () => {
-      setDeenHabitLogStatus.mockRejectedValueOnce(new Error("Deen is off"));
+      setDeenHabitLogStatus.mockRejectedValueOnce(new Error("Faith is off"));
       const user = userEvent.setup();
       render(<HabitCheckoffs habits={[]} faithPractices={[practice()]} today="2026-10-05" />);
       await user.click(screen.getByTestId("faith-practice-checkoff"));

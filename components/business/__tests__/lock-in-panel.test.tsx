@@ -6,10 +6,6 @@ vi.mock("@/app/(app)/business/actions", () => ({
   startWorkSession: vi.fn(),
   endWorkSession: vi.fn(),
 }));
-vi.mock("@/lib/checkins/session-hour-status", () => ({
-  resolveSessionHours: () => [],
-  pendingSessionHour: () => null,
-}));
 
 import { startWorkSession } from "@/app/(app)/business/actions";
 import { LockInPanel } from "../lock-in-panel";
@@ -17,37 +13,31 @@ import { renderWithLockIn } from "./lock-in-overlay-test-utils";
 
 describe("LockInPanel", () => {
   it("shows the Lock In button when idle", () => {
-    renderWithLockIn(<LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={0} timezone="UTC" />);
+    renderWithLockIn(<LockInPanel todayFocusMinutes={0} />);
     expect(screen.getByRole("button", { name: "Lock In" })).toBeInTheDocument();
   });
 
   it("shows today's focus total when idle — the idle-state design fix, not just a bare button in empty space", () => {
-    renderWithLockIn(
-      <LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={85} timezone="UTC" />
-    );
+    renderWithLockIn(<LockInPanel todayFocusMinutes={85} />);
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("1h 25m")).toBeInTheDocument();
   });
 
   it("shows a real 0m today total rather than omitting it when nothing's logged yet", () => {
-    renderWithLockIn(<LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={0} timezone="UTC" />);
+    renderWithLockIn(<LockInPanel todayFocusMinutes={0} />);
     expect(screen.getByText("0m")).toBeInTheDocument();
   });
 
   it("defaults to showing the today total when showTodayTotal is omitted", () => {
-    renderWithLockIn(
-      <LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={85} timezone="UTC" />
-    );
+    renderWithLockIn(<LockInPanel todayFocusMinutes={85} />);
     expect(screen.getByText("Today")).toBeInTheDocument();
   });
 
   it("hides the today total when a caller already shows it elsewhere (showTodayTotal=false)", () => {
     renderWithLockIn(
       <LockInPanel
-        initialSessionId={null}
-        initialStoredHours={[]}
+       
         todayFocusMinutes={85}
-        timezone="UTC"
         showTodayTotal={false}
       />
     );
@@ -58,10 +48,8 @@ describe("LockInPanel", () => {
   it("still shows the Lock In button when the today total is hidden", () => {
     renderWithLockIn(
       <LockInPanel
-        initialSessionId={null}
-        initialStoredHours={[]}
+       
         todayFocusMinutes={85}
-        timezone="UTC"
         showTodayTotal={false}
       />
     );
@@ -70,7 +58,7 @@ describe("LockInPanel", () => {
 
   it("renders the active session view instead of the idle button once a deep_work session is active", () => {
     renderWithLockIn(
-      <LockInPanel initialSessionId="s1" initialStoredHours={[]} todayFocusMinutes={0} timezone="UTC" />,
+      <LockInPanel todayFocusMinutes={0} />,
       { id: "s1", startedAtIso: "2026-08-15T14:00:00Z", kind: "deep_work", goalMinutes: null, objectives: [] }
     );
     expect(screen.queryByRole("button", { name: "Lock In" })).not.toBeInTheDocument();
@@ -78,7 +66,7 @@ describe("LockInPanel", () => {
 
   it("disables Lock In and explains why when a Deep Study session is running elsewhere (2026-08-24 fix — the guard blocks either kind)", () => {
     renderWithLockIn(
-      <LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={0} timezone="UTC" />,
+      <LockInPanel todayFocusMinutes={0} />,
       { id: "s1", startedAtIso: "2026-08-15T14:00:00Z", kind: "deep_study", goalMinutes: null, objectives: [] }
     );
     expect(screen.getByText(/Deep Study in progress/)).toBeInTheDocument();
@@ -99,7 +87,7 @@ describe("LockInPanel", () => {
   // error rendered from a call that never happened.
   it("opens the setup dialog on tap rather than starting a session immediately — no startWorkSession call, no error", async () => {
     const user = userEvent.setup();
-    renderWithLockIn(<LockInPanel initialSessionId={null} initialStoredHours={[]} todayFocusMinutes={0} timezone="UTC" />);
+    renderWithLockIn(<LockInPanel todayFocusMinutes={0} />);
 
     await user.click(screen.getByRole("button", { name: "Lock In" }));
 

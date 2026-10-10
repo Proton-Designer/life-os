@@ -6,7 +6,7 @@ import { GoalCard } from "../goal-card";
 describe("GoalCard", () => {
   it("renders a domain icon chip matching its accent", () => {
     const { container } = render(
-      <GoalCard title="Deen" domain="deen" headline="" milestones={[]} locked={false} onSave={vi.fn()} />
+      <GoalCard title="Faith" domain="deen" headline="" milestones={[]} locked={false} onSave={vi.fn()} />
     );
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
@@ -63,7 +63,7 @@ describe("GoalCard", () => {
   });
 
   it("stays absent for callers that never pass the prop — other domains are unaffected", () => {
-    render(<GoalCard title="Deen" domain="deen" headline="" milestones={[]} locked={false} onSave={vi.fn()} />);
+    render(<GoalCard title="Faith" domain="deen" headline="" milestones={[]} locked={false} onSave={vi.fn()} />);
     expect(screen.queryByText(/outcome/i)).not.toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe("GoalCard", () => {
   it("shows the Qur'an progress line in the read view only when a target is set", () => {
     render(
       <GoalCard
-        title="Deen"
+        title="Faith"
         domain="deen"
         headline="Finish Juz 5"
         milestones={[]}
@@ -119,7 +119,7 @@ describe("GoalCard", () => {
   it("omits the Qur'an progress line when no target is set", () => {
     render(
       <GoalCard
-        title="Deen"
+        title="Faith"
         domain="deen"
         headline="Finish Juz 5"
         milestones={[]}
@@ -167,7 +167,7 @@ describe("GoalCard", () => {
     await user.type(screen.getByPlaceholderText("This week's headline goal"), "Close 5 deals");
     await user.click(screen.getByRole("button", { name: "Save goal" }));
 
-    expect(onSave).toHaveBeenCalledWith("Close 5 deals", [], undefined);
+    expect(onSave).toHaveBeenCalledWith("Close 5 deals", []);
     // Props are unchanged in this render-only test (a real page revalidates
     // and streams a fresh `headline` prop after the server action resolves,
     // same reliance as the Work TargetRow/TaskCard edit-toggle pattern) — so
@@ -178,8 +178,8 @@ describe("GoalCard", () => {
 
   it("has no edit button while locked", () => {
     render(
-      <GoalCard title="Deen" domain="deen" headline="Finish Juz 5" milestones={[]} locked onSave={vi.fn()} />
+      <GoalCard title="Faith" domain="deen" headline="Finish Juz 5" milestones={[]} locked onSave={vi.fn()} />
     );
-    expect(screen.queryByRole("button", { name: "Edit Deen" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit Faith" })).not.toBeInTheDocument();
   });
 });

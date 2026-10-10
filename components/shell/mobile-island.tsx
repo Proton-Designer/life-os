@@ -25,7 +25,7 @@ const PRIMARY_ITEMS: {
   accent: AccentToken;
 }[] = [
   { href: "/", label: "Home", key: "home", icon: Home, accent: "info" },
-  { href: "/deen", label: "Deen", key: "deen", icon: DOMAIN_ICON.deen, accent: "deen" },
+  { href: "/deen", label: "Faith", key: "deen", icon: DOMAIN_ICON.deen, accent: "deen" },
   { href: "/business", label: "Business", key: "business", icon: DOMAIN_ICON.business, accent: "business" },
   { href: "/school", label: "School", key: "school", icon: DOMAIN_ICON.school, accent: "school" },
   { href: "/fitness", label: "Fitness", key: "fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },

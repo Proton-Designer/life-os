@@ -21,4 +21,4 @@ export async function getRequestTimezone(): Promise<string> {
   return (await getProfile())?.timezone ?? "UTC";
 }
 
-export const DEEN_MODE_OFF_MESSAGE = "Deen Mode is off";
+export const DEEN_MODE_OFF_MESSAGE = "Faith Mode is off";

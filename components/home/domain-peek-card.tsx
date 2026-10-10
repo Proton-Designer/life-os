@@ -8,7 +8,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 export type PeekDomain = PriorityItem["domain"];
 
 const DOMAIN_LABEL: Record<PeekDomain, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   fitness: "Fitness",
   school: "School",

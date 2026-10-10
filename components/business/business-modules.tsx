@@ -27,9 +27,6 @@ export function BusinessModules({ data, layout }: { data: BusinessModulesData; l
         <FocusTimeCard
           sessionsTodayCount={data.sessionsTodayCount}
           focusMinutesToday={data.focusMinutesToday}
-          initialSessionId={data.initialSessionId}
-          initialStoredHours={data.initialStoredHours}
-          timezone={data.timezone}
         />
       </LayoutSlot>
       <LayoutSlot layout={layout} widgetKey="incomplete_tasks">

@@ -59,7 +59,7 @@ describe("weeklyGoalDomains", () => {
   });
 });
 
-describe("weeklyGoalDomains — Deen Mode OFF", () => {
+describe("weeklyGoalDomains — Faith Mode OFF", () => {
   it("drops deen in legacy mode and for a faith row; business stays", () => {
     expect(weeklyGoalDomains({ mode: "legacy" }, false)).toEqual(["business"]);
     const state: UserDomainsState = { mode: "domains", domains: [{ key: "faith", position: 0, weight: "essential" }], subdomains: [] };

@@ -241,7 +241,7 @@ describe("getPriorityItems", () => {
     expect(items.some((i) => i.id === "kill-list")).toBe(false);
   });
 
-  it("orders items due at the exact same moment by domain priority (Deen before School/Work)", async () => {
+  it("orders items due at the exact same moment by domain priority (Faith before School/Work)", async () => {
     const now = new Date("2026-08-10T00:00:00Z");
     const times = calculatePrayerTimes({
       date: now,
@@ -555,7 +555,7 @@ describe("getPriorityItems", () => {
   });
 });
 
-describe("Deen Mode OFF -- getPriorityItems / getCompletedItemsToday", () => {
+describe("Faith Mode OFF -- getPriorityItems / getCompletedItemsToday", () => {
   const OFF_PROFILE = { ...CHICAGO_PROFILE, deen_mode: false };
   const NOW_MIDDAY = new Date("2026-08-10T18:00:00Z");
 

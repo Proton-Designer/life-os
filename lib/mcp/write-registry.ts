@@ -703,7 +703,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
         actions: {
           create: {
             action: "create",
-            description: "Create a new Deen habit. committed_date is always today (server-computed) -- use habit.set_committed_date to correct it afterward. frequency is optional and defaults to every day; use it for fixed weekdays, N times a week or month, or every N days.",
+            description: "Create a new Faith habit. committed_date is always today (server-computed) -- use habit.set_committed_date to correct it afterward. frequency is optional and defaults to every day; use it for fixed weekdays, N times a week or month, or every N days.",
             patchShape: "{ name: string, anchor_cue?: string, frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }",
             idempotent: false,
             idempotencyVerification: "createDeenHabitCore does a plain INSERT -- a retry creates a second habit with the same name, not an upsert (there is no natural conflict key for a habit's identity).",
@@ -716,7 +716,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   content: [{ type: "text", text: JSON.stringify(result) }],
                   structuredContent: { id: result.id, updated_at: ctx.now.toISOString() },
                 },
-                summary: `created deen habit "${name}"`,
+                summary: `created faith habit "${name}"`,
               };
             },
           },
@@ -736,7 +736,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   content: [{ type: "text", text: JSON.stringify({ id, name }) }],
                   structuredContent: { id, updated_at: ctx.now.toISOString(), name },
                 },
-                summary: `updated deen habit ${id}`,
+                summary: `updated faith habit ${id}`,
               };
             },
           },
@@ -760,7 +760,7 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
           },
           set_frequency: {
             action: "set_frequency",
-            description: "Change how often a Deen habit is meant to happen (every day, certain weekdays, N times a week or month, or every N days). Logged history is kept and simply re-read under the new rule. Requires the top-level id.",
+            description: "Change how often a Faith habit is meant to happen (every day, certain weekdays, N times a week or month, or every N days). Logged history is kept and simply re-read under the new rule. Requires the top-level id.",
             patchShape: "{ frequency?: { kind: 'daily' } | { kind: 'weekdays', days: number[] /* 0=Sun..6=Sat */ } | { kind: 'per_week', count: 1-6 } | { kind: 'per_month', count: 1-28 } | { kind: 'every_n_days', interval: 2-365 } }".replace("frequency?:", "frequency:"),
             idempotent: true,
             idempotencyVerification: "setDeenHabitFrequencyCore sets the frequency columns to fixed values taken verbatim from the (validated) patch -- a retry sets the identical row state.",

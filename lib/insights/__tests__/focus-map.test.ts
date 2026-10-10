@@ -5,7 +5,7 @@ function dataSourceWith(rows: { domain: string | null; minutes: number; isWasted
   return {
     getAllocations: async () => rows,
     getStoredAllocationSpans: async () => [],
-    getSessionsWithStoredHours: async () => [],
+    getSessionRanges: async () => [],
   };
 }
 
@@ -117,7 +117,7 @@ describe("getFocusMap", () => {
         return [];
       },
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [],
+      getSessionRanges: async () => [],
     };
     const anchor = new Date("2026-08-10T05:00:00Z");
     await getFocusMap("user-1", "day", anchor, dataSource);
@@ -127,34 +127,29 @@ describe("getFocusMap", () => {
     expect(seen[1]).toEqual({ startIso: "2026-08-10T05:00:00.000Z", endIso: "2026-08-17T05:00:00.000Z" });
   });
 
-  // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md, acceptance criterion 1.
-  it("folds a missed Lock-In hour into the wasted segment, without waiting for the surrounding window to be confirmed", async () => {
-    const now = new Date("2026-08-19T14:05:00.000Z");
+  it("adds a Deep Work session to the Business segment on its own, and never to wasted", async () => {
+    const now = new Date("2026-08-19T14:00:00.000Z");
     const dataSource: FocusMapDataSource = {
       getAllocations: async () => [{ domain: "business", minutes: 30, isWasted: false }],
       getStoredAllocationSpans: async () => [],
-      getSessionsWithStoredHours: async () => [
-        { startedAt: new Date("2026-08-19T12:00:00.000Z"), endedAt: null, storedHours: [] },
-      ],
+      getSessionRanges: async () => [{ start: new Date("2026-08-19T12:00:00.000Z"), end: null, domain: "business" }],
     };
     const result = await getFocusMap("user-1", "day", new Date("2026-08-19T00:00:00Z"), dataSource, now);
-    const wasted = result.segments.find((s) => s.domain === "wasted");
-    expect(wasted?.minutes).toBe(60); // the one missed hour (13:00, superseded by 14:00's due slot)
+    expect(result.segments.find((s) => s.domain === "business")?.minutes).toBe(150); // 30 stored + 120 session
+    expect(result.segments.find((s) => s.domain === "wasted")).toBeUndefined();
   });
 
-  it("does not double-count a missed hour already covered by a wider stored span", async () => {
-    const now = new Date("2026-08-19T14:05:00.000Z");
+  it("does not add session minutes an answered window already holds", async () => {
+    const now = new Date("2026-08-19T14:00:00.000Z");
     const dataSource: FocusMapDataSource = {
       getAllocations: async () => [{ domain: null, minutes: 120, isWasted: true }],
       getStoredAllocationSpans: async () => [
         { start: new Date("2026-08-19T12:00:00.000Z"), end: new Date("2026-08-19T14:00:00.000Z") },
       ],
-      getSessionsWithStoredHours: async () => [
-        { startedAt: new Date("2026-08-19T12:00:00.000Z"), endedAt: null, storedHours: [] },
-      ],
+      getSessionRanges: async () => [{ start: new Date("2026-08-19T12:00:00.000Z"), end: null, domain: "business" }],
     };
     const result = await getFocusMap("user-1", "day", new Date("2026-08-19T00:00:00Z"), dataSource, now);
-    const wasted = result.segments.find((s) => s.domain === "wasted");
-    expect(wasted?.minutes).toBe(120);
+    expect(result.segments.find((s) => s.domain === "wasted")?.minutes).toBe(120);
+    expect(result.segments.find((s) => s.domain === "business")).toBeUndefined();
   });
 });

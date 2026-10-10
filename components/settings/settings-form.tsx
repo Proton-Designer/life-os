@@ -146,7 +146,7 @@ export function SettingsForm({
           (geolocation success or a candidate pick) -- it never waits on "Save
           settings". */}
       {/* Location (lat/lng/label) is consumed only by prayer features, so it
-          hides with Deen Mode OFF. Timezone is app-wide and used to be set
+          hides with Faith Mode OFF. Timezone is app-wide and used to be set
           only inside LocationSettings -- it gets its own panel in that case. */}
       {deenMode ? (
         <Panel id="location" className="scroll-mt-24" title="Location">

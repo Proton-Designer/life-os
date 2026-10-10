@@ -7,7 +7,7 @@ const RINGS: {
   href: string;
   colorVar: string;
 }[] = [
-  { key: "deen", label: "Deen", href: "/deen", colorVar: "--accent-deen" },
+  { key: "deen", label: "Faith", href: "/deen", colorVar: "--accent-deen" },
   { key: "business", label: "Business", href: "/business", colorVar: "--accent-business" },
   { key: "fitness", label: "Fitness", href: "/fitness", colorVar: "--accent-fitness" },
   { key: "school", label: "School", href: "/school", colorVar: "--accent-school" },

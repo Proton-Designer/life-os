@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { derivePrefillAllocation, subtractResolvedHours } from "../prefill";
-import type { AllocationWindow, TimeRange } from "../schedule";
+import { derivePrefillAllocation } from "../prefill";
+import type { AllocationWindow } from "../schedule";
+import type { SessionRange } from "../session-accounting";
 
 const window: AllocationWindow = {
   start: new Date("2026-08-10T13:00:00Z"), // 08:00 CDT
@@ -19,26 +20,26 @@ describe("derivePrefillAllocation", () => {
     expect(result).toEqual({ deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 });
   });
 
-  it("maps a fully-contained Lock-In session to business, snapped to 15", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:07:00Z"), end: new Date("2026-08-10T13:52:00Z") }; // 45 real minutes
+  it("maps a fully-contained session to business, snapped to 15", () => {
+    const session: SessionRange = { start: new Date("2026-08-10T13:07:00Z"), end: new Date("2026-08-10T13:52:00Z"), domain: "business" }; // 45 real minutes
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(45); // already a multiple of 15
   });
 
-  it("clips a Lock-In session that only partially overlaps the window", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T14:30:00Z"), end: new Date("2026-08-10T15:45:00Z") }; // starts in-window, ends after
+  it("clips a session that only partially overlaps the window", () => {
+    const session: SessionRange = { start: new Date("2026-08-10T14:30:00Z"), end: new Date("2026-08-10T15:45:00Z"), domain: "business" }; // starts in-window, ends after
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(30); // only 14:30-15:00 (30min) is inside the window
   });
 
-  it("counts a still-active (open-ended) Lock-In session up to the window's own end", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T14:00:00Z"), end: null };
+  it("counts a still-active (open-ended) session up to the window's own end", () => {
+    const session: SessionRange = { start: new Date("2026-08-10T14:00:00Z"), end: null, domain: "business" };
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(60); // 14:00-15:00
   });
 
   it("snaps a Lock-In overlap down to the nearest 15, never rounding up", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:22:00Z") }; // 22 real minutes
+    const session: SessionRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:22:00Z"), domain: "business" }; // 22 real minutes
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(15);
   });
@@ -165,14 +166,14 @@ describe("derivePrefillAllocation", () => {
   });
 
   it("never guesses school or co_op — always 0, since nothing logs data for them here", () => {
-    const session: TimeRange = { start: window.start, end: window.end };
+    const session: SessionRange = { start: window.start, end: window.end, domain: "business" };
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.school).toBe(0);
     expect(result.co_op).toBe(0);
   });
 
   it("caps the total below the window's own length when sources overlap and would otherwise overrun it", () => {
-    const session: TimeRange = { start: window.start, end: window.end };
+    const session: SessionRange = { start: window.start, end: window.end, domain: "business" };
     const result = derivePrefillAllocation(window, {
       lockInSessions: [session],
       loggedPrayerTimes: [new Date("2026-08-10T13:15:00Z")],
@@ -190,10 +191,10 @@ describe("derivePrefillAllocation", () => {
   // or below the limit), so it holds regardless of what produced the raw
   // values — but re-verified explicitly anyway now that Deen's input
   // changed from window-overlap to logged-prayer-count, since a full
-  // Lock-In session plus several logged prayers in one window is exactly
+  // session plus several logged prayers in one window is exactly
   // the combination that would have broken a less-structural cap.
-  it("stays below the window's own length for a long Lock-In session plus several logged prayers plus a workout", () => {
-    const fullSession: TimeRange = { start: window.start, end: window.end };
+  it("stays below the window's own length for a long session plus several logged prayers plus a workout", () => {
+    const fullSession: SessionRange = { start: window.start, end: window.end, domain: "business" };
     const result = derivePrefillAllocation(window, {
       lockInSessions: [fullSession],
       loggedPrayerTimes: [
@@ -211,12 +212,12 @@ describe("derivePrefillAllocation", () => {
     expect(total % 15).toBe(0);
   });
 
-  it("never rubber-stamps the window at 100% — a Lock-In session spanning the entire window alone still leaves at least one STEP wasted", () => {
+  it("never rubber-stamps the window at 100% — a session spanning the entire window alone still leaves at least one STEP wasted", () => {
     // Per the Lead's ruling (2026-08-19): pre-fill must never complete the
     // window, even when the real data genuinely covers all of it, so
     // correcting the pre-fill — not just tapping Done — stays the rewarded
     // action.
-    const fullWindowSession: TimeRange = { start: window.start, end: window.end };
+    const fullWindowSession: SessionRange = { start: window.start, end: window.end, domain: "business" };
     const result = derivePrefillAllocation(window, {
       lockInSessions: [fullWindowSession],
       loggedPrayerTimes: [],
@@ -228,93 +229,31 @@ describe("derivePrefillAllocation", () => {
   });
 
   it("leaves a within-bounds allocation untouched by the cap", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:30:00Z") };
+    const session: SessionRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:30:00Z"), domain: "business" };
     const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
     expect(result.business).toBe(30);
   });
 });
 
-// 2026-08-19: hourly Lock-In confirms — the double-count guard. Per-hour,
-// not per-window (a session can be partially covered by confirmed hours
-// with the remainder still eligible for the coarse overlap credit; see
-// schedule.ts's isWindowCoveredBySessionHours for the window-level UX
-// shortcut on top of this).
-describe("subtractResolvedHours", () => {
-  it("removes a confirmed hour from the middle of a longer session, leaving the rest", () => {
-    // Session 1pm-4pm; hours 1-2pm and 2-3pm explicitly confirmed.
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
-    const confirmed: TimeRange[] = [
-      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
-      { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") },
-    ];
-    const result = subtractResolvedHours([session], confirmed);
-    expect(result).toEqual([{ start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") }]);
+describe("derivePrefillAllocation — sessions account for themselves", () => {
+  it("credits a Deep Study session to school, not business", () => {
+    const session: SessionRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z"), domain: "school" };
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
+    expect(result.school).toBe(60);
+    expect(result.business).toBe(0);
   });
 
-  it("splits a session into two remaining pieces when a confirmed hour falls in the middle", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
-    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }];
-    const result = subtractResolvedHours([session], confirmed);
-    expect(result).toEqual([
-      { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") },
-      { start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") },
-    ]);
+  it("credits a Deep Work and a Deep Study session in the same window each to their own domain", () => {
+    const work: SessionRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T13:45:00Z"), domain: "business" };
+    const study: SessionRange = { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T14:30:00Z"), domain: "school" };
+    const result = derivePrefillAllocation(window, { lockInSessions: [work, study], loggedPrayerTimes: [], ...NO_WORKOUT });
+    expect(result.business).toBe(45);
+    expect(result.school).toBe(30);
   });
 
-  it("returns the session unchanged when no hours are confirmed", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
-    expect(subtractResolvedHours([session], [])).toEqual([session]);
-  });
-
-  it("returns nothing when the confirmed hours fully cover the session", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
-    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }];
-    expect(subtractResolvedHours([session], confirmed)).toEqual([]);
-  });
-
-  it("handles a still-active (open-ended) session, keeping it open past the last confirmed hour", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: null };
-    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
-    const result = subtractResolvedHours([session], confirmed);
-    expect(result).toEqual([{ start: new Date("2026-08-10T14:00:00Z"), end: null }]);
-  });
-
-  it("leaves a session untouched when the confirmed hour doesn't overlap it at all", () => {
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") };
-    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T16:00:00Z"), end: new Date("2026-08-10T17:00:00Z") }];
-    expect(subtractResolvedHours([session], confirmed)).toEqual([session]);
-  });
-
-  it("processes multiple sessions independently", () => {
-    const sessionA: TimeRange = { start: new Date("2026-08-10T09:00:00Z"), end: new Date("2026-08-10T10:00:00Z") };
-    const sessionB: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T15:00:00Z") };
-    const confirmed: TimeRange[] = [{ start: new Date("2026-08-10T13:00:00Z"), end: new Date("2026-08-10T14:00:00Z") }];
-    const result = subtractResolvedHours([sessionA, sessionB], confirmed);
-    expect(result).toEqual([sessionA, { start: new Date("2026-08-10T14:00:00Z"), end: new Date("2026-08-10T15:00:00Z") }]);
-  });
-
-  // The actual scenario from the design discussion: a "No" at 3pm-4pm must
-  // not also be coarse-credited as business via the session-overlap
-  // pre-fill for a 2h window straddling it.
-  it("end to end: a declined hour inside a still-active session is excluded from that window's business overlap credit", () => {
-    const window: AllocationWindow = {
-      start: new Date("2026-08-10T15:00:00Z"),
-      end: new Date("2026-08-10T17:00:00Z"),
-    };
-    const session: TimeRange = { start: new Date("2026-08-10T13:00:00Z"), end: null }; // still active
-    const declinedHour: TimeRange = { start: new Date("2026-08-10T15:00:00Z"), end: new Date("2026-08-10T16:00:00Z") };
-
-    const adjustedSessions = subtractResolvedHours([session], [declinedHour]);
-    const result = derivePrefillAllocation(window, {
-      lockInSessions: adjustedSessions,
-      loggedPrayerTimes: [],
-      workoutLoggedToday: false,
-      scheduledWorkoutTime: null,
-      scheduledWorkoutDurationMinutes: null,
-    });
-    // Without the subtraction this would be 120 (full window inside the
-    // open session); with it, only the still-open 16:00-17:00 portion
-    // counts toward the coarse credit.
-    expect(result.business).toBe(60);
+  it("credits nothing for a session that has no domain", () => {
+    const session: SessionRange = { start: window.start, end: window.end, domain: null };
+    const result = derivePrefillAllocation(window, { lockInSessions: [session], loggedPrayerTimes: [], ...NO_WORKOUT });
+    expect(result).toEqual({ deen: 0, business: 0, school: 0, fitness: 0, co_op: 0 });
   });
 });

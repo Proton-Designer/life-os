@@ -88,7 +88,7 @@ describe("shell route handlers", () => {
     expect(getQueueMock.mock.calls[0][0]).toBe("user-1");
   });
 
-  it("distraction-count: no sessionId = today's count in the user's timezone with the Deen gate", async () => {
+  it("distraction-count: no sessionId = today's count in the user's timezone with the Faith gate", async () => {
     getTodayCountMock.mockResolvedValue(3);
     const res = await countGET(req("/api/shell/distraction-count"));
     expect(await res.json()).toBe(3);

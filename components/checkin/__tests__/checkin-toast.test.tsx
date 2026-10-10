@@ -228,7 +228,7 @@ describe("CheckinToast", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
-    it("still renders when a Lock-In session is active but minimized", async () => {
+    it("stays hidden while a Lock-In session is active but minimized (a session is never interrupted by a check-in)", async () => {
       getAllocationQueueForNowMock.mockResolvedValue({ items: [WINDOW_A], unknownCount: 0, timezone: "UTC" });
       const session: ActiveWorkSession = {
         id: "s1",
@@ -242,7 +242,7 @@ describe("CheckinToast", () => {
       await act(async () => {
         await Promise.resolve();
       });
-      expect(screen.getByRole("status")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
 
     it("still renders with no Lock-In session active at all", async () => {

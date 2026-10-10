@@ -55,7 +55,7 @@ export type ExclusionCategory = (typeof EXCLUSION_CATEGORIES)[number];
 /** Named tasks a `pending` decision may name (plus any COV_TASK_ID below). Each must exist on the P4 board. */
 export const PENDING_TASKS = {
   "P4-05": "read coverage: Phase-1 tables",
-  "P4-06": "write coverage: Deen",
+  "P4-06": "write coverage: Faith",
   "P4-07": "write coverage: daily rituals (night plan, worries, day start, goals, identity habits)",
   "P4-08": "write coverage: school depth, question bank, ULM gaps",
   "P4-09": "write coverage: work schedule/areas, Lock-In objectives, check-in hours, distractions, fitness habits",
@@ -121,7 +121,6 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // ── Calendar / check-ins ────────────────────────────────────────────────
   "app/(app)/calendar/actions.ts#getWeekCalendar": { read_only: true, note: "calendar.week view is P4-27" },
   "app/(app)/checkin/allocation-actions.ts#saveAllocationCheckin": { mcp: "checkins.allocation.save" },
-  "app/(app)/checkin/session-hour-actions.ts#setSessionHourStatus": { pending: "P4-09", note: "checkins.session_hour.set" },
 
   // ── Evening close / night plan ──────────────────────────────────────────
   "app/(app)/close/actions.ts#computePlanSeeds": { read_only: true },
@@ -138,7 +137,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
 
   // ── Deen ────────────────────────────────────────────────────────────────
   "app/(app)/deen/actions.ts#markPrayer": { mcp: "deen.prayer.log" },
-  "app/(app)/deen/actions.ts#refreshDeenViews": { read_only: true, note: "PERF-1: data-free cache revalidation scheduled by the Deen controls after a burst of taps" },
+  "app/(app)/deen/actions.ts#refreshDeenViews": { read_only: true, note: "PERF-1: data-free cache revalidation scheduled by the Faith controls after a burst of taps" },
   "app/(app)/deen/actions.ts#unmarkPrayer": { mcp: "deen.prayer.unlog", note: "UI deletes the row; MCP sets the non-destructive 'unlogged' status (migration 143)" },
   "app/(app)/deen/actions.ts#toggleAdhkar": { mcp: "deen.adhkar.toggle" },
   "app/(app)/deen/actions.ts#setAdhkar": { excluded: "ui_scaffold: idempotent setter twin of toggleAdhkar for the optimistic UI; MCP exposes the toggle" },

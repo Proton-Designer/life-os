@@ -118,7 +118,7 @@ describe("getNotifications — read-state overlay", () => {
   });
 });
 
-describe("getNotifications — Deen Mode OFF", () => {
+describe("getNotifications — Faith Mode OFF", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tableResponses = {};

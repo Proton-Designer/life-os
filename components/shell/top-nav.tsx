@@ -11,7 +11,7 @@ import { NavLinkPendingHint } from "./nav-link-pending-hint";
 
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon; accent: AccentToken }[] = [
   { href: "/", label: "Home", icon: Home, accent: "info" },
-  { href: "/deen", label: "Deen", icon: DOMAIN_ICON.deen, accent: "deen" },
+  { href: "/deen", label: "Faith", icon: DOMAIN_ICON.deen, accent: "deen" },
   { href: "/business", label: "Business", icon: DOMAIN_ICON.business, accent: "business" },
   { href: "/fitness", label: "Fitness", icon: DOMAIN_ICON.fitness, accent: "fitness" },
   { href: "/school", label: "School", icon: DOMAIN_ICON.school, accent: "school" },

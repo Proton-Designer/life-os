@@ -18,7 +18,7 @@ import { isDeenModeOn } from "@/lib/deen/deen-mode";
 export const DEEN_DOMAIN = "deen";
 
 export const DEEN_OFF_MESSAGE =
-  'The "deen" domain is unavailable: Deen Mode is off for this account. The account owner can turn it on in Settings -> Features.';
+  'The "deen" domain is unavailable: Faith Mode is off for this account. The account owner can turn it on in Settings -> Features.';
 
 /** True only when the owner's profile has deen_mode === true. */
 export async function readDeenMode(client: SupabaseClient, userId: string): Promise<boolean> {

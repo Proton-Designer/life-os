@@ -17,11 +17,11 @@ vi.mock("@/lib/supabase/auth", () => ({
 vi.mock("@/lib/deen/deen-mode-guard", () => ({
   isDeenModeOnForRequest: guard,
   getRequestTimezone: vi.fn(async () => "UTC"),
-  DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
+  DEEN_MODE_OFF_MESSAGE: "Faith Mode is off",
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-describe("deen/actions.ts refuses when Deen Mode is off", () => {
+describe("deen/actions.ts refuses when Faith Mode is off", () => {
   beforeEach(() => {
     fromMock.mockClear();
     guard.mockReset();
@@ -63,11 +63,11 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
       // void actions resolve undefined; the one read resolves an empty list.
       expect(name === "getDeenHabitLogRange" ? result : result ?? null, name).toEqual(name === "getDeenHabitLogRange" ? [] : null);
     }
-    await expect(actions.createDeenHabit("x")).rejects.toThrow("Deen Mode is off");
+    await expect(actions.createDeenHabit("x")).rejects.toThrow("Faith Mode is off");
     expect(fromMock).not.toHaveBeenCalled();
   });
 
-  it("positive control: with Deen Mode ON the same action reaches the database", async () => {
+  it("positive control: with Faith Mode ON the same action reaches the database", async () => {
     guard.mockResolvedValue(true);
     const { archiveDeenHabit } = await import("../actions");
     await expect(archiveDeenHabit("h1")).rejects.toThrow("DB touched");
@@ -75,7 +75,7 @@ describe("deen/actions.ts refuses when Deen Mode is off", () => {
   });
 });
 
-describe("salah-calendar-actions refuse when Deen Mode is off", () => {
+describe("salah-calendar-actions refuse when Faith Mode is off", () => {
   it("returns empty and never queries", async () => {
     fromMock.mockClear();
     profileMock.mockResolvedValue({ timezone: "UTC", deen_mode: false });

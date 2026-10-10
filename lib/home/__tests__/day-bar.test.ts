@@ -124,7 +124,7 @@ describe("DAYBAR-02 model", () => {
   })!;
   const bar = buildDayBar({ layout: withPrayer, wake: WAKE, end: END, now: NOW, efficiencyPercent: 20, timezone: CHI });
 
-  it("prayer WINDOWS become bands (start/end clipped to the bar, current marked), and none exist when there are no spans (Deen OFF)", () => {
+  it("prayer WINDOWS become bands (start/end clipped to the bar, current marked), and none exist when there are no spans (Faith OFF)", () => {
     const dhuhr = bar.prayers.find((p) => p.name === "dhuhr")!;
     expect(dhuhr.startPct).toBeCloseTo(43.75, 1);
     expect(dhuhr.endPct).toBeCloseTo(59.375, 1);

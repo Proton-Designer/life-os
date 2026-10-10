@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 const POLL_MS = 60 * 1000;
 
 const DOMAIN_LABEL: Record<NotificationItem["domain"], string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   fitness: "Fitness",
   school: "School",

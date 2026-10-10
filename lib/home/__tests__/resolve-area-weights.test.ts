@@ -7,7 +7,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
     expect(resolveAreaWeights({ mode: "legacy" }, true)).toEqual({});
   });
 
-  it("Personal Growth's weight is shared by Deen/Fitness/Self-Mastery, each with its OWN subdomain position", () => {
+  it("Personal Growth's weight is shared by Faith/Fitness/Self-Mastery, each with its OWN subdomain position", () => {
     const state: UserDomainsState = {
       mode: "domains",
       domains: [{ key: "personal_growth", position: 0, weight: "essential" }],
@@ -64,7 +64,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
     expect(lookup.fitness).toEqual({ weightTier: "essential", position: null });
   });
 
-  it("Personal Growth not selected at all leaves Deen/Fitness/Self-Mastery entirely absent -- no data to give them, not a fallback to invent", () => {
+  it("Personal Growth not selected at all leaves Faith/Fitness/Self-Mastery entirely absent -- no data to give them, not a fallback to invent", () => {
     const state: UserDomainsState = {
       mode: "domains",
       domains: [{ key: "work", position: 0, weight: "important" }],
@@ -83,7 +83,7 @@ describe("resolveAreaWeights (transitional, R27)", () => {
   });
 });
 
-describe("resolveAreaWeights — Deen Mode OFF", () => {
+describe("resolveAreaWeights — Faith Mode OFF", () => {
   it("omits the deen entry (a faith row exists, but no deen candidates do either); other areas unchanged", () => {
     const state: UserDomainsState = {
       mode: "domains",

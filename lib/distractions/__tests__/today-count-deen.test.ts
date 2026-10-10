@@ -14,7 +14,7 @@ function makeSupabase(count: number) {
   return { supabase: { from: vi.fn(() => chain) } as never, calls };
 }
 
-describe("getTodayDistractionCount — Deen Mode", () => {
+describe("getTodayDistractionCount — Faith Mode", () => {
   it("ON: plain count, no trigger join and no domain filter (as before)", async () => {
     const { supabase, calls } = makeSupabase(4);
     expect(await getTodayDistractionCount(supabase, "u", "2026-10-04", true)).toBe(4);

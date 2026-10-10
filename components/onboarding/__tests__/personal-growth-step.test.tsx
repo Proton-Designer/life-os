@@ -16,7 +16,7 @@ beforeEach(() => {
 // Deen Mode (R5): onboarding offers NO faith/religious option at all -- the
 // Settings -> Deen Mode switch is the only way in. (Supersedes ONB item 3,
 // which only un-preselected Faith.)
-describe("PersonalGrowthStep — no Faith option (Deen Mode R5)", () => {
+describe("PersonalGrowthStep — no Faith option (Faith Mode R5)", () => {
   function noop() {}
 
   it("offers only Fitness and Self-Mastery, both preselected, and no Faith card or copy", () => {

@@ -32,14 +32,15 @@ describe("WeeklyGoalStep (/week step 5)", () => {
     rows = [];
   });
 
-  it("hands the stored Quran target to the editor so a save here can't null it", async () => {
+  it("hands the stored goal to the editor, with no typed-in Quran target (the plan derives it)", async () => {
     rows = [{ domain: "deen", headline: "Finish Juz 3", milestones: ["a"], quran_page_target: 20 }];
     const p = await props();
-    expect(p.deen).toMatchObject({ headline: "Finish Juz 3", quranTarget: 20 });
+    expect(p.deen).toMatchObject({ headline: "Finish Juz 3" });
+    expect(p.deen).not.toHaveProperty("quranTarget");
     expect(p.showDeen).toBe(true);
   });
 
-  it("Deen Mode OFF: the Deen slot is switched off (the editor renders nothing for it)", async () => {
+  it("Faith Mode OFF: the Faith slot is switched off (the editor renders nothing for it)", async () => {
     deenMode = false;
     rows = [{ domain: "deen", headline: "secret", milestones: [], quran_page_target: 5 }];
     const p = await props();

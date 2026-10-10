@@ -1,5 +1,6 @@
 import { DOMAIN_KEYS, STEP, emptyAllocation, minutesFor, type Allocation, type DomainKey } from "./allocation";
 import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from "./schedule";
+import type { SessionRange } from "./session-accounting";
 
 /**
  * Pre-fill derivation — pure functions, no React, no I/O.
@@ -9,7 +10,7 @@ import { NOMINAL_PRAYER_MINUTES, type AllocationWindow, type TimeRange } from ".
  *
  * Never a guess about *what* happened — only about *how much* of it landed
  * inside this specific window, computed from data the app already logged
- * (Lock-In sessions, logged prayers, a scheduled workout). The caller
+ * (Deep Work / Deep Study sessions, logged prayers, a scheduled workout). The caller
  * (Engineer 2's `allocation-checkin.tsx`) takes the result as
  * `initialAllocation`, fully editable, marked subtly as pre-filled.
  *
@@ -55,89 +56,15 @@ function overlapStepMinutes(window: AllocationWindow, range: TimeRange): number 
   return Math.floor(minutes / STEP) * STEP;
 }
 
-function sumOverlapStepMinutes(window: AllocationWindow, ranges: TimeRange[]): number {
-  const total = ranges.reduce((sum, r) => sum + overlapStepMinutes(window, r), 0);
-  return Math.floor(total / STEP) * STEP;
-}
-
-/**
- * Removes every RESOLVED hourly Lock-In hour from `sessions` before they
- * ever reach the coarse overlap-based business credit above — 2026-08-19,
- * the double-count guard for the hourly confirm feature. "Resolved" means
- * the hour has a definite value from one of two sources (widened
- * 2026-08-19, docs/superpowers/specs/2026-08-19-missed-lockin-hours.md;
- * originally answered-only): explicitly answered (a real
- * checkin_allocations row, business for Yes / wasted for No), OR
- * auto-missed — superseded and unconfirmed, DERIVED as wasted with no row
- * written (see session-hour-status.ts's resolveSessionHours) but just as
- * definite a value as an explicit answer for this guard's purposes. Either
- * way, a resolved hour must never ALSO be coarse-credited by
- * session-overlap for the same 60 minutes: a wasted hour (answered "No" or
- * auto-missed) double-counted as business would silently reverse the very
- * drift both the confirm and the missed-hour ruling exist to catch, and a
- * "Yes" hour would just double-count the same real minutes twice.
- *
- * The one hour deliberately left alone — not subtracted — is the CURRENT
- * PENDING due slot, if any: it hasn't resolved yet either way, and keeps
- * falling back to the coarse credit exactly as every not-yet-fired hour
- * already does. That's the only remaining case of the original
- * already-accepted inference (session presence implies probable business
- * time); this function replaces that inference with a precise one
- * wherever a definite value exists (answered or missed), and only ever
- * removes evidence for the one hour that's still genuinely unknown.
- *
- * Call once per queue-build with the day's resolved hours, then pass the
- * result as `lockInSessions` into every window's derivePrefillAllocation
- * call — cheaper than re-subtracting per window, and keeps this function's
- * signature independent of any single window.
- *
- * Deliberately per-HOUR, not per-window (2026-08-19, corrects the Lead's own
- * first instinct): a window-level "is this window fully covered by resolved
- * hours?" check (see schedule.ts's isWindowCoveredBySessionHours, which
- * exists for the separate re-queue-suppression concern) is not sufficient
- * here. A 2h window with ONE of its two hours resolved and the other still
- * open/pending is not fully covered, so a window-level check leaves it
- * alone — but the resolved hour inside it must still be subtracted, or that
- * hour's minutes get counted twice: once from its own real value (a stored
- * row, or the missed-hour derivation), once again inside the coarse
- * session-overlap credit for the window's still-pending boundary hour.
- * Subtracting per-hour handles both the fully-covered and
- * partially-covered cases correctly in one pass, for both answered AND
- * missed hours; do not "simplify" this back to a window-coverage check.
- */
-export function subtractResolvedHours(sessions: TimeRange[], resolvedHourRanges: TimeRange[]): TimeRange[] {
-  const confirmed = resolvedHourRanges.filter((r): r is { start: Date; end: Date } => r.end !== null);
-  if (confirmed.length === 0) return sessions;
-
-  const result: TimeRange[] = [];
-  for (const session of sessions) {
-    let pieces: { start: number; end: number | null }[] = [
-      { start: session.start.getTime(), end: session.end ? session.end.getTime() : null },
-    ];
-
-    for (const c of confirmed) {
-      const cStart = c.start.getTime();
-      const cEnd = c.end.getTime();
-      const next: typeof pieces = [];
-      for (const p of pieces) {
-        const noOverlap = (p.end !== null && cEnd <= p.start) || cStart >= (p.end ?? Infinity);
-        if (noOverlap) {
-          next.push(p);
-          continue;
-        }
-        if (cStart > p.start) next.push({ start: p.start, end: cStart });
-        if (p.end === null) next.push({ start: cEnd, end: null });
-        else if (cEnd < p.end) next.push({ start: cEnd, end: p.end });
-      }
-      pieces = next;
-    }
-
-    for (const p of pieces) {
-      if (p.end !== null && p.end <= p.start) continue; // fully consumed
-      result.push({ start: new Date(p.start), end: p.end === null ? null : new Date(p.end) });
-    }
+/** Overlap minutes per domain from the day's sessions: Deep Work -> Business, Deep Study -> School. A session with no domain credits nothing. */
+function sessionMinutesByDomain(window: AllocationWindow, sessions: SessionRange[]): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const s of sessions) {
+    if (s.domain === null) continue;
+    totals[s.domain] = (totals[s.domain] ?? 0) + overlapStepMinutes(window, s);
   }
-  return result;
+  for (const d of Object.keys(totals)) totals[d] = Math.floor(totals[d]! / STEP) * STEP;
+  return totals;
 }
 
 /** One NOMINAL_PRAYER_MINUTES step per logged prayer whose real clock time falls inside the window — never a fraction, never a guess at duration. */
@@ -150,14 +77,15 @@ function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]
 
 /**
  * Derives a pre-fill `Allocation` for `window` from real, already-logged
- * data: Lock-In session overlap -> business, a logged prayer's clock time
+ * data: Deep Work session overlap -> business and Deep Study overlap -> school
+ * (the sessions account for themselves), a logged prayer's clock time
  * falling in the window -> deen (one nominal STEP each, see
  * loggedPrayerMinutes above), a workout that's BOTH logged AND scheduled
  * with a time falling inside this window -> fitness, using the schedule's
  * real `duration_minutes` when set and only falling back to
- * NOMINAL_WORKOUT_MINUTES when it isn't. School and Work have no data
- * source to guess from, so they're always left at 0 — genuinely unknown,
- * not silently assumed zero-effort.
+ * NOMINAL_WORKOUT_MINUTES when it isn't. Work has no data source to guess
+ * from, so it is always left at 0 — genuinely unknown, not silently
+ * assumed zero-effort.
  *
  * If sources together would exceed the window's own length (e.g. a
  * Lock-In session overlapping several logged prayers inside it —
@@ -169,14 +97,14 @@ function loggedPrayerMinutes(window: AllocationWindow, loggedPrayerTimes: Date[]
 export function derivePrefillAllocation(
   window: AllocationWindow,
   data: {
-    lockInSessions: TimeRange[];
+    lockInSessions: SessionRange[];
     loggedPrayerTimes: Date[];
     workoutLoggedToday: boolean;
     scheduledWorkoutTime: Date | null;
     scheduledWorkoutDurationMinutes: number | null;
   }
 ): Allocation {
-  const businessMinutes = sumOverlapStepMinutes(window, data.lockInSessions);
+  const sessionMinutes = sessionMinutesByDomain(window, data.lockInSessions);
   const deenMinutes = loggedPrayerMinutes(window, data.loggedPrayerTimes);
   const scheduledInWindow =
     data.scheduledWorkoutTime !== null &&
@@ -185,7 +113,7 @@ export function derivePrefillAllocation(
   const fitnessMinutes =
     data.workoutLoggedToday && scheduledInWindow ? (data.scheduledWorkoutDurationMinutes ?? NOMINAL_WORKOUT_MINUTES) : 0;
 
-  const raw: Allocation = { ...emptyAllocation(), deen: deenMinutes, business: businessMinutes, fitness: fitnessMinutes };
+  const raw: Allocation = { ...emptyAllocation(), ...sessionMinutes, deen: deenMinutes, fitness: fitnessMinutes };
   return capBelowFullWindow(raw, window);
 }
 

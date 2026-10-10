@@ -88,7 +88,7 @@ async function resolveTargetWindow(
 
 const VALID_DOMAINS = new Set<string>(DOMAIN_KEYS);
 
-export const DEEN_MINUTES_OFF_MESSAGE = "Deen Mode is off, so time can't be allocated to Deen. Turn Deen Mode on in Settings or leave Deen at 0.";
+export const DEEN_MINUTES_OFF_MESSAGE = "Faith Mode is off, so time can't be allocated to Faith. Turn Faith Mode on in Settings or leave Faith at 0.";
 
 /**
  * Deen Mode OFF: refuse an allocation that puts minutes on Deen (the UI hides

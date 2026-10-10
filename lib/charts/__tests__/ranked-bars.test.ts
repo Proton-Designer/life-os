@@ -5,15 +5,15 @@ describe("rankBars", () => {
   it("sorts descending by value", () => {
     const ranked = rankBars([
       { label: "Fitness", value: 12 },
-      { label: "Deen", value: 42 },
+      { label: "Faith", value: 42 },
       { label: "Business", value: 30 },
     ]);
-    expect(ranked.map((b) => b.label)).toEqual(["Deen", "Business", "Fitness"]);
+    expect(ranked.map((b) => b.label)).toEqual(["Faith", "Business", "Fitness"]);
   });
 
   it("scales pct relative to the largest value, so the top bar is always 100%", () => {
     const ranked = rankBars([
-      { label: "Deen", value: 42 },
+      { label: "Faith", value: 42 },
       { label: "Fitness", value: 21 },
     ]);
     expect(ranked[0].pct).toBe(100);

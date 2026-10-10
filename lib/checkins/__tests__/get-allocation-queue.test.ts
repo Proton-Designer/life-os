@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPendingAllocationQueue, type AllocationQueueDataSource } from "../get-allocation-queue";
-import type { TimeRange } from "../schedule";
+import type { SessionRange } from "../session-accounting";
 
 function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): AllocationQueueDataSource {
   return {
@@ -19,8 +19,6 @@ function baseDataSource(overrides: Partial<AllocationQueueDataSource> = {}): All
     getAnsweredWindowStarts: async () => [],
     getLoggedPrayerNames: async () => [],
     getWorkoutLoggedToday: async () => false,
-    getSessionsForHourResolution: async () => [],
-    getStoredSessionHours: async () => [],
     ...overrides,
   };
 }
@@ -42,6 +40,7 @@ describe("getPendingAllocationQueue", () => {
     const lockIn = {
       start: new Date("2026-08-19T13:15:00Z"), // 08:15 CDT, inside the first window
       end: new Date("2026-08-19T13:45:00Z"),
+      domain: "business" as const,
     };
     const result = await getPendingAllocationQueue(
       "user-1",
@@ -95,7 +94,7 @@ describe("getPendingAllocationQueue", () => {
   // check-in (Dhuhr's window alone runs ~220min), regardless of whether a
   // prayer was ever logged. Only a logged prayer's actual clock time,
   // capped at one nominal STEP, may contribute now.
-  it("caps the Deen prefill at one nominal STEP per logged prayer, never full validity-window overlap", async () => {
+  it("caps the Faith prefill at one nominal STEP per logged prayer, never full validity-window overlap", async () => {
     const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — inside the 14:00-16:00 window
     const result = await getPendingAllocationQueue(
       "user-1",
@@ -173,64 +172,26 @@ describe("getPendingAllocationQueue", () => {
     }
   });
 
-  describe("hourly Lock-In confirm / missed-hour wiring", () => {
-    // A closed session with silence resolves every fired hour to
-    // missed_wasted (session-hour-status.ts) with no stored row at all —
-    // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md's whole
-    // point. This must be just as "resolved" as an explicit answer for the
-    // don't-re-queue check.
-    it("does not queue a window fully covered by resolved session hours, even with zero stored rows (auto-missed)", async () => {
-      const now = new Date("2026-08-19T17:00:00Z"); // 12:00 CDT — well after the 08:00-10:00 window fired
-      const session = {
-        id: "s1",
-        startedAt: new Date("2026-08-19T12:00:00Z"), // fires at 13:00Z and 14:00Z within the 13:00-15:00Z window
-        endedAt: new Date("2026-08-19T15:00:00Z"),
-      };
-      const result = await getPendingAllocationQueue(
-        "user-1",
-        now,
-        baseDataSource({ getSessionsForHourResolution: async () => [session], getStoredSessionHours: async () => [] })
-      );
+  describe("sessions account for themselves", () => {
+    // A finished session that covers a whole window is accounted for by the session: the window is never queued.
+    it("does not queue a window the finished sessions cover end to end", async () => {
+      const now = new Date("2026-08-19T17:00:00Z"); // 12:00 CDT, well after the 08:00-10:00 window fired
+      const session: SessionRange = { start: new Date("2026-08-19T13:00:00Z"), end: new Date("2026-08-19T15:00:00Z"), domain: "business" };
+      const result = await getPendingAllocationQueue("user-1", now, baseDataSource({ getWorkSessions: async () => [session] }));
 
       expect(
         result.items.some((i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T13:00:00Z").getTime())
       ).toBe(false);
     });
 
-    // The double-count guard: an hour with its own precise, resolved value
-    // (explicit answer or auto-missed) must not also get coarse-credited to
-    // business by the raw Lock-In session overlap for the same 60
-    // minutes — otherwise the numbers would contradict each other.
-    it("subtracts resolved hours from the coarse Lock-In overlap before it reaches the prefill", async () => {
-      const now = new Date("2026-08-19T21:00:00Z"); // 16:00 CDT — inside 14:00-16:00's queue window
-      const lockIn: TimeRange = { start: new Date("2026-08-19T18:00:00Z"), end: new Date("2026-08-19T20:00:00Z") }; // 13:00-15:00 CDT
-      const session = { id: "s1", startedAt: new Date("2026-08-19T18:00:00Z"), endedAt: new Date("2026-08-19T19:30:00Z") }; // ended before the second hour fires, so only the stored 19:00Z hour resolves
-      // Only the second hour (14:00-15:00 CDT, i.e. 19:00Z) has been explicitly answered.
-      const storedHours = [{ sessionId: "s1", hourStartIso: "2026-08-19T19:00:00Z", domain: "wasted" as const }];
+    it("still queues a window a session only partly covers, pre-filled with the overlap in the session's own domain", async () => {
+      const now = new Date("2026-08-19T15:05:00Z"); // 10:05 CDT, inside the 08:00-10:00 window's answer period
+      const study: SessionRange = { start: new Date("2026-08-19T13:15:00Z"), end: new Date("2026-08-19T14:00:00Z"), domain: "school" };
+      const result = await getPendingAllocationQueue("user-1", now, baseDataSource({ getWorkSessions: async () => [study] }));
 
-      const withResolved = await getPendingAllocationQueue(
-        "user-1",
-        now,
-        baseDataSource({
-          getWorkSessions: async () => [lockIn],
-          getSessionsForHourResolution: async () => [session],
-          getStoredSessionHours: async () => storedHours,
-        })
-      );
-      const withoutResolved = await getPendingAllocationQueue(
-        "user-1",
-        now,
-        baseDataSource({ getWorkSessions: async () => [lockIn] })
-      );
-
-      const businessWith = withResolved.items.find(
-        (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
-      )?.prefill.business;
-      const businessWithout = withoutResolved.items.find(
-        (i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T19:00:00Z").getTime()
-      )?.prefill.business;
-
-      expect(businessWith).toBeLessThan(businessWithout ?? 0);
+      const first = result.items.find((i) => new Date(i.windowStartIso).getTime() === new Date("2026-08-19T13:00:00Z").getTime());
+      expect(first?.prefill.school).toBe(45); // Deep Study -> School
+      expect(first?.prefill.business).toBe(0);
     });
   });
 
@@ -254,7 +215,7 @@ describe("getPendingAllocationQueue", () => {
   });
 
   // Deen Mode OFF: no prayer queries, no prayer-window suppression, no Deen prefill.
-  describe("Deen Mode gate", () => {
+  describe("Faith Mode gate", () => {
     const MCKINNEY = {
       timezone: "America/Chicago",
       checkin_window_start: "08:00",
@@ -283,7 +244,7 @@ describe("getPendingAllocationQueue", () => {
       expect(prayerReads).toBe(1);
     });
 
-    it("OFF (false, null, or missing): never reads prayers, zero Deen prefill, deenMode false", async () => {
+    it("OFF (false, null, or missing): never reads prayers, zero Faith prefill, deenMode false", async () => {
       for (const deen_mode of [false, null, undefined]) {
         let prayerReads = 0;
         const result = await getPendingAllocationQueue(

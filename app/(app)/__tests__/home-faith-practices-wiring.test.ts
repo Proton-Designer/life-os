@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 const page = readFileSync(join(__dirname, "../page.tsx"), "utf8");
 
 describe("Home Faith practices wiring", () => {
-  it("reads the practices only when Deen mode is on (skipped, not fetched-then-hidden)", () => {
+  it("reads the practices only when Faith mode is on (skipped, not fetched-then-hidden)", () => {
     expect(page).toMatch(/deenMode \? getFaithPractices\(supabase, userId, dateStr\)/);
     expect(page).toContain("faithPractices={faithPractices}");
   });

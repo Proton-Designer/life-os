@@ -192,7 +192,7 @@ describe("GlobalCaptureSheet", () => {
       expect(captureTaskMock).toHaveBeenCalledWith({ title: "Send invoice", area: "co_op", dueDate: null, dueTime: null });
     });
 
-    it("never offers a faith/Deen area (tasks have no such home)", async () => {
+    it("never offers a faith/Faith area (tasks have no such home)", async () => {
       await addTask(domainsAreas);
       expect(screen.queryByRole("radio", { name: /faith|deen/i })).toBeNull();
     });

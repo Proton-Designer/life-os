@@ -40,7 +40,7 @@ const RANKS = [1, 2, 3, 4, 5] as const;
 
 const DOMAIN_OPTIONS: { value: string; label: string }[] = [
   { value: "none", label: "No domain" },
-  { value: "deen", label: "Deen" },
+  { value: "deen", label: "Faith" },
   { value: "business", label: "Business" },
   { value: "fitness", label: "Fitness" },
   { value: "school", label: "School" },

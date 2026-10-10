@@ -105,7 +105,7 @@ describe("RealtimeSyncProvider", () => {
     }
   });
 
-  it("Deen Mode OFF skips the prayer / sunnah / deen-habit subscriptions but keeps the rest", async () => {
+  it("Faith Mode OFF skips the prayer / sunnah / deen-habit subscriptions but keeps the rest", async () => {
     render(<RealtimeSyncProvider userId="user-1" deenMode={false} />);
     await flushJoin();
     const tables = onCalls.map((c) => c.table);

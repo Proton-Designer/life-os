@@ -11,7 +11,7 @@ import { formatWindowRelativeTime } from "@/lib/date-utils";
 import { featuredCardStyle } from "@/lib/featured-card-style";
 
 const DOMAIN_LABEL: Record<PriorityItem["domain"], string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   fitness: "Fitness",
   school: "School",

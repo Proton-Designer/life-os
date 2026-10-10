@@ -17,7 +17,7 @@ import type { WeeklyGoalEntry } from "@/components/shared/weekly-goals-header";
  * WeeklyGoalsHeader) and the Business "This week's goal" widget all render this, and all save
  * through the same `saveWeeklyGoal(domain, ...)` Server Action.
  */
-export const GOAL_DOMAIN_LABEL = { deen: "Deen", business: "Business" } as const;
+export const GOAL_DOMAIN_LABEL = { deen: "Faith", business: "Business" } as const;
 export type GoalDomain = keyof typeof GOAL_DOMAIN_LABEL;
 
 /** One domain's slice of the combined module: label + headline (or the

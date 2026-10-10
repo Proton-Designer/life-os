@@ -36,7 +36,7 @@ function findHabitList(node: unknown): { props: Record<string, unknown> } | null
 describe("HabitsSection Faith practices (HABITS-01)", () => {
   beforeEach(() => getFaithPractices.mockClear());
 
-  it("Deen ON reads the practices and passes them to the list (positive control)", async () => {
+  it("Faith ON reads the practices and passes them to the list (positive control)", async () => {
     deenOn = true;
     const { HabitsSection } = await import("../habits-section");
     const tree = await HabitsSection();
@@ -44,7 +44,7 @@ describe("HabitsSection Faith practices (HABITS-01)", () => {
     expect(findHabitList(tree)?.props.faithPractices).toEqual([{ id: "p1" }]);
   });
 
-  it("Deen OFF never calls the reader and passes none", async () => {
+  it("Faith OFF never calls the reader and passes none", async () => {
     deenOn = false;
     const { HabitsSection } = await import("../habits-section");
     const tree = await HabitsSection();

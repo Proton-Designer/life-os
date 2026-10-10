@@ -154,15 +154,15 @@ describe("DistractionCaptureDialog", () => {
       await screen.findByText("What happened?");
       await user.click(screen.getByRole("button", { name: "More options" }));
       expect(screen.getByText("What's the domain?")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Deen" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Faith" })).toBeInTheDocument();
     });
 
-    it("Deen Mode OFF: the domain picker has no Deen option (and the default is fail-closed with no prop); ON has it", async () => {
+    it("Faith Mode OFF: the domain picker has no Faith option (and the default is fail-closed with no prop); ON has it", async () => {
       listTopTriggersForQuickLogMock.mockResolvedValue([]);
       const off = renderDialog(null, false);
       await openDialog();
       await screen.findByText("What's the domain?");
-      expect(screen.queryByRole("button", { name: "Deen" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Faith" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Business" })).toBeInTheDocument();
       off.unmount();
       render(
@@ -172,7 +172,7 @@ describe("DistractionCaptureDialog", () => {
       );
       await openDialog();
       await screen.findByText("What's the domain?");
-      expect(screen.queryByRole("button", { name: "Deen" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Faith" })).not.toBeInTheDocument();
     });
 
     it("a first-time user with ZERO triggers skips the empty chip screen and lands on the domain picker directly", async () => {

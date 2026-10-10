@@ -29,7 +29,7 @@ const SNAPSHOTS: DomainSnapshots = {
 describe("DomainStatusStack", () => {
   it("renders all 5 domains as links to their own page", () => {
     render(<DomainStatusStack snapshots={SNAPSHOTS} />);
-    expect(screen.getByRole("link", { name: /Deen/ })).toHaveAttribute("href", "/deen");
+    expect(screen.getByRole("link", { name: /Faith/ })).toHaveAttribute("href", "/deen");
     expect(screen.getByRole("link", { name: /Work/ })).toHaveAttribute("href", "/work");
   });
 
@@ -47,12 +47,12 @@ describe("DomainStatusStack", () => {
     expect(screen.getByText("Sector progress")).toBeInTheDocument();
   });
 
-  it("does not mention qada in the Deen row when nothing is outstanding", () => {
+  it("does not mention qada in the Faith row when nothing is outstanding", () => {
     render(<DomainStatusStack snapshots={SNAPSHOTS} />);
     expect(screen.queryByText(/qada/i)).not.toBeInTheDocument();
   });
 
-  it("surfaces outstanding qada in the Deen row's metric when non-zero — a doorway, not a new element", () => {
+  it("surfaces outstanding qada in the Faith row's metric when non-zero — a doorway, not a new element", () => {
     const snapshots: DomainSnapshots = {
       ...SNAPSHOTS,
       deen: { ...SNAPSHOTS.deen, qadaBacklogCount: 3 },
@@ -70,7 +70,7 @@ describe("DomainStatusStack", () => {
     expect(screen.getByRole("img", { name: "Not tracked today" })).toBeInTheDocument();
   });
 
-  it("shows Deen as 'Not tracked yet' with a dash ring, not 0/5 and a 0% ring, when the day hasn't closed and nothing is logged", () => {
+  it("shows Faith as 'Not tracked yet' with a dash ring, not 0/5 and a 0% ring, when the day hasn't closed and nothing is logged", () => {
     const snapshots: DomainSnapshots = {
       ...SNAPSHOTS,
       deen: {
@@ -135,7 +135,7 @@ describe("DomainStatusStack", () => {
   describe("visibleDomains gating", () => {
     it("shows only the passed domains, in canonical order, when the caller opts in", () => {
       render(<DomainStatusStack snapshots={SNAPSHOTS} visibleDomains={["deen", "school"]} />);
-      expect(screen.getByRole("link", { name: /Deen/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Faith/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /School/ })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /Business/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /Fitness/ })).not.toBeInTheDocument();
@@ -149,7 +149,7 @@ describe("DomainStatusStack", () => {
 
     it("defaults to all 5 domains when the caller doesn't pass visibleDomains at all -- every existing/legacy caller is unaffected", () => {
       render(<DomainStatusStack snapshots={SNAPSHOTS} />);
-      expect(screen.getByRole("link", { name: /Deen/ })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Faith/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /Business/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /Fitness/ })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /School/ })).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe("DomainStatusStack", () => {
       expect(screen.getByRole("link", { name: /Acme Startup/ })).toHaveAttribute("href", "/work/business");
       expect(screen.getByText("Kill list 1/3")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /Co-op/ })).toHaveAttribute("href", "/work/co-op");
-      expect(screen.queryByText(/Deen|Fitness|School/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Faith|Fitness|School/)).not.toBeInTheDocument();
     });
 
     it("one area: a single card, no placeholders", () => {
@@ -190,7 +190,7 @@ describe("DomainStatusStack", () => {
     });
   });
 
-  it("QURAN-02: the Deen row carries the khatm percent (and behind/paused), and only the Deen row", () => {
+  it("QURAN-02: the Faith row carries the khatm percent (and behind/paused), and only the Faith row", () => {
     const { unmount } = render(<DomainStatusStack snapshots={SNAPSHOTS} />);
     expect(screen.queryByTestId("sector-khatm")).not.toBeInTheDocument(); // positive control: no plan, no khatm text
     unmount();

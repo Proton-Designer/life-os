@@ -46,7 +46,7 @@ async function clearIsha(request: APIRequestContext) {
 async function toggleInSettings(page: Page, request: APIRequestContext, to: boolean) {
   await page.goto("/settings");
   await dismissCheckinDialogIfPresent(page);
-  const sw = page.getByRole("switch", { name: "Deen Mode" });
+  const sw = page.getByRole("switch", { name: "Faith Mode" });
   await expect(sw).toBeVisible();
   if ((await sw.getAttribute("aria-checked")) === String(to)) return;
   await sw.click();
@@ -78,7 +78,7 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 }); // desktop sidebar + Settings section rail visible
 });
 
-test.describe("Deen Mode OFF (the default)", () => {
+test.describe("Faith Mode OFF (the default)", () => {
   test("navigation names nothing religious", async ({ page }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
@@ -105,7 +105,7 @@ test.describe("Deen Mode OFF (the default)", () => {
     await expect(page.getByText("Timezone", { exact: true }).first()).toBeVisible();
     await expect(page.getByLabel("Timezone")).toBeVisible();
     // The only way in is this switch, and it starts off.
-    await expect(page.getByRole("switch", { name: "Deen Mode" })).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByRole("switch", { name: "Faith Mode" })).toHaveAttribute("aria-checked", "false");
   });
 
   test("/deen redirects to Home; /personal/faith never renders Faith", async ({ page }) => {
@@ -120,7 +120,7 @@ test.describe("Deen Mode OFF (the default)", () => {
   });
 });
 
-test.describe("Deen Mode ON, then OFF again", () => {
+test.describe("Faith Mode ON, then OFF again", () => {
   test("turning it on in Settings reveals Faith in Settings, nav and Home", async ({ page }) => {
     await toggleInSettings(page, page.request, true);
 
@@ -135,7 +135,7 @@ test.describe("Deen Mode ON, then OFF again", () => {
     // Faith is back in navigation (by href: on a phone the link sits under the Personal
     // tab / drawer, so it is attached but not necessarily visible) and on Home.
     await expect(page.locator('a[href*="/personal/faith"], a[href*="/deen"]').first()).toBeAttached();
-    await expect(page.getByText("Deen", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Faith", { exact: true }).first()).toBeVisible();
 
     await page.goto("/personal/faith");
     await expect(page).toHaveURL(/\/personal\/faith/);

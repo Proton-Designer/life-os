@@ -11,8 +11,7 @@ import { saveWeeklyGoal } from "@/app/(app)/actions";
 /**
  * /week step 5: pick this week's goal(s) through THE shared weekly-goal editor (the same
  * WeeklyGoalsHeader Home and /calendar render, saving through the same `saveWeeklyGoal`). Weeks
- * are Sunday-start, so on the reset Sunday "this week" is the week that starts today. The Quran
- * target is read back and handed to the editor so a save here never nulls it.
+ * are Sunday-start, so on the reset Sunday "this week" is the week that starts today.
  */
 export async function WeeklyGoalStep() {
   const user = await getAuthedUser();
@@ -29,7 +28,7 @@ export async function WeeklyGoalStep() {
 
   const { data } = await supabase
     .from("weekly_goals")
-    .select("domain, headline, milestones, quran_page_target")
+    .select("domain, headline, milestones")
     .eq("user_id", user.id)
     .eq("week_start_date", weekStart)
     .in("domain", domains);
@@ -40,7 +39,6 @@ export async function WeeklyGoalStep() {
     return {
       headline: row.headline,
       milestones: (row.milestones as string[] | null) ?? [],
-      ...(domain === "deen" ? { quranTarget: row.quran_page_target } : {}),
     };
   };
 

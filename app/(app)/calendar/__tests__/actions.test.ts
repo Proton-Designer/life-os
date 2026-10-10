@@ -30,7 +30,7 @@ vi.mock("@/lib/tasks/schedule-cancellations", () => ({
   isOccurrenceCancelled: vi.fn(() => false),
 }));
 
-describe("getWeekCalendar -- Deen Mode", () => {
+describe("getWeekCalendar -- Faith Mode", () => {
   beforeEach(() => fromMock.mockClear());
 
   it("OFF: no quran read, no deen goal, deenMode false (business untouched)", async () => {
@@ -48,7 +48,7 @@ describe("getWeekCalendar -- Deen Mode", () => {
     const { getWeekCalendar } = await import("../actions");
     const data = await getWeekCalendar();
     expect(fromMock).toHaveBeenCalledWith("quran_sessions");
-    expect(data.deen).toMatchObject({ headline: "Kahf", quranPages: 7, quranTarget: 20 });
+    expect(data.deen).toMatchObject({ headline: "Kahf", quranPages: 7, quranTarget: null });
     expect(data.deenMode).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { KpiStripSkeleton, PanelSkeleton, RowListSkeleton } from "@/components/s
 export default function DeenLoading() {
   return (
     <PageContainer>
-      {/* Neutral title bar, not "Deen": with Deen Mode off this skeleton can flash for a
+      {/* Neutral title bar, not "Faith": with Faith Mode off this skeleton can flash for a
           beat before page.tsx redirects to "/", and it must not name the Faith section. */}
       <div className="h-9 w-32 animate-pulse rounded-md bg-muted/40" aria-hidden />
       <KpiStripSkeleton count={3} cols="md:grid-cols-2 lg:grid-cols-3" />

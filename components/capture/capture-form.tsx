@@ -39,7 +39,7 @@ const LEGACY_AREAS: CaptureAreaConfig = {
 };
 
 const DISTRACTION_DOMAINS: { label: string; value: DistractionDomain }[] = [
-  { label: "Deen", value: "deen" },
+  { label: "Faith", value: "deen" },
   { label: "Business", value: "business" },
   { label: "School", value: "school" },
   { label: "Fitness", value: "fitness" },

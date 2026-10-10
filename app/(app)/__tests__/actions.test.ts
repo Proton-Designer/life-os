@@ -413,7 +413,7 @@ describe("signOut", () => {
   });
 });
 
-describe("Deen Mode OFF refuses the deen branches (data untouched)", () => {
+describe("Faith Mode OFF refuses the deen branches (data untouched)", () => {
   function offChain(deenMode: boolean | null) {
     const chain = makeChain();
     chain.maybeSingle = vi.fn(async () => ({ data: deenMode === null ? null : { deen_mode: deenMode, timezone: "UTC" }, error: null }));
@@ -456,7 +456,7 @@ describe("Deen Mode OFF refuses the deen branches (data untouched)", () => {
     });
   }
 
-  it("toggle_task is unaffected when Deen Mode is off", async () => {
+  it("toggle_task is unaffected when Faith Mode is off", async () => {
     const chain = offChain(false);
     fromMock.mockReturnValue(chain);
     const { toggleItem } = await import("../actions");

@@ -10,7 +10,7 @@ import type { ReviewGroup } from "@/lib/distractions/review-groups";
 // events today are already omitted by getReviewItems, so this is only the
 // display label for whatever groups actually arrive.
 const DOMAIN_LABEL: Record<DistractionDomain, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   school: "School",
   fitness: "Fitness",

@@ -12,8 +12,8 @@ import {
   type TimeRange,
   type WakeSleepBounds,
 } from "./schedule";
-import { derivePrefillAllocation, subtractResolvedHours } from "./prefill";
-import { resolveSessionHours, resolvedHourRanges } from "./session-hour-status";
+import { derivePrefillAllocation } from "./prefill";
+import { sessionDomainForKind, type SessionRange } from "./session-accounting";
 import type { Allocation } from "./allocation";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 
@@ -59,7 +59,8 @@ export type AllocationQueueDataSource = {
     /** Deen Mode switch; absent/null reads as OFF. */
     deen_mode?: boolean | null;
   } | null>;
-  getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<TimeRange[]>;
+  /** Today's Deep Work / Deep Study sessions, each with the domain its kind is credited to. */
+  getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<SessionRange[]>;
   /** durationMinutes is null when the schedule row hasn't set one (023_workout_schedule_duration.sql) — derivePrefillAllocation falls back to its own nominal default. */
   getWorkoutSchedule: (
     userId: string,
@@ -71,18 +72,6 @@ export type AllocationQueueDataSource = {
   getLoggedPrayerNames: (userId: string, dateStr: string) => Promise<string[]>;
   /** EVIDENCE: a workout_sessions row exists for `dateStr` (Fitness redesign, 2026-08-20 — repointed off the dropped `workout_logs`) — checked against `date`, never `created_at` (when it was recorded, not when it was performed). Every workout_sessions row (confirmed, adhoc, or quick) represents something that actually happened, unlike the old table's `completed` flag, which this table has no equivalent of because there's no "planned but not done" row shape here. */
   getWorkoutLoggedToday: (userId: string, dateStr: string) => Promise<boolean>;
-  /** Today's Lock-In sessions with their own identity — needed to group stored hours per session for resolveSessionHours. */
-  getSessionsForHourResolution: (
-    userId: string,
-    dateStr: string,
-    timezone: string
-  ) => Promise<{ id: string; startedAt: Date; endedAt: Date | null }[]>;
-  /** Every stored (explicitly answered or edited) hourly Lock-In row for `dateStr`, with its session and real domain. */
-  getStoredSessionHours: (
-    userId: string,
-    dateStr: string,
-    timezone: string
-  ) => Promise<{ sessionId: string; hourStartIso: string; domain: "business" | "wasted" }[]>;
 };
 
 function defaultDataSource(): AllocationQueueDataSource {
@@ -104,7 +93,7 @@ function defaultDataSource(): AllocationQueueDataSource {
       const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from("work_sessions")
-        .select("started_at, ended_at")
+        .select("kind, started_at, ended_at")
         .eq("user_id", userId)
         .eq("counts_toward_hours", true) // see migration 057
         .gte("started_at", dayStart)
@@ -112,6 +101,7 @@ function defaultDataSource(): AllocationQueueDataSource {
       return (data ?? []).map((s) => ({
         start: new Date(s.started_at),
         end: s.ended_at ? new Date(s.ended_at) : null,
+        domain: sessionDomainForKind(s.kind),
       }));
     },
     async getWorkoutSchedule(userId, dateStr, timezone) {
@@ -158,47 +148,6 @@ function defaultDataSource(): AllocationQueueDataSource {
         .limit(1);
       return (data ?? []).length > 0;
     },
-    async getSessionsForHourResolution(userId, dateStr, timezone) {
-      const supabase = await createClient();
-      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
-      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from("work_sessions")
-        .select("id, started_at, ended_at")
-        .eq("user_id", userId)
-        .eq("counts_toward_hours", true) // see migration 057
-        .gte("started_at", dayStart)
-        .lt("started_at", dayEnd);
-      return (data ?? []).map((s) => ({
-        id: s.id,
-        startedAt: new Date(s.started_at),
-        endedAt: s.ended_at ? new Date(s.ended_at) : null,
-      }));
-    },
-    async getStoredSessionHours(userId, dateStr, timezone) {
-      const supabase = await createClient();
-      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
-      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from("checkins")
-        .select("window_start, work_session_id, checkin_allocations(domain)")
-        .eq("user_id", userId)
-        .eq("kind", "allocation")
-        .eq("answered", true)
-        .not("work_session_id", "is", null)
-        .gte("window_start", dayStart)
-        .lt("window_start", dayEnd);
-      return (data ?? [])
-        .filter(
-          (r): r is { window_start: string; work_session_id: string; checkin_allocations: { domain: string }[] } =>
-            r.window_start !== null && r.work_session_id !== null && r.checkin_allocations.length > 0
-        )
-        .map((r) => ({
-          sessionId: r.work_session_id,
-          hourStartIso: r.window_start,
-          domain: r.checkin_allocations[0].domain as "business" | "wasted",
-        }));
-    },
   };
 }
 
@@ -235,7 +184,7 @@ export function supabaseDataSource(supabase: SupabaseClient): AllocationQueueDat
       const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from("work_sessions")
-        .select("started_at, ended_at")
+        .select("kind, started_at, ended_at")
         .eq("user_id", userId)
         .eq("counts_toward_hours", true)
         .gte("started_at", dayStart)
@@ -243,6 +192,7 @@ export function supabaseDataSource(supabase: SupabaseClient): AllocationQueueDat
       return (data ?? []).map((s) => ({
         start: new Date(s.started_at),
         end: s.ended_at ? new Date(s.ended_at) : null,
+        domain: sessionDomainForKind(s.kind),
       }));
     },
     async getWorkoutSchedule(userId, dateStr, timezone) {
@@ -280,45 +230,6 @@ export function supabaseDataSource(supabase: SupabaseClient): AllocationQueueDat
       const { data } = await supabase.from("workout_sessions").select("id").eq("user_id", userId).eq("date", dateStr).limit(1);
       return (data ?? []).length > 0;
     },
-    async getSessionsForHourResolution(userId, dateStr, timezone) {
-      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
-      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from("work_sessions")
-        .select("id, started_at, ended_at")
-        .eq("user_id", userId)
-        .eq("counts_toward_hours", true)
-        .gte("started_at", dayStart)
-        .lt("started_at", dayEnd);
-      return (data ?? []).map((s) => ({
-        id: s.id,
-        startedAt: new Date(s.started_at),
-        endedAt: s.ended_at ? new Date(s.ended_at) : null,
-      }));
-    },
-    async getStoredSessionHours(userId, dateStr, timezone) {
-      const dayStart = resolveLocalTime(dateStr, "00:00", timezone).toISOString();
-      const dayEnd = new Date(resolveLocalTime(dateStr, "00:00", timezone).getTime() + 24 * 60 * 60 * 1000).toISOString();
-      const { data } = await supabase
-        .from("checkins")
-        .select("window_start, work_session_id, checkin_allocations(domain)")
-        .eq("user_id", userId)
-        .eq("kind", "allocation")
-        .eq("answered", true)
-        .not("work_session_id", "is", null)
-        .gte("window_start", dayStart)
-        .lt("window_start", dayEnd);
-      return (data ?? [])
-        .filter(
-          (r): r is { window_start: string; work_session_id: string; checkin_allocations: { domain: string }[] } =>
-            r.window_start !== null && r.work_session_id !== null && r.checkin_allocations.length > 0
-        )
-        .map((r) => ({
-          sessionId: r.work_session_id,
-          hourStartIso: r.window_start,
-          domain: r.checkin_allocations[0].domain as "business" | "wasted",
-        }));
-    },
   };
 }
 
@@ -353,36 +264,14 @@ export async function getPendingAllocationQueue(
     sleepTime: profile.checkin_window_end.slice(0, 5),
   };
 
-  const [
-    lockInSessions,
-    workoutSchedule,
-    answeredWindowStarts,
-    loggedPrayerNames,
-    workoutLoggedToday,
-    sessionsForHourResolution,
-    storedSessionHours,
-  ] = await Promise.all([
+  const [lockInSessions, workoutSchedule, answeredWindowStarts, loggedPrayerNames, workoutLoggedToday] = await Promise.all([
     dataSource.getWorkSessions(userId, dateStr, timezone),
     dataSource.getWorkoutSchedule(userId, dateStr, timezone),
     dataSource.getAnsweredWindowStarts(userId, dateStr, timezone),
     deenMode ? dataSource.getLoggedPrayerNames(userId, dateStr) : Promise.resolve([] as string[]),
     dataSource.getWorkoutLoggedToday(userId, dateStr),
-    dataSource.getSessionsForHourResolution(userId, dateStr, timezone),
-    dataSource.getStoredSessionHours(userId, dateStr, timezone),
   ]);
 
-  // Every RESOLVED hour (explicitly answered/edited, or auto-derived
-  // missed once a newer slot superseded it) across today's sessions —
-  // docs/superpowers/specs/2026-08-19-missed-lockin-hours.md. A missed
-  // hour has no stored row (session-hour-status.ts's whole point: derive,
-  // don't write with a job) but still has a definite value that must be
-  // subtracted from the coarse Lock-In overlap credit and must stop a
-  // fully-covered window from being queued again.
-  const resolvedSessionHourRanges: TimeRange[] = sessionsForHourResolution.flatMap((session) => {
-    const storedForSession = storedSessionHours.filter((h) => h.sessionId === session.id);
-    const resolved = resolveSessionHours(session, 60, now, storedForSession);
-    return resolvedHourRanges(resolved, 60);
-  });
   const scheduledWorkoutTime = workoutSchedule?.time ?? null;
   const scheduledWorkoutDurationMinutes = workoutSchedule?.durationMinutes ?? null;
 
@@ -426,21 +315,14 @@ export async function getPendingAllocationQueue(
     suppressionRanges,
     now,
     answeredWindowStarts,
-    confirmedSessionHourRanges: resolvedSessionHourRanges,
+    sessionRanges: lockInSessions,
   });
 
   const pending = pendingQueue(slots);
 
-  // Every resolved hour (explicitly answered/edited, or auto-derived
-  // missed) is removed from the coarse session-overlap credit before it
-  // reaches pre-fill — an hour with its own precise, definite value must
-  // never also be coarse-credited for the same 60 minutes on either side.
-  // See subtractResolvedHours's own header in prefill.ts.
-  const adjustedLockInSessions = subtractResolvedHours(lockInSessions, resolvedSessionHourRanges);
-
   const items: PendingAllocationItem[] = pending.map((slot) => {
     const prefill = derivePrefillAllocation(slot.window, {
-      lockInSessions: adjustedLockInSessions,
+      lockInSessions,
       loggedPrayerTimes,
       workoutLoggedToday,
       scheduledWorkoutTime,
@@ -466,7 +348,7 @@ export async function getPendingAllocationQueue(
         windowStartIso: mostRecentSlot.window.start.toISOString(),
         windowEndIso: mostRecentSlot.window.end.toISOString(),
         prefill: derivePrefillAllocation(mostRecentSlot.window, {
-          lockInSessions: adjustedLockInSessions,
+          lockInSessions,
           loggedPrayerTimes,
           workoutLoggedToday,
           scheduledWorkoutTime,

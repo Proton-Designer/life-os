@@ -455,42 +455,37 @@ html {
   }
 }
 
-/* Batch 3 — full-screen Lock-In overlay's aurora background
-   (components/business/lock-in-overlay.tsx). Three offset radial-gradient
-   blobs, dark red/maroon/black per Ayman's spec, reusing --glow-oxblood and
-   --destructive rather than inventing new hexes. Kind-tinted (a faint
-   --accent-business or --accent-school mixed into the second blob) so Deep
-   Work/Deep Study read differently at a glance while staying in that
-   family. Pure CSS, no JS loop/canvas — slow (18-24s) position drift plus
-   an independent brightness pulse on the same layers.
-   Found live at 390px (batch 3): the pulse originally animated `opacity`.
-   Opacity is a compositing operation against whatever is BEHIND the whole
-   element in real paint order, not just this layer's own colors — even
-   though the layer's own background-color/gradient stops are fully opaque,
-   dipping its opacity below 1 let the actual page underneath the dialog
-   bleed through on every cycle. `filter: brightness()` dims the layer's own
-   colors in place without ever introducing transparency. */
-.lock-in-aurora-business,
-.lock-in-aurora-school {
-  background-color: #0a0405;
-  background-size: 200% 200%, 220% 220%, 180% 180%;
+/* The full-screen Lock-In overlay's aurora (components/business/lock-in-overlay.tsx) -- one look for Deep Work and Deep
+   Study: near-black with slow maroon light drifting through it, meant to be left running and never looked at. Pure CSS,
+   no JS loop or canvas.
+   Two layers, both very slow. The base drifts four soft maroon blobs across a black field (90s); ::before sweeps a wide,
+   heavily blurred maroon ribbon back and forth on its own period (140s) so the two never line up twice. The brightness
+   breathes over 60s.
+   The breathing uses `filter: brightness()`, not opacity: opacity composites against whatever is BEHIND the layer, so
+   dipping it let the page under the dialog bleed through (found live at 390px). `brightness()` dims the layer's own
+   colors in place without introducing transparency. */
+.lock-in-aurora {
+  position: absolute;
+  overflow: hidden;
+  background-color: #050102;
+  background-image:
+    radial-gradient(circle at 18% 28%, rgb(92 12 28 / 0.85) 0%, transparent 50%),
+    radial-gradient(circle at 82% 22%, rgb(58 8 20 / 0.9) 0%, transparent 52%),
+    radial-gradient(circle at 70% 82%, rgb(110 18 34 / 0.7) 0%, transparent 55%),
+    radial-gradient(circle at 24% 88%, rgb(40 5 14 / 0.95) 0%, transparent 58%);
+  background-size: 220% 220%, 200% 200%, 240% 240%, 210% 210%;
   animation:
-    lock-in-aurora-drift 20s ease-in-out infinite,
-    lock-in-aurora-pulse 13s ease-in-out infinite;
+    lock-in-aurora-drift 90s ease-in-out infinite,
+    lock-in-aurora-breathe 60s ease-in-out infinite;
 }
 
-.lock-in-aurora-business {
-  background-image:
-    radial-gradient(circle at 20% 30%, color-mix(in oklch, var(--glow-oxblood) 85%, black) 0%, transparent 55%),
-    radial-gradient(circle at 80% 70%, color-mix(in oklch, var(--accent-business) 22%, var(--glow-oxblood)) 0%, transparent 55%),
-    radial-gradient(circle at 50% 100%, black 0%, transparent 60%);
-}
-
-.lock-in-aurora-school {
-  background-image:
-    radial-gradient(circle at 20% 30%, color-mix(in oklch, var(--glow-oxblood) 85%, black) 0%, transparent 55%),
-    radial-gradient(circle at 80% 70%, color-mix(in oklch, var(--accent-school) 18%, var(--glow-oxblood)) 0%, transparent 55%),
-    radial-gradient(circle at 50% 100%, black 0%, transparent 60%);
+.lock-in-aurora::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: linear-gradient(115deg, transparent 30%, rgb(120 20 40 / 0.35) 48%, rgb(70 10 26 / 0.3) 56%, transparent 72%);
+  filter: blur(60px);
+  animation: lock-in-aurora-ribbon 140s ease-in-out infinite;
 }
 
 @keyframes lock-in-aurora-drift {
@@ -498,32 +493,44 @@ html {
   100% {
     background-position:
       0% 0%,
+      100% 0%,
       100% 100%,
-      50% 100%;
+      0% 100%;
   }
   50% {
     background-position:
-      20% 15%,
-      75% 80%,
-      55% 90%;
+      60% 40%,
+      40% 60%,
+      30% 50%,
+      70% 40%;
   }
 }
 
-@keyframes lock-in-aurora-pulse {
+@keyframes lock-in-aurora-ribbon {
+  0%,
+  100% {
+    transform: translate3d(-12%, -4%, 0) rotate(-4deg);
+  }
+  50% {
+    transform: translate3d(12%, 4%, 0) rotate(5deg);
+  }
+}
+
+@keyframes lock-in-aurora-breathe {
   0%,
   100% {
     filter: brightness(1);
   }
   50% {
-    filter: brightness(0.75);
+    filter: brightness(0.78);
   }
 }
 
-/* A pulsating full-screen field is a genuine accessibility problem, not a
-   nicety (Lead review) — fully static under reduced motion, no throb at all. */
+/* A moving full-screen field is a genuine accessibility problem, not a nicety (Lead review) — fully static under
+   reduced motion, no drift and no breathing at all. */
 @media (prefers-reduced-motion: reduce) {
-  .lock-in-aurora-business,
-  .lock-in-aurora-school {
+  .lock-in-aurora,
+  .lock-in-aurora::before {
     animation: none;
   }
 }

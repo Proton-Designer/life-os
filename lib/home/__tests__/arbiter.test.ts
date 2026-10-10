@@ -230,7 +230,7 @@ describe("pickPrimaryAndAlternates — the fairness rule (R19)", () => {
     expect(alternates.some((c) => c.area === "school")).toBe(false);
   });
 
-  it("a Self-Mastery primary can still show Deen and Fitness as alternates -- they are independent areas, not excluded by a shared onboarding grouping", () => {
+  it("a Self-Mastery primary can still show Faith and Fitness as alternates -- they are independent areas, not excluded by a shared onboarding grouping", () => {
     const now = new Date("2026-09-02T12:00:00Z");
     // Deen/Fitness are outside the 2h right_now window (later_today) so
     // the overdue session (right_now -- any negative diff qualifies) wins

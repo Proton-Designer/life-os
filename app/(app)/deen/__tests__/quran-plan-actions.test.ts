@@ -11,7 +11,7 @@ vi.mock("@/lib/supabase/auth", () => ({ requireUser: async () => ({ supabase: { 
 vi.mock("@/lib/deen/deen-mode-guard", () => ({
   isDeenModeOnForRequest: m.deenOn,
   getRequestTimezone: async () => "America/Chicago",
-  DEEN_MODE_OFF_MESSAGE: "Deen Mode is off",
+  DEEN_MODE_OFF_MESSAGE: "Faith Mode is off",
 }));
 vi.mock("@/lib/quran/plan-core", () => ({
   startQuranPlanCore: m.start, logQuranReadingCore: m.log, undoLastQuranLogCore: m.undo, setQuranBookmarkCore: m.bookmark,
@@ -40,14 +40,14 @@ beforeEach(() => {
   for (const fn of [m.start, m.log, m.undo, m.bookmark, m.keepMove, m.pause, m.resume, m.next]) fn.mockResolvedValue({ ok: true });
 });
 
-describe("Deen gate", () => {
-  it.each(ACTIONS)("%s: Deen Mode OFF is refused server-side, touches no data and revalidates nothing", async (_n, call, core) => {
+describe("Faith gate", () => {
+  it.each(ACTIONS)("%s: Faith Mode OFF is refused server-side, touches no data and revalidates nothing", async (_n, call, core) => {
     m.deenOn.mockResolvedValue(false);
-    expect(await call()).toEqual({ ok: false, message: "Deen Mode is off" });
+    expect(await call()).toEqual({ ok: false, message: "Faith Mode is off" });
     expect(core).not.toHaveBeenCalled();
     expect(m.revalidate).not.toHaveBeenCalled();
   });
-  it("positive control: the same calls with Deen Mode ON DO reach their core and revalidate every page", async () => {
+  it("positive control: the same calls with Faith Mode ON DO reach their core and revalidate every page", async () => {
     for (const [, call, core] of ACTIONS) {
       m.revalidate.mockClear();
       expect(await call()).toMatchObject({ ok: true });
@@ -55,7 +55,7 @@ describe("Deen gate", () => {
       expect(m.revalidate.mock.calls.map((c) => c[0])).toEqual(ALL);
     }
   });
-  it("the overview reads null while Deen Mode is off, data otherwise", async () => {
+  it("the overview reads null while Faith Mode is off, data otherwise", async () => {
     m.deenOn.mockResolvedValue(false);
     expect(await getMyQuranOverview()).toBeNull();
     expect(m.overview).not.toHaveBeenCalled();

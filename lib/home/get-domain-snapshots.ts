@@ -204,19 +204,11 @@ export function defaultDataSource(): DomainSnapshotDataSource {
         .gte("date", weekStart);
       return data ?? [];
     },
-    async getQuranWeeklyTarget(userId, weekStart) {
+    async getQuranWeeklyTarget(userId, _weekStart) {
       const supabase = await createClient();
-      // QURAN-02: while a khatm plan is ACTIVE its pace x 7 IS the weekly target (the manually typed one applies without a plan).
+      // QURAN-02: while a khatm plan is ACTIVE its pace x 7 IS the weekly target; without a plan there is none.
       const plan = await getOpenPlanCore(supabase, userId).catch(() => null);
-      if (plan?.status === "active") return Math.round(planPace(plan) * 7);
-      const { data } = await supabase
-        .from("weekly_goals")
-        .select("quran_page_target")
-        .eq("user_id", userId)
-        .eq("domain", "deen")
-        .eq("week_start_date", weekStart)
-        .maybeSingle();
-      return data?.quran_page_target ?? null;
+      return plan?.status === "active" ? Math.round(planPace(plan) * 7) : null;
     },
     async getWeeklyFocusHabit(userId, weekStart) {
       const supabase = await createClient();

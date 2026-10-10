@@ -23,7 +23,7 @@ describe("computeDomainVisibility", () => {
     });
   });
 
-  it("gates Deen/Fitness on the PERSONAL GROWTH SUBDOMAIN specifically -- Personal Growth kept, Fitness dropped, Faith kept", () => {
+  it("gates Faith/Fitness on the PERSONAL GROWTH SUBDOMAIN specifically -- Personal Growth kept, Fitness dropped, Faith kept", () => {
     const state: UserDomainsState = {
       mode: "domains",
       domains: [{ key: "personal_growth", position: 0, weight: "important" }],
@@ -91,7 +91,7 @@ describe("computeDomainVisibility", () => {
   });
 });
 
-describe("computeDomainVisibility — Deen Mode OFF is the single choke point (D2)", () => {
+describe("computeDomainVisibility — Faith Mode OFF is the single choke point (D2)", () => {
   const ALL_FALSE_FAITH = { hasFitness: true, hasWork: true, hasSchoolDomain: true };
 
   it("legacy account + OFF: Faith hidden, everything else exactly as before", () => {

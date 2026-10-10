@@ -23,7 +23,7 @@ useDeenMode(test);
 
 const TRIGGER_NAME = "E2E-DIST Test Trigger";
 const TRIGGER_DESCRIPTION = "Created by e2e/distractions.spec.ts";
-const DOMAIN = "school"; // any non-Deen domain satisfies "pick a non-Deen domain"
+const DOMAIN = "school"; // any non-Faith domain satisfies "pick a non-Faith domain"
 
 async function deleteTestTriggerIfPresent(page: Page, baseURL: string | undefined, secret: string) {
   const res = await page.request.delete(`${baseURL}/api/test/clear-distraction-trigger`, {
@@ -126,14 +126,14 @@ test.describe("Distractions", () => {
     }
   });
 
-  test("capture: the Deen domain step shows the Light/Moderate/Heavy control; every other domain does not", async ({ page }) => {
+  test("capture: the Faith domain step shows the Light/Moderate/Heavy control; every other domain does not", async ({ page }) => {
     await page.goto("/");
     await dismissCheckinDialogIfPresent(page);
 
     // Read-only for both branches — selecting a domain fetches its trigger
     // list but creates nothing, so there's no state to tear down here.
     await openCaptureDialog(page);
-    await page.getByRole("button", { name: "Deen" }).click();
+    await page.getByRole("button", { name: "Faith" }).click();
     await expect(page.getByText("Reflection (optional)")).toBeVisible();
     await expect(page.getByRole("button", { name: "Light" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Moderate" })).toBeVisible();

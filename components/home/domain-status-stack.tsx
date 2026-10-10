@@ -9,7 +9,7 @@ import type { SectorRow } from "@/lib/home/sector-rows";
 import type { SectorRow as KhatmRow } from "@/lib/quran/surfaces";
 
 const DOMAIN_LABEL: Record<keyof DomainSnapshots, string> = {
-  deen: "Deen",
+  deen: "Faith",
   business: "Business",
   fitness: "Fitness",
   school: "School",

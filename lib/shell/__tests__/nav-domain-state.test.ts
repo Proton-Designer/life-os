@@ -107,10 +107,10 @@ describe("computeNavDomainState — /personal routing survives migration 115", (
     const pre = [{ key: "personal_growth" as const, position: 0 }];
     const subs = [
       { domainKey: "personal_growth" as const, key: "self_mastery", label: "My Practice", kind: null },
-      { domainKey: "personal_growth" as const, key: "faith", label: "Deen", kind: null },
+      { domainKey: "personal_growth" as const, key: "faith", label: "Faith", kind: null },
     ];
     const state = computeNavDomainState(pre, subs, true);
-    expect(state.personalSubdomains.map((s) => s.label)).toEqual(["My Practice", "Deen"]);
+    expect(state.personalSubdomains.map((s) => s.label)).toEqual(["My Practice", "Faith"]);
   });
 });
 
@@ -119,7 +119,7 @@ describe("computeNavDomainState — /personal routing survives migration 115", (
  * vocabularies; a user_domains faith row alone must not show Faith, and the
  * Personal tab must not survive on faith alone.
  */
-describe("computeNavDomainState — Deen Mode OFF", () => {
+describe("computeNavDomainState — Faith Mode OFF", () => {
   const FLAT = [
     { key: "faith" as const, position: 0 },
     { key: "body" as const, position: 1 },

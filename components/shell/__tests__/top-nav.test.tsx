@@ -28,18 +28,18 @@ vi.mock("next/link", async () => {
 import { TopNav } from "../top-nav";
 
 describe("TopNav", () => {
-  it("Deen Mode OFF hides the Deen item (top-nav used to ignore hiddenFeatures); ON shows it", () => {
+  it("Faith Mode OFF hides the Faith item (top-nav used to ignore hiddenFeatures); ON shows it", () => {
     const { unmount } = render(<TopNav hiddenFeatures={["deen"]} />);
-    expect(screen.queryByRole("link", { name: /deen/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /faith/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /business/i })).toBeInTheDocument();
     unmount();
     render(<TopNav />);
-    expect(screen.getByRole("link", { name: /deen/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /faith/i })).toBeInTheDocument();
   });
 
   it("renders an icon for every nav item", () => {
     render(<TopNav />);
-    for (const label of ["Home", "Deen", "Business", "Fitness", "School", "Work"]) {
+    for (const label of ["Home", "Faith", "Business", "Fitness", "School", "Work"]) {
       const link = screen.getByRole("link", { name: new RegExp(label, "i") });
       expect(link.querySelector("svg")).toBeInTheDocument();
     }
@@ -47,7 +47,7 @@ describe("TopNav", () => {
 
   it("marks the active route with aria-current and a domain-tinted pill", () => {
     render(<TopNav />);
-    const active = screen.getByRole("link", { name: /deen/i });
+    const active = screen.getByRole("link", { name: /faith/i });
     expect(active).toHaveAttribute("aria-current", "page");
     expect(active.style.color).toContain("--accent-deen");
   });
@@ -67,7 +67,7 @@ describe("TopNav", () => {
 
   it("prefetches every link, including the brand mark and Settings (navigation-prefetch-fix, Part A)", () => {
     render(<TopNav />);
-    for (const label of ["Life OS", "Home", "Deen", "Business", "Fitness", "School", "Work", "Settings"]) {
+    for (const label of ["Life OS", "Home", "Faith", "Business", "Fitness", "School", "Work", "Settings"]) {
       const link = screen.getByRole("link", { name: new RegExp(`^${label}$`, "i") });
       expect(link).toHaveAttribute("data-prefetch", "true");
     }

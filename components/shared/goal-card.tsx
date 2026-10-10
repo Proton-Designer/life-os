@@ -70,9 +70,6 @@ export function GoalCard({
   const [isPending, startTransition] = useTransition();
   const [headline, setHeadline] = useState(initialHeadline);
   const [milestonesText, setMilestonesText] = useState(initialMilestones.join("\n"));
-  const [quranPageTarget, setQuranPageTarget] = useState(
-    initialQuranPageTarget != null ? String(initialQuranPageTarget) : ""
-  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -82,7 +79,7 @@ export function GoalCard({
       .map((m) => m.trim())
       .filter(Boolean);
     startTransition(async () => {
-      await onSave(headline, milestones, quranPageTarget ? Number(quranPageTarget) : undefined);
+      await onSave(headline, milestones);
       setEditing(false);
     });
   }
@@ -149,17 +146,6 @@ export function GoalCard({
         disabled={locked}
         className="rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
       />
-      {showQuranTarget && (
-        <Input
-          type="number"
-          min={1}
-          value={quranPageTarget}
-          onChange={(e) => setQuranPageTarget(e.target.value)}
-          placeholder="Weekly page goal"
-          disabled={locked}
-          className="w-40"
-        />
-      )}
       {locked ? (
         <p className="text-xs text-muted-foreground">This week is locked — read-only.</p>
       ) : (

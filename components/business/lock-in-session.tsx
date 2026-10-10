@@ -1,12 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { resolveSessionHours, pendingSessionHour } from "@/lib/checkins/session-hour-status";
-import { setSessionHourStatus } from "@/app/(app)/checkin/session-hour-actions";
+import { useEffect, useMemo, useState } from "react";
 import { formatElapsedDuration, elapsedMinutesSince } from "@/lib/business/format-elapsed";
-import { computeRatioDisplay } from "@/lib/insights/ratio-display";
-import { SessionHourConfirm } from "./session-hour-confirm";
-import { SessionHourList } from "./session-hour-list";
 import { HourCompleteBanner } from "./hour-complete-banner";
 import { EndOfHourReflection } from "./end-of-hour-reflection";
 import { Button } from "@/components/ui/button";
@@ -14,47 +9,30 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { ACCENT_VAR } from "@/lib/accent-tokens";
 import { DOMAIN_ICON } from "@/lib/domain-icons";
 import { featuredCardStyle } from "@/lib/featured-card-style";
-import { mostRecentHourAsInterval } from "@/lib/business/hour-recap-intervals";
+import type { HourWorkInterval } from "@/lib/reflection-cards/types";
 
 const POLL_MS = 60 * 1000;
-const INTERVAL_MINUTES = 60;
 
-/** A real, stored hourly answer or edit — one checkin_allocations row each. */
-export type StoredSessionHour = { hourStartIso: string; domain: "business" | "wasted" };
-
-// docs/superpowers/specs/2026-08-19-missed-lockin-hours.md: an hour once
-// superseded resolves to `wasted` at READ time, never written by anything
-// but the user (resolveSessionHours/pendingSessionHour, both pure — no
-// local accumulation of "missed" state needed anymore, unlike before this
-// spec, since the derivation itself now owns that and re-runs fresh every
-// tick from `storedHours` + `now`).
+/**
+ * The /business presentation of a running Deep Work session. There is nothing to confirm: no hourly "Still on it?", no
+ * Yes / No, no hour that turns into Wasted when nobody taps. The session's minutes count to Business on their own
+ * (lib/checkins/session-accounting.ts).
+ */
 export function LockInSession({
-  sessionId,
   startedAtIso,
-  initialStoredHours,
-  timezone,
   onEndSession,
   onExpand,
 }: {
-  sessionId: string;
   startedAtIso: string;
-  initialStoredHours: StoredSessionHour[];
-  timezone: string;
   // The Lock-In overlay provider owns the actual endWorkSession call (batch
   // 3) — ending anywhere must clear the session everywhere, not just here.
   onEndSession: () => Promise<void>;
-  // Returns to the full-screen overlay (batch 3) — this hour-confirmation
-  // UI is otherwise unchanged, it's the overlay's "minimized" presentation
-  // on /business.
+  // Returns to the full-screen overlay (batch 3), this is the overlay's "minimized" presentation on /business.
   onExpand: () => void;
 }) {
   const startedAt = useMemo(() => new Date(startedAtIso), [startedAtIso]);
-  const session = useMemo(() => ({ startedAt, endedAt: null }), [startedAt]);
   const [now, setNow] = useState(startedAt);
-  const [storedHours, setStoredHours] = useState<StoredSessionHour[]>(initialStoredHours);
-  const [offerEndAfterNo, setOfferEndAfterNo] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
-  const [isConfirming, startConfirming] = useTransition();
 
   useEffect(() => {
     const tick = () => setNow(new Date());
@@ -63,34 +41,13 @@ export function LockInSession({
     return () => clearInterval(interval);
   }, []);
 
-  const resolved = useMemo(
-    () => resolveSessionHours(session, INTERVAL_MINUTES, now, storedHours),
-    [session, now, storedHours]
-  );
-  const pendingIso = useMemo(
-    () => pendingSessionHour(session, INTERVAL_MINUTES, now, storedHours),
-    [session, now, storedHours]
-  );
-  const unconfirmedCount = resolved.filter((h) => h.state === "missed_wasted").length;
-
-  // Missed hours count as noise the moment they're superseded — the whole
-  // point of the 2026-08-19 reversal (ignoring every prompt used to be the
-  // highest-scoring path). Derived from resolved STATE, not the raw stored
-  // rows, so the ratio updates live as an hour becomes missed, same as
-  // every other surface that reads resolveSessionHours.
-  const sessionSignalMinutes = resolved.filter((h) => h.state === "confirmed_business").length * 60;
-  const sessionNoiseMinutes = resolved.filter((h) => h.state !== "confirmed_business").length * 60;
-  const snDisplay = computeRatioDisplay(
-    sessionSignalMinutes,
-    sessionNoiseMinutes,
-    sessionSignalMinutes + sessionNoiseMinutes > 0
-  );
   const elapsed = formatElapsedDuration(now.getTime() - startedAt.getTime());
   const elapsedMinutes = elapsedMinutesSince(startedAtIso, now);
-  // "deep_work" hardcoded, not a prop: this component only ever renders for
-  // a deep_work session (LockInPanel's own branch, the IconChip/
-  // DOMAIN_ICON.business above already bake in the same assumption).
-  const hourIntervals = useMemo(() => mostRecentHourAsInterval(resolved, "deep_work"), [resolved]);
+  // "deep_work" hardcoded, not a prop: this component only ever renders for a deep_work session (LockInPanel's own
+  // branch; the IconChip/DOMAIN_ICON.business below bake in the same assumption). A session IS real work, so the last
+  // full hour is one honest interval.
+  const hourIntervals: HourWorkInterval[] =
+    elapsedMinutes >= 60 ? [{ domain: "deep_work", minutes: 60, isDistraction: false }] : [];
 
   async function handleEndSession() {
     setIsEnding(true);
@@ -101,48 +58,19 @@ export function LockInSession({
     }
   }
 
-  function editHour(hourStartIso: string, status: "business" | "wasted") {
-    setStoredHours((prev) => [...prev.filter((h) => h.hourStartIso !== hourStartIso), { hourStartIso, domain: status }]);
-    startConfirming(async () => {
-      await setSessionHourStatus(sessionId, hourStartIso, status);
-    });
-  }
-
-  function handleAnswer(stillOnIt: boolean) {
-    if (!pendingIso) return;
-    editHour(pendingIso, stillOnIt ? "business" : "wasted");
-    // Offer, don't force (2026-08-19, per the Lead): he may genuinely be
-    // pausing for two minutes, not abandoning the session.
-    if (!stillOnIt) setOfferEndAfterNo(true);
-  }
-
   return (
     <div
       data-testid="lock-in-session"
       className="flex flex-col gap-4 rounded-2xl border p-4"
       style={featuredCardStyle(ACCENT_VAR.business)}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <IconChip icon={DOMAIN_ICON.business} accent="business" />
-          <div>
-            <div className="text-sm text-muted-foreground">Locked in</div>
-            <div data-testid="lock-in-elapsed" className="font-mono text-2xl font-semibold tabular-nums">
-              {elapsed}
-            </div>
+      <div className="flex items-center gap-3">
+        <IconChip icon={DOMAIN_ICON.business} accent="business" />
+        <div>
+          <div className="text-sm text-muted-foreground">Locked in</div>
+          <div data-testid="lock-in-elapsed" className="font-mono text-2xl font-semibold tabular-nums">
+            {elapsed}
           </div>
-        </div>
-        <div className="text-right">
-          <div className="text-sm text-muted-foreground">This session&apos;s Signal:Noise</div>
-          <div
-            data-testid="lock-in-session-ratio"
-            className="font-mono text-lg font-semibold tabular-nums text-accent-business"
-          >
-            {snDisplay}
-          </div>
-          {unconfirmedCount > 0 && (
-            <div className="text-xs text-muted-foreground">{unconfirmedCount} unconfirmed</div>
-          )}
         </div>
       </div>
 
@@ -150,24 +78,6 @@ export function LockInSession({
       <div className="flex justify-end">
         <EndOfHourReflection elapsedMinutes={elapsedMinutes} intervals={hourIntervals} />
       </div>
-
-      <SessionHourList hours={resolved} onEdit={editHour} timezone={timezone} disabled={isConfirming} />
-
-      {pendingIso && <SessionHourConfirm onAnswer={handleAnswer} disabled={isConfirming} />}
-
-      {offerEndAfterNo && (
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/40 px-3 py-2 text-sm">
-          <span>End the session?</span>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={handleEndSession} disabled={isEnding}>
-              End session
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setOfferEndAfterNo(false)}>
-              Keep going
-            </Button>
-          </div>
-        </div>
-      )}
 
       <div className="flex gap-2">
         <Button type="button" variant="outline" className="flex-1" onClick={onExpand}>

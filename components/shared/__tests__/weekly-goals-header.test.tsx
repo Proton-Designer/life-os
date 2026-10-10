@@ -25,7 +25,7 @@ describe("WeeklyGoalsHeader", () => {
       />
     );
     expect(screen.getByText("This Week's Focus")).toBeInTheDocument();
-    expect(screen.getByText("Deen")).toBeInTheDocument();
+    expect(screen.getByText("Faith")).toBeInTheDocument();
     expect(screen.getByText("Business")).toBeInTheDocument();
     expect(screen.getByText("Finish Surah Kahf")).toBeInTheDocument();
     expect(screen.getByText("Ship the landing page")).toBeInTheDocument();
@@ -40,11 +40,11 @@ describe("WeeklyGoalsHeader", () => {
         onSaveBusiness={noop}
       />
     );
-    expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+    expect(screen.getByText(/Set this week's Faith goal/)).toBeInTheDocument();
     expect(screen.queryByText(/Set this week's Business goal/)).not.toBeInTheDocument();
   });
 
-  it("opens the Deen goal straight into an editable form via its edit icon, and routes the save to onSaveDeen only", async () => {
+  it("opens the Faith goal straight into an editable form via its edit icon, and routes the save to onSaveDeen only", async () => {
     const onSaveDeen = vi.fn(() => Promise.resolve());
     const onSaveBusiness = vi.fn(() => Promise.resolve());
     render(
@@ -56,7 +56,7 @@ describe("WeeklyGoalsHeader", () => {
       />
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Edit Deen goal" }));
+    await user.click(screen.getByRole("button", { name: "Edit Faith goal" }));
     expect(screen.getByPlaceholderText("This week's headline goal")).toHaveValue("Finish Juz 5");
 
     await user.clear(screen.getByPlaceholderText("This week's headline goal"));
@@ -71,7 +71,7 @@ describe("WeeklyGoalsHeader", () => {
     const { rerender } = render(
       <WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />
     );
-    expect(screen.getByText(/set next week's deen and business goals below/i)).toBeInTheDocument();
+    expect(screen.getByText(/set next week's faith and business goals below/i)).toBeInTheDocument();
 
     rerender(
       <WeeklyGoalsHeader
@@ -82,12 +82,12 @@ describe("WeeklyGoalsHeader", () => {
         showPlanningNudge={false}
       />
     );
-    expect(screen.queryByText(/set next week's deen and business goals below/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/set next week's faith and business goals below/i)).not.toBeInTheDocument();
   });
 
   it("renders both slots even when neither goal is set", () => {
     render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} />);
-    expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+    expect(screen.getByText(/Set this week's Faith goal/)).toBeInTheDocument();
     expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
   });
 
@@ -97,7 +97,7 @@ describe("WeeklyGoalsHeader", () => {
   // week's X goal" prompt as a genuinely unset (null) goal, not a blank line
   // with no way back to the prompt.
   describe("a blank headline reads as unset, same as no goal at all", () => {
-    it("treats an empty-string headline as unset, for both Deen and Business", () => {
+    it("treats an empty-string headline as unset, for both Faith and Business", () => {
       render(
         <WeeklyGoalsHeader
           deen={{ headline: "", milestones: [] }}
@@ -106,11 +106,11 @@ describe("WeeklyGoalsHeader", () => {
           onSaveBusiness={noop}
         />
       );
-      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+      expect(screen.getByText(/Set this week's Faith goal/)).toBeInTheDocument();
       expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
     });
 
-    it("treats a whitespace-only headline as unset, for both Deen and Business", () => {
+    it("treats a whitespace-only headline as unset, for both Faith and Business", () => {
       render(
         <WeeklyGoalsHeader
           deen={{ headline: "   ", milestones: [] }}
@@ -119,11 +119,11 @@ describe("WeeklyGoalsHeader", () => {
           onSaveBusiness={noop}
         />
       );
-      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
+      expect(screen.getByText(/Set this week's Faith goal/)).toBeInTheDocument();
       expect(screen.getByText(/Set this week's Business goal/)).toBeInTheDocument();
     });
 
-    it("still shows a real headline normally, for both Deen and Business", () => {
+    it("still shows a real headline normally, for both Faith and Business", () => {
       render(
         <WeeklyGoalsHeader
           deen={{ headline: "Finish Juz 5", milestones: [] }}
@@ -134,13 +134,13 @@ describe("WeeklyGoalsHeader", () => {
       );
       expect(screen.getByText("Finish Juz 5")).toBeInTheDocument();
       expect(screen.getByText("Close 3 deals")).toBeInTheDocument();
-      expect(screen.queryByText(/Set this week's Deen goal/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Set this week's Faith goal/)).not.toBeInTheDocument();
       expect(screen.queryByText(/Set this week's Business goal/)).not.toBeInTheDocument();
     });
   });
 
   describe("showDeen / showBusiness gating", () => {
-    it("hides the Business slot when showBusiness is false, keeps Deen", () => {
+    it("hides the Business slot when showBusiness is false, keeps Faith", () => {
       render(
         <WeeklyGoalsHeader
           deen={{ headline: "Finish Juz 5", milestones: [] }}
@@ -155,7 +155,7 @@ describe("WeeklyGoalsHeader", () => {
       expect(screen.queryByText("Business")).not.toBeInTheDocument();
     });
 
-    it("hides the Deen slot when showDeen is false, keeps Business", () => {
+    it("hides the Faith slot when showDeen is false, keeps Business", () => {
       render(
         <WeeklyGoalsHeader
           deen={{ headline: "Finish Juz 5", milestones: [] }}
@@ -197,18 +197,18 @@ describe("WeeklyGoalsHeader", () => {
     });
   });
 
-  it("Deen Mode OFF (showDeen false): no Deen slot, and the weekend nudge no longer names Deen", () => {
+  it("Faith Mode OFF (showDeen false): no Faith slot, and the weekend nudge no longer names Faith", () => {
     render(
       <WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showDeen={false} showPlanningNudge />
     );
-    expect(screen.queryByText("Deen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Faith")).not.toBeInTheDocument();
     expect(screen.getByText(/set next week's Business goal below/)).toBeInTheDocument();
-    expect(screen.queryByText(/Deen/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Faith/)).not.toBeInTheDocument();
   });
 
-  it("ON keeps the Deen wording in the weekend nudge (positive control)", () => {
+  it("ON keeps the Faith wording in the weekend nudge (positive control)", () => {
     render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
-    expect(screen.getByText(/Deen and Business goals/)).toBeInTheDocument();
+    expect(screen.getByText(/Faith and Business goals/)).toBeInTheDocument();
   });
 
   it("renders optional extraActions beside the title (Home's Goals button) and nothing extra without them", () => {
@@ -243,7 +243,7 @@ describe("WeeklyGoalsHeader", () => {
       expect(deen.parentElement!.parentElement!.parentElement).toBe(business.parentElement!.parentElement!.parentElement); // one shared row
       expect(deen.className).toContain("md:line-clamp-1"); // one line (ellipsis) from md up
       expect(deen.className).toContain("line-clamp-2"); // two lines on a phone
-      expect(screen.getByRole("button", { name: "Edit Deen goal" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Faith goal" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Edit Business goal" })).toBeInTheDocument();
     });
 
@@ -257,7 +257,7 @@ describe("WeeklyGoalsHeader", () => {
     it("one goal only: the other slot is absent and the remaining one is the only column", () => {
       render(<WeeklyGoalsHeader {...base} showDeen={false} deen={{ headline: "ignored", milestones: [] }} business={{ headline: "Ship it", milestones: [] }} />);
       expect(screen.getByText("Ship it")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Edit Deen goal" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Edit Faith goal" })).not.toBeInTheDocument();
       expect(screen.queryByText("ignored")).not.toBeInTheDocument();
     });
 
@@ -268,8 +268,8 @@ describe("WeeklyGoalsHeader", () => {
 
     it("an empty slot shows the prompt and a + (still the 'Edit ... goal' button), a set slot a pencil", () => {
       render(<WeeklyGoalsHeader {...base} deen={null} business={{ headline: "Ship it", milestones: [] }} />);
-      expect(screen.getByText(/Set this week's Deen goal/)).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Edit Deen goal" }).querySelector("svg.lucide-plus")).not.toBeNull();
+      expect(screen.getByText(/Set this week's Faith goal/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Edit Faith goal" }).querySelector("svg.lucide-plus")).not.toBeNull();
       expect(screen.getByRole("button", { name: "Edit Business goal" }).querySelector("svg.lucide-pencil")).not.toBeNull();
     });
 
@@ -277,10 +277,10 @@ describe("WeeklyGoalsHeader", () => {
       const goals = <button type="button" aria-label="Goals">G</button>;
       const { rerender } = render(<WeeklyGoalsHeader {...base} deen={null} business={null} extraActions={goals} showPlanningNudge />);
       expect(screen.getByTestId("weekly-nudge-dot")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Goals" }).parentElement).toHaveAttribute("title", expect.stringMatching(/weekend — set next week's Deen and Business goals/));
+      expect(screen.getByRole("button", { name: "Goals" }).parentElement).toHaveAttribute("title", expect.stringMatching(/weekend — set next week's Faith and Business goals/));
       rerender(<WeeklyGoalsHeader {...base} showDeen={false} deen={null} business={null} extraActions={goals} showPlanningNudge />);
       expect(screen.getByRole("button", { name: "Goals" }).parentElement).toHaveAttribute("title", expect.stringMatching(/Business goal\./));
-      expect(screen.getByRole("button", { name: "Goals" }).parentElement!.getAttribute("title")).not.toMatch(/Deen/);
+      expect(screen.getByRole("button", { name: "Goals" }).parentElement!.getAttribute("title")).not.toMatch(/Faith/);
       rerender(<WeeklyGoalsHeader {...base} deen={null} business={null} extraActions={goals} />);
       expect(screen.queryByTestId("weekly-nudge-dot")).not.toBeInTheDocument();
     });
@@ -298,7 +298,7 @@ describe("WeeklyGoalsHeader", () => {
 
     it("phone: the whole slot is the edit button (an overlay, icon hidden below md); md and up keep the small icon button -- same accessible name and dialog", async () => {
       render(<WeeklyGoalsHeader {...base} deen={{ headline: "Read 3 pages of Quran everyday", milestones: [] }} business={null} />);
-      const edit = screen.getByRole("button", { name: "Edit Deen goal" });
+      const edit = screen.getByRole("button", { name: "Edit Faith goal" });
       expect(edit.className).toContain("max-md:absolute");
       expect(edit.className).toContain("max-md:inset-0");
       expect(edit.querySelector("svg")!.getAttribute("class")).toContain("max-md:hidden");
@@ -311,7 +311,7 @@ describe("WeeklyGoalsHeader", () => {
     it("the non-compact (Calendar) layout is unchanged: heading visible, nudge is still a text line, no dot", () => {
       render(<WeeklyGoalsHeader deen={null} business={null} onSaveDeen={noop} onSaveBusiness={noop} showPlanningNudge />);
       expect(screen.getByText("This Week's Focus").className).not.toContain("sr-only");
-      expect(screen.getByText(/set next week's deen and business goals below/i)).toBeInTheDocument();
+      expect(screen.getByText(/set next week's faith and business goals below/i)).toBeInTheDocument();
       expect(screen.queryByTestId("weekly-nudge-dot")).not.toBeInTheDocument();
     });
   });

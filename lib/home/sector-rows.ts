@@ -30,7 +30,7 @@ export type SectorRow = {
 export function buildSectorRows(state: UserDomainsState, deenMode: boolean): SectorRow[] {
   if (state.mode === "legacy") {
     return [
-      ...(deenMode ? [{ id: "deen", snapshot: "deen", label: "Deen", href: "/deen" } as SectorRow] : []),
+      ...(deenMode ? [{ id: "deen", snapshot: "deen", label: "Faith", href: "/deen" } as SectorRow] : []),
       { id: "business", snapshot: "business", label: "Business", href: "/business" },
       { id: "fitness", snapshot: "fitness", label: "Fitness", href: "/fitness" },
       { id: "school", snapshot: "school", label: "School", href: "/school" },
@@ -49,7 +49,7 @@ export function buildSectorRows(state: UserDomainsState, deenMode: boolean): Sec
   });
 
   const rows: SectorRow[] = [];
-  if (deenMode && hasArea(state, "faith")) rows.push({ id: "deen", snapshot: "deen", label: "Deen", href: "/deen" });
+  if (deenMode && hasArea(state, "faith")) rows.push({ id: "deen", snapshot: "deen", label: "Faith", href: "/deen" });
   if (hasWork) rows.push(...tabs.filter((t) => t.kind === "business").map(tabRow));
   if (hasArea(state, "body")) rows.push({ id: "fitness", snapshot: "fitness", label: "Fitness", href: "/fitness" });
   if (domainKeys.has("school")) rows.push({ id: "school", snapshot: "school", label: "School", href: "/school" });

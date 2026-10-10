@@ -64,7 +64,7 @@ test.describe("Sunnah disclosure — auto-collapse and the fard-prayer isolation
     });
   });
 
-  test("Deen: a sunnah tap auto-collapses ~1.5s later and never writes to the fard prayers row", async ({
+  test("Faith: a sunnah tap auto-collapses ~1.5s later and never writes to the fard prayers row", async ({
     page,
     baseURL,
   }) => {

@@ -88,7 +88,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .in("domain", ["school", "co_op"]),
       supabase
         .from("weekly_goals")
-        .select("domain, headline, milestones, quran_page_target")
+        .select("domain, headline, milestones")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
         .in("domain", weeklyGoalDomains(domainsState, deenMode)),
@@ -102,8 +102,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
       // Replaces a call to getDomainSnapshots (Home's whole-app 16-query
       // fan-out) that ran here just to read two numbers — perf fix,
       // 2026-08-26 (Ayman: calendar popup 1-2s open latency). The other
-      // number, quranTarget, is already sitting unused in the
-      // weekly_goals row fetched above (quran_page_target), so only this
+      // number, quranTarget, comes from the active Quran plan, so only this
       // one targeted query was actually needed.
       deenMode
         ? supabase.from("quran_sessions").select("pages_read").eq("user_id", userId).gte("date", weekStart)
@@ -139,7 +138,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         headline: deenGoalRow.headline,
         milestones: (deenGoalRow.milestones as string[] | null) ?? [],
         quranPages: quranWeekPages,
-        quranTarget: khatmPlan?.status === "active" ? Math.round(planPace(khatmPlan) * 7) : deenGoalRow.quran_page_target,
+        quranTarget: khatmPlan?.status === "active" ? Math.round(planPace(khatmPlan) * 7) : null,
       }
     : null;
   const business: WeeklyGoalEntry = businessGoalRow
