@@ -92,6 +92,7 @@ export default async function EveningClosePage() {
                   inboxAreas={inbox?.areas}
                   killList={inbox?.killList}
                   areas={inbox?.planAreas}
+                  workTabs={inbox?.planWorkTabs}
                   timezone={inbox?.timezone}
                 />
               )}

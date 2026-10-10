@@ -228,4 +228,5 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 | `261` | Today panel, 2026-10-07 | `user_settings.quran_reminder_start`, `quran_reminder_end` (nullable local HH:MM text + format CHECKs; NULL = default 22:00 / 01:00). Additive. **Apply BEFORE deploying the code that reads it** | allocated |
 | `262` | Pause / Resume, 2026-10-07 | `tasks.timer_elapsed_seconds` (integer not null default 0, CHECK >= 0): banked seconds worked on a plan line across paused stretches. Additive. **Apply BEFORE deploying the code that reads it** | allocated |
 
+| `264` | Plan subdomain, 2026-10-10 | `tasks.plan_subdomain` (text, nullable, CHECK 1..80 chars): the Work tab (`user_subdomains.key`) a plan line was attached to. Additive. **Apply BEFORE deploying the code that reads it** | allocated |
 | `263` | Plan criteria, 2026-10-10 | `tasks.plan_criteria` (text, nullable, CHECK 1..2000 chars): free-text criteria for a plan line, kept off the title. Additive. **Apply BEFORE deploying the code that reads it** | allocated |

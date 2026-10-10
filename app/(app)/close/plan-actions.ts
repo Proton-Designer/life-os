@@ -316,6 +316,7 @@ export async function commitPlan(input: CommitPlanInput): Promise<{ ok: true; ki
   }
 
   if (wantsKillList) revalidatePath("/business");
+  if (input.lines.some((l) => l.subdomain)) revalidatePath("/work", "layout");
   revalidatePath("/close");
   revalidatePath("/open");
   revalidatePath("/");

@@ -92,6 +92,7 @@ export function ReplanDialog() {
             mode="today"
             killList={data.killList}
             areas={data.areas}
+            workTabs={data.workTabs}
             timezone={data.timezone}
             onSaved={() => onOpenChange(false)}
           />

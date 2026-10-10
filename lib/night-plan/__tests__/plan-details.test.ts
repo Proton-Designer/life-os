@@ -69,3 +69,25 @@ describe("validatePlanLine", () => {
     expect(validatePlanLine(line({ order: -1 }))).not.toBeNull();
   });
 });
+
+describe("Work tab (plan_subdomain)", () => {
+  it("keeps the tab on a Business or Work line and drops it from any other domain", () => {
+    expect(planLineEffects(prev(), line({ area: "business", addToKillList: true, subdomain: "acme" }), DAY).patch).toMatchObject({ plan_subdomain: "acme" });
+    expect(planLineEffects(prev(), line({ area: "work", subdomain: "day-job" }), DAY).patch).toMatchObject({ plan_subdomain: "day-job" });
+    expect(planLineEffects(prev(), line({ area: "school", subdomain: "acme" }), DAY).patch).toMatchObject({ plan_subdomain: null });
+    expect(planLineEffects(prev(), line({ area: null, subdomain: "acme" }), DAY).patch).toMatchObject({ plan_subdomain: null });
+  });
+  it("a Business tab line takes the Kill List route; a job tab line enters the Backlog", () => {
+    const biz = planLineEffects(prev(), line({ area: "business", addToKillList: true, subdomain: "acme" }), DAY);
+    expect(biz.wantKillList).toBe(true);
+    expect(biz.enterWorkBacklog).toBe(false);
+    const job = planLineEffects(prev(), line({ area: "work", subdomain: "day-job" }), DAY);
+    expect(job.enterWorkBacklog).toBe(true);
+    expect(job.wantKillList).toBe(false);
+  });
+  it("rejects an empty or over-long tab key", () => {
+    expect(validatePlanLine(line({ area: "work", subdomain: "" }))).not.toBeNull();
+    expect(validatePlanLine(line({ area: "work", subdomain: "x".repeat(81) }))).not.toBeNull();
+    expect(validatePlanLine(line({ area: "work", subdomain: "acme" }))).toBeNull();
+  });
+});

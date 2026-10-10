@@ -10,7 +10,8 @@ import { isPlanArea, isValidDuration, type PlanArea } from "@/lib/plan/plan-beha
  *             all it takes for the School page's task list and Home to list it. Leaving School undoes both.
  *   Business  "Add to Kill List" (preselected) mirrors the line into that day's Kill List. Unchecking it later
  *             removes the pairing and the (uncompleted) Kill List row it created; the line stays a Business task.
- *   Work      entering Work puts the line in the current target's Backlog, once -- re-saving the plan does not add
+ *   Work      with a Business tab chosen the line is a Business line (area 'business', plan_subdomain = the tab) and
+ *             takes the Kill List route above; with a job tab, or none, entering Work puts the line in the current target's Backlog, once -- re-saving the plan does not add
  *             it again, because the side effect fires only on the transition INTO Work.
  *   other     Faith / Fitness / Self-Mastery / Personal growth have no task list: the area is recorded for insight
  *             and nothing else changes.
@@ -28,6 +29,8 @@ export type PlanLineInput = {
   order: number;
   /** Free-text criteria for the line (what done means), or null. Trimmed; empty is sent as null. */
   criteria: string | null;
+  /** The Work tab (user_subdomains.key) the line belongs to; only kept when area is 'business' or 'work'. */
+  subdomain?: string | null;
 };
 
 export const MAX_CRITERIA_LENGTH = 2000;
@@ -58,6 +61,7 @@ export function validatePlanLine(line: PlanLineInput): string | null {
   if (line.startTime !== null && !HHMM.test(line.startTime)) return "Enter a valid time.";
   if (line.durationMinutes !== null && !isValidDuration(line.durationMinutes)) return "A timer is between 1 minute and 24 hours.";
   if (!Number.isInteger(line.order) || line.order < 0 || line.order > 999) return "Bad order.";
+  if (line.subdomain != null && (line.subdomain.length === 0 || line.subdomain.length > 80)) return "Pick one of your Work areas.";
   if (line.criteria !== null && (line.criteria.trim().length === 0 || line.criteria.length > MAX_CRITERIA_LENGTH)) return `Criteria can be up to ${MAX_CRITERIA_LENGTH} characters.`;
   return null;
 }
@@ -69,6 +73,8 @@ export function planLineEffects(prev: PlanLinePrev, next: PlanLineInput, planned
     planned_duration_minutes: next.durationMinutes,
     plan_order: next.order,
     plan_criteria: next.criteria === null ? null : next.criteria.trim(),
+    // A Work tab only means something on a Business or Work line; any other domain drops it.
+    plan_subdomain: (next.area === "business" || next.area === "work") && next.subdomain ? next.subdomain : null,
   };
 
   if (next.area === "school") {

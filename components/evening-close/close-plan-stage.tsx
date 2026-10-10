@@ -7,7 +7,7 @@ import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import type { PlanLineState } from "@/lib/night-plan/plan-line";
 import type { PlanLineInput } from "@/lib/night-plan/plan-details";
 import type { PlanArea } from "@/lib/plan/plan-behavior";
-import { EMPTY_PLAN_DRAFT, PlanLineDetails, planDraftSummary, type PlanLineDraft } from "@/components/plan/plan-line-details";
+import { EMPTY_PLAN_DRAFT, PlanLineDetails, planDraftSummary, type PlanLineDraft, type PlanWorkTabOption } from "@/components/plan/plan-line-details";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { useScheduleRefresh } from "@/lib/client/use-optimistic-item";
 import { markWorryHandled } from "@/app/(app)/worries/actions";
@@ -82,7 +82,7 @@ const refreshClose = () => refreshCloseViews();
 
 function draftFrom(state: Partial<PlanLineState> | undefined): PlanLineDraft {
   if (!state) return EMPTY_PLAN_DRAFT;
-  return { area: state.area ?? null, addToKillList: state.addToKillList ?? false, startTime: state.startTime ?? "", durationMinutes: state.durationMinutes ?? null, criteria: state.criteria ?? "" };
+  return { area: state.area ?? null, addToKillList: state.addToKillList ?? false, startTime: state.startTime ?? "", durationMinutes: state.durationMinutes ?? null, criteria: state.criteria ?? "", subdomain: state.subdomain ?? null };
 }
 
 export function ClosePlanStage({
@@ -93,6 +93,7 @@ export function ClosePlanStage({
   inboxAreas = [],
   killList = false,
   areas = [],
+  workTabs = [],
   timezone = "UTC",
   onSaved,
 }: {
@@ -108,6 +109,8 @@ export function ClosePlanStage({
   killList?: boolean;
   /** The person's own domains a line can be attached to. Empty hides the picker; start time and timer still work. */
   areas?: PlanArea[];
+  /** The person's Work tabs: picking Work asks which one. */
+  workTabs?: PlanWorkTabOption[];
   /** IANA timezone, for the time picker's "Now" shortcuts. */
   timezone?: string;
   /** Called after a successful save (Edit Plan closes its dialog). A plain callback between client components. */
@@ -320,6 +323,7 @@ export function ClosePlanStage({
           durationMinutes: l.draft.durationMinutes,
           order: Math.min(order, 999),
           criteria: l.draft.criteria.trim() === "" ? null : l.draft.criteria.trim(),
+          subdomain: l.draft.area === "business" || l.draft.area === "work" ? l.draft.subdomain : null,
         });
       });
 
@@ -415,7 +419,7 @@ export function ClosePlanStage({
               const isStarred = starred.includes(l.id);
               const isCrowned = crowned === l.id;
               const isOpen = expanded.has(l.id);
-              const summary = planDraftSummary({ ...l.draft, addToKillList: l.draft.addToKillList && killList });
+              const summary = planDraftSummary({ ...l.draft, addToKillList: l.draft.addToKillList && killList }, workTabs);
               return (
                 <li key={l.id} className="space-y-2 rounded-md border p-2">
                   <div className="flex items-center gap-2">
@@ -509,6 +513,7 @@ export function ClosePlanStage({
                       onChange={(next) => setLineDraft(l.id, next)}
                       areas={areas}
                       killListAvailable={killList}
+                      workTabs={workTabs}
                       timezone={timezone}
                       relativeToNow={mode === "today"}
                     />

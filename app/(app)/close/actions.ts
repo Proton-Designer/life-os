@@ -18,7 +18,7 @@ import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor 
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
 import { getPlanLines, type PlanLineState } from "@/lib/night-plan/plan-line";
-import { loadPlanAreaOptions } from "@/lib/night-plan/plan-areas";
+import { loadPlanAreaOptions, type PlanWorkTab } from "@/lib/night-plan/plan-areas";
 import type { PlanArea } from "@/lib/plan/plan-behavior";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
@@ -260,6 +260,8 @@ export type ReplanData = {
   killList: boolean;
   /** The person's own domains a line can be attached to. */
   areas: PlanArea[];
+  /** Their Work tabs, so a Work plan line can pick one. */
+  workTabs: PlanWorkTab[];
   timezone: string;
 };
 
@@ -293,5 +295,5 @@ export async function getReplanData(): Promise<ReplanData | null> {
   const todayIds = new Set(todayLines.map((l) => l.id));
   const planSeeds = allSeeds.filter((s) => !todayIds.has(s.id));
 
-  return { dateLabel: today, todayLines, planSeeds, killList: areaOptions.killList, areas: areaOptions.areas, timezone };
+  return { dateLabel: today, todayLines, planSeeds, killList: areaOptions.killList, areas: areaOptions.areas, workTabs: areaOptions.workTabs, timezone };
 }

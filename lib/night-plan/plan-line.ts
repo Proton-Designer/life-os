@@ -20,9 +20,11 @@ export type PlanLineState = {
   order: number | null;
   /** Free-text criteria for the line, or null. */
   criteria: string | null;
+  /** The Work tab (user_subdomains.key) the line was attached to, or null. */
+  subdomain: string | null;
 };
 
-export const PLAN_LINE_COLUMNS = "id, title, mit_rank, plan_area, kill_list_item_id, planned_start_time, planned_duration_minutes, plan_order, plan_criteria, created_at";
+export const PLAN_LINE_COLUMNS = "id, title, mit_rank, plan_area, kill_list_item_id, planned_start_time, planned_duration_minutes, plan_order, plan_criteria, plan_subdomain, created_at";
 
 type Row = {
   id: string;
@@ -34,6 +36,7 @@ type Row = {
   planned_duration_minutes: number | null;
   plan_order: number | null;
   plan_criteria: string | null;
+  plan_subdomain: string | null;
   created_at: string;
 };
 
@@ -49,6 +52,7 @@ export function toPlanLineState(r: Row): PlanLineState {
     durationMinutes: r.planned_duration_minutes,
     order: r.plan_order,
     criteria: r.plan_criteria,
+    subdomain: r.plan_subdomain ?? null,
   };
 }
 

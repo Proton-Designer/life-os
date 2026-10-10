@@ -4206,6 +4206,7 @@ export type Database = {
           plan_area: string | null
           plan_criteria: string | null
           plan_order: number | null
+          plan_subdomain: string | null
           planned_date: string | null
           planned_duration_minutes: number | null
           planned_start_time: string | null
@@ -4233,6 +4234,7 @@ export type Database = {
           plan_area?: string | null
           plan_criteria?: string | null
           plan_order?: number | null
+          plan_subdomain?: string | null
           planned_date?: string | null
           planned_duration_minutes?: number | null
           planned_start_time?: string | null
@@ -4260,6 +4262,7 @@ export type Database = {
           plan_area?: string | null
           plan_criteria?: string | null
           plan_order?: number | null
+          plan_subdomain?: string | null
           planned_date?: string | null
           planned_duration_minutes?: number | null
           planned_start_time?: string | null

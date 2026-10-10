@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DurationField } from "@/components/plan/duration-field";
 import { QuickTimeField } from "@/components/plan/quick-time-field";
 import { MAX_CRITERIA_LENGTH } from "@/lib/night-plan/plan-details";
@@ -12,7 +14,8 @@ import { cn } from "@/lib/utils";
  *   - a domain (their own, from Settings), so the day can be read back by domain;
  *   - Business: "Add to Kill List" (preselected the moment Business is chosen; untick it to keep the line a plain
  *     Business task);
- *   - Work: it is added to the Backlog; School: it is added to today's School tasks (and shows in Today);
+ *   - Work: when the person has Work tabs, picking Work asks WHICH tab (a popup). A Business tab makes the line a
+ *     Business line that reaches that tab's Kill List; a job tab adds it to the Backlog. With no tabs it goes to the Backlog; School: it is added to today's School tasks (and shows in Today);
  *   - a start time and/or a timer, on ANY line, with or without a domain.
  * The editor is controlled: the plan stage owns the draft and writes it on Finish.
  */
@@ -25,20 +28,27 @@ export type PlanLineDraft = {
   durationMinutes: number | null;
   /** Free text; "" for none. Details kept off the title so the title stays short on Home. */
   criteria: string;
+  /** The Work tab (user_subdomains.key) chosen in the Work popup, or null. area is "business" for a Business tab, "work" for a job tab. */
+  subdomain: string | null;
 };
 
-export const EMPTY_PLAN_DRAFT: PlanLineDraft = { area: null, addToKillList: false, startTime: "", durationMinutes: null, criteria: "" };
+export const EMPTY_PLAN_DRAFT: PlanLineDraft = { area: null, addToKillList: false, startTime: "", durationMinutes: null, criteria: "", subdomain: null };
 
 /** The short chips a collapsed row shows: "Business", "Kill List", "5:00 AM", "3h". Pure. */
-export function planDraftSummary(draft: PlanLineDraft): string[] {
+export function planDraftSummary(draft: PlanLineDraft, workTabs: readonly PlanWorkTabOption[] = []): string[] {
   const out: string[] = [];
-  if (draft.area) out.push(PLAN_AREA_LABEL[draft.area]);
+  const tab = draft.subdomain ? workTabs.find((t) => t.key === draft.subdomain) : undefined;
+  if (tab) out.push(`Work · ${tab.label}`);
+  else if (draft.area) out.push(PLAN_AREA_LABEL[draft.area]);
   if (draft.area === "business" && draft.addToKillList) out.push("Kill List");
   if (draft.startTime) out.push(formatHHMM12(draft.startTime));
   if (draft.durationMinutes !== null) out.push(formatDuration(draft.durationMinutes));
   if (draft.criteria.trim().length > 0) out.push("Criteria");
   return out;
 }
+
+/** One of the person's Work tabs (lib/night-plan/plan-areas.ts PlanWorkTab, restated so this client file stays free of server code). */
+export type PlanWorkTabOption = { key: string; label: string; kind: "job" | "business" | null };
 
 const CHIP = "min-h-8 rounded-md border px-2.5 text-xs transition-colors hover:bg-accent/60 aria-pressed:border-primary aria-pressed:bg-primary/10 aria-pressed:text-primary aria-pressed:hover:bg-primary/20";
 
@@ -49,6 +59,7 @@ export function PlanLineDetails({
   onChange,
   areas,
   killListAvailable,
+  workTabs = [],
   timezone,
   relativeToNow,
 }: {
@@ -60,13 +71,25 @@ export function PlanLineDetails({
   areas: PlanArea[];
   /** The account has a Business Kill List to add to. */
   killListAvailable: boolean;
+  /** The person's Work tabs. Non-empty: picking Work opens a popup to choose one. Empty: Work is a plain domain. */
+  workTabs?: PlanWorkTabOption[];
   timezone: string;
   /** Planning today: the time wheel opens on the current time. */
   relativeToNow: boolean;
 }) {
+  const [workPickerOpen, setWorkPickerOpen] = useState(false);
+  const chosenTab = draft.subdomain ? workTabs.find((t) => t.key === draft.subdomain) ?? null : null;
+
   function pickArea(area: PlanArea | null) {
-    // Business preselects the Kill List (the owner's rule); any other choice clears it.
-    onChange({ ...draft, area, addToKillList: area === "business" && killListAvailable && draft.area !== "business" ? true : area === "business" ? draft.addToKillList : false });
+    // Business preselects the Kill List (the owner's rule); any other choice clears it (and any Work tab).
+    onChange({ ...draft, area, subdomain: null, addToKillList: area === "business" && killListAvailable && draft.area !== "business" ? true : area === "business" ? draft.addToKillList : false });
+  }
+
+  function pickWorkTab(tab: PlanWorkTabOption) {
+    // A Business tab is a Business line (Kill List, Deep Work); a job tab is a Work line (Backlog).
+    const area: PlanArea = tab.kind === "business" ? "business" : "work";
+    onChange({ ...draft, area, subdomain: tab.key, addToKillList: area === "business" && killListAvailable ? (draft.area === "business" ? draft.addToKillList : true) : false });
+    setWorkPickerOpen(false);
   }
 
   return (
@@ -79,11 +102,25 @@ export function PlanLineDetails({
               None
             </button>
             {areas.map((a) => (
-              <button key={a} type="button" aria-pressed={draft.area === a} className={cn(CHIP)} onClick={() => pickArea(a)}>
-                {PLAN_AREA_LABEL[a]}
+              <button
+                key={a}
+                type="button"
+                aria-pressed={a === "work" && workTabs.length > 0 ? draft.subdomain !== null || draft.area === "work" : a === "business" ? draft.area === "business" && draft.subdomain === null : draft.area === a}
+                className={cn(CHIP)}
+                onClick={() => (a === "work" && workTabs.length > 0 ? setWorkPickerOpen(true) : pickArea(a))}
+              >
+                {a === "work" && chosenTab ? `Work · ${chosenTab.label}` : PLAN_AREA_LABEL[a]}
               </button>
             ))}
           </div>
+          {chosenTab ? (
+            <p className="text-xs text-muted-foreground">
+              Work area: {chosenTab.label}.{" "}
+              <button type="button" className="underline underline-offset-4" onClick={() => setWorkPickerOpen(true)}>
+                Change
+              </button>
+            </p>
+          ) : null}
           {draft.area === "business" && killListAvailable ? (
             <label className="flex min-h-9 items-center gap-2 text-sm">
               <input type="checkbox" checked={draft.addToKillList} onChange={(e) => onChange({ ...draft, addToKillList: e.target.checked })} data-testid="plan-add-to-kill-list" className="size-4" />
@@ -95,6 +132,32 @@ export function PlanLineDetails({
           {draft.area === "school" ? <p className="text-xs text-muted-foreground">Added to your School tasks for the day, and shown in Today.</p> : null}
         </div>
       ) : null}
+
+      <Dialog open={workPickerOpen} onOpenChange={setWorkPickerOpen}>
+        <DialogContent className="max-w-sm" data-testid="plan-work-picker">
+          <DialogHeader>
+            <DialogTitle>Which Work area?</DialogTitle>
+            <DialogDescription>Pick where this task belongs. It connects to that area&apos;s own widgets.</DialogDescription>
+          </DialogHeader>
+          <div role="group" aria-label="Work area" className="flex flex-col gap-2">
+            {workTabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                aria-pressed={draft.subdomain === t.key}
+                onClick={() => pickWorkTab(t)}
+                className="flex min-h-12 flex-col items-start rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent/60 aria-pressed:border-primary aria-pressed:bg-primary/10"
+              >
+                <span className="text-sm font-medium">{t.label}</span>
+                <span className="text-xs text-muted-foreground">{t.kind === "business" ? "Goes to its Kill List" : "Goes to its Backlog"}</span>
+              </button>
+            ))}
+            <button type="button" className="min-h-10 text-xs text-muted-foreground underline underline-offset-4" onClick={() => { pickArea("work"); setWorkPickerOpen(false); }}>
+              Just Work, no specific area
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="space-y-1.5">
         <p className="text-xs font-medium text-muted-foreground">Start time (optional)</p>
