@@ -18,6 +18,7 @@ import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor 
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
 import { getPlanLines, type PlanLineState } from "@/lib/night-plan/plan-line";
+import { getTaskDay } from "@/lib/day-structure/task-day";
 import { getUnfinishedPlanLines } from "@/lib/night-plan/carry-over-core";
 import { loadPlanAreaOptions, type PlanWorkTab } from "@/lib/night-plan/plan-areas";
 import type { PlanArea } from "@/lib/plan/plan-behavior";
@@ -285,8 +286,8 @@ export async function getReplanData(): Promise<ReplanData | null> {
 
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  const today = localDateString(new Date(), timezone);
   const supabase = await createClient();
+  const today = await getTaskDay(supabase, user.id, new Date(), timezone);
 
   // One wait, not three in a row: today's lines, the seed reads and the Kill List check are independent. The seeds
   // are computed unfiltered and then drop whatever is already a line today (the exclude set was only ever a filter).

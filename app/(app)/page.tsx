@@ -15,6 +15,7 @@ import { TodayTasks } from "@/components/home/today-tasks";
 import { RightNowStrip } from "@/components/home/right-now-strip";
 import { getQuranReminderWindowCore } from "@/lib/quran/reminder-core";
 import { quranReminderState } from "@/lib/home/quran-reminder";
+import { getTaskDay } from "@/lib/day-structure/task-day";
 import { getTodaysPlanItems } from "@/lib/plan/get-plan-items";
 import { FocusModule } from "@/components/home/focus-module";
 import { WeeklyGoalsHeader } from "@/components/shared/weekly-goals-header";
@@ -88,6 +89,9 @@ export default async function HomePage() {
   const timezone = profile?.timezone ?? "UTC";
   const dateStr = localDateString(now, timezone);
   const weekStart = getWeekStartDate(dateStr);
+  // The task list's day: yesterday's unfinished tasks stay until the day is closed or 4 AM, not midnight (task-day.ts).
+  const taskDayPromise = getTaskDay(supabase, userId, now, timezone);
+  taskDayPromise.catch(() => undefined);
 
   // Fetched ahead of the Promise.all below (not inside it) because the
   // weekly_goals query's own domain filter now depends on its resolved
@@ -189,7 +193,7 @@ export default async function HomePage() {
     planItems,
   ] = await Promise.all([
       // allKillListItems: the Today list shows EVERY open Kill List line for today (the Now-era default is one, the next).
-      getPriorityItems(userId, now, undefined, { allKillListItems: true }),
+      taskDayPromise.then((taskDate) => getPriorityItems(userId, now, undefined, { allKillListItems: true, taskDate })),
       getCompletedItemsToday(userId, now),
       getHomeExtras(userId, now, profile),
       getDayShape(userId, now),
@@ -235,7 +239,7 @@ export default async function HomePage() {
       morningRoutineOn ? getMyMorningRoutineChecklist() : Promise.resolve([]),
       getPageLayout("home"),
       // Today's committed plan (starred / domain / time / timer) for the plan list inside Now; one cheap read in the same batch.
-      getTodaysPlanItems(supabase, userId, dateStr),
+      taskDayPromise.then((taskDate) => getTodaysPlanItems(supabase, userId, taskDate)),
     ]);
   const morningBrief = briefState.brief;
   const layoutMap = buildLayoutMap(layout);

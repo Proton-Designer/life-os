@@ -242,7 +242,8 @@ describe("plan-actions", () => {
 
       await savePlanRanks(["a"], "a", "today");
 
-      expect(eveningClosesCalls).toHaveLength(0);
+      // A read is fine (which day "today" is depends on whether it was closed); a WRITE would record a close.
+      expect(eveningClosesCalls.filter((c) => c.method === "upsert" || c.method === "insert" || c.method === "update")).toHaveLength(0);
     });
 
     it("does NOT record a closed day when the plan save itself failed", async () => {

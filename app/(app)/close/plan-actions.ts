@@ -20,6 +20,7 @@ import { mirrorToKillListCore } from "@/lib/night-plan/kill-list-mirror";
 import { applyPlanDetailsCore, removePlanLinesCore } from "@/lib/night-plan/plan-details-core";
 import type { PlanLineInput } from "@/lib/night-plan/plan-details";
 import { MAX_STARRED } from "@/lib/night-plan/night-plan";
+import { getTaskDay } from "@/lib/day-structure/task-day";
 import { carryOverCore } from "@/lib/night-plan/carry-over-core";
 import type { PlanLineState } from "@/lib/night-plan/plan-line";
 import { addDaysToDateString } from "@/lib/date-utils";
@@ -80,7 +81,10 @@ async function planningDateFor(mode: PlanMode = "tonight"): Promise<{ userId: st
   if (!user) return null;
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
-  return { userId: user.id, plannedDate: planningDateForCore(mode, new Date(), timezone), timezone };
+  const now = new Date();
+  // "today" (Edit Plan / replan) is the day Home's list is showing: an unfinished day stays until closed or 4 AM, not midnight.
+  const plannedDate = mode === "today" ? await getTaskDay(await createClient(), user.id, now, timezone) : planningDateForCore(mode, now, timezone);
+  return { userId: user.id, plannedDate, timezone };
 }
 
 /** THIN WRAPPER over dumpLineCore (lib/night-plan/plan-actions-core.ts, P4-07) — the MCP write tool calls the same core. */

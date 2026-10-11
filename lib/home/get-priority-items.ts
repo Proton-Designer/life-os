@@ -273,6 +273,11 @@ export async function getPriorityItems(
      * `kill-list-<row id>`, so a consumer that only looks at the first item sees exactly what it always saw.
      */
     allKillListItems?: boolean;
+    /**
+     * The day whose tasks and Kill List to read, when it is not the calendar date: Home's list keeps an unfinished
+     * day until it is closed or 4 AM (lib/day-structure/task-day.ts). Prayers and fitness stay on the calendar date.
+     */
+    taskDate?: string;
   } = {}
 ): Promise<PriorityItem[]> {
   const profile = await dataSource.getProfile(userId);
@@ -286,8 +291,8 @@ export async function getPriorityItems(
   const [prayerRows, sunnahRows, killListRows, taskRows, fitnessData] = await Promise.all([
     deenOn ? dataSource.getPrayers(userId, dateStr) : Promise.resolve([] as HomePrayerRow[]),
     deenOn ? dataSource.getSunnahCompletions(userId, dateStr) : Promise.resolve([] as HomeSunnahRow[]),
-    dataSource.getKillListItems(userId, dateStr),
-    dataSource.getTasks(userId, dateStr),
+    dataSource.getKillListItems(userId, options.taskDate ?? dateStr),
+    dataSource.getTasks(userId, options.taskDate ?? dateStr),
     dataSource.getFitness(userId, dateStr, dayOfWeek),
   ]);
 
