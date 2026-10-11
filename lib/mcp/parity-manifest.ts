@@ -127,6 +127,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/close/actions.ts#getEveningCloseData": { read_only: true },
   "app/(app)/close/actions.ts#getReplanData": { read_only: true },
   "app/(app)/close/plan-actions.ts#dumpLine": { mcp: "review.night_plan_task.dump" },
+  "app/(app)/close/plan-actions.ts#carryOverUnfinished": { pending: "P4-07", note: "close: carry the day's unfinished plan lines to tomorrow; MCP twin follows with the night-plan writes" },
   "app/(app)/close/plan-actions.ts#triageInboxItem": { pending: "P4-07", note: "IA-P1a Inbox triage (plan/task/worry/done); MCP twin follows with the night-plan writes" },
   "app/(app)/close/plan-actions.ts#refreshCloseViews": { read_only: true, note: "PERF-4: data-free cache revalidation scheduled by the plan stage after a burst of dumped lines" },
   "app/(app)/close/plan-actions.ts#claimSeedLines": { mcp: "review.night_plan_task.claim_seeds" },

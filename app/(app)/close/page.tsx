@@ -86,6 +86,7 @@ export default async function EveningClosePage() {
               {(inbox) => (
                 <ClosePlanStage
                   initialLines={data.tomorrowLines}
+                  carryOver={data.unfinishedToday}
                   seeds={data.planSeeds}
                   mode="tonight"
                   inbox={inbox?.items}

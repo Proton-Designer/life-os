@@ -18,6 +18,7 @@ import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor 
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
 import { getActiveHabitsWithStatus, type HabitWithStatus } from "@/lib/habits/queries";
 import { getPlanLines, type PlanLineState } from "@/lib/night-plan/plan-line";
+import { getUnfinishedPlanLines } from "@/lib/night-plan/carry-over-core";
 import { loadPlanAreaOptions, type PlanWorkTab } from "@/lib/night-plan/plan-areas";
 import type { PlanArea } from "@/lib/plan/plan-behavior";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -64,6 +65,8 @@ export type EveningCloseData = {
   weekdayIndex: number;
   /** Lines already dumped for TOMORROW, so re-entering the ceremony resumes rather than restarts. */
   tomorrowLines: PlanLineState[];
+  /** Today's plan lines that are not done: offered for carrying over to tomorrow. */
+  unfinishedToday: PlanLineState[];
   /**
    * #28/#45 — seeded-but-not-yet-claimed lines for tomorrow's dump: parked
    * worries and unfinished goal milestones, filtered to exclude anything
@@ -188,7 +191,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   // calendar date; a noon UTC instant off that date cannot slip either way.
   const weekdayIndex = new Date(`${today}T12:00:00Z`).getUTCDay();
 
-  const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, settings, wakeMark, activeHabits] = await Promise.all([
+  const [triggers, unplannedTodayCount, planned, hoursTodayMinutes, tomorrowRows, unfinishedToday, settings, wakeMark, activeHabits] = await Promise.all([
     getAllTriggers(supabase, user.id, today),
     getTodayDistractionCount(supabase, user.id, today, isDeenModeOn(profile)),
     // Migration 113's columns. Ranked rows only — a null mit_rank means
@@ -203,6 +206,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
       .order("mit_rank", { ascending: true }),
     getHoursTodayMinutes(supabase, user.id, today, timezone, now),
     getPlanLines(supabase, user.id, tomorrow),
+    getUnfinishedPlanLines(supabase, user.id, today),
     supabase.from("user_settings").select("weekday_baselines").eq("user_id", user.id).maybeSingle(),
     // #33/#34 (Day Structure), read-only.
     getTodayDayStart(supabase, user.id, timezone, resolveLocalTime(today, "12:00", timezone)),
@@ -240,6 +244,7 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
     hoursTodayMinutes,
     deltaMinutes: wakeMark ? computeDeltaMinutes(wakeMark.wokeAtIso, now) : null,
     tomorrowLines,
+    unfinishedToday,
     planSeeds,
     todaysThree: (planned.data ?? []).map((t) => ({
       id: t.id,

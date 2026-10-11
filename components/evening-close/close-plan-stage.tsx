@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
-import { dumpLine, refreshCloseViews, commitPlan, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
+import { dumpLine, refreshCloseViews, commitPlan, carryOverUnfinished, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import type { PlanLineState } from "@/lib/night-plan/plan-line";
 import type { PlanLineInput } from "@/lib/night-plan/plan-details";
@@ -88,6 +88,7 @@ function draftFrom(state: Partial<PlanLineState> | undefined): PlanLineDraft {
 export function ClosePlanStage({
   initialLines,
   seeds = [],
+  carryOver = [],
   mode = "tonight",
   inbox = [],
   inboxAreas = [],
@@ -100,6 +101,8 @@ export function ClosePlanStage({
   /** Lines already on the plan day. Each may carry what the person already decided (star, crown, domain, time, timer). */
   initialLines: InitialLine[];
   seeds?: DumpItem[];
+  /** Today's unfinished plan lines, offered for carrying over to tomorrow (the nightly close only). */
+  carryOver?: PlanLineState[];
   mode?: PlanMode;
   /** IA-P1a: items the "+" sheet parked without an area (Notes, "No area" Tasks), triaged here in one tap each. */
   inbox?: InboxEntry[];
@@ -128,6 +131,9 @@ export function ClosePlanStage({
   });
   const [crowned, setCrowned] = useState<string | null>(() => initialLines.find((l) => l.crowned && l.starred)?.id ?? null);
   const [removed, setRemoved] = useState<string[]>([]);
+  // Unfinished lines from the closed day not yet carried over; all selected until the person unticks some.
+  const [carryable, setCarryable] = useState<PlanLineState[]>(() => (mode === "tonight" ? carryOver.filter((c) => !initialLines.some((l) => l.id === c.id)) : []));
+  const [carryUnticked, setCarryUnticked] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -154,6 +160,24 @@ export function ClosePlanStage({
     });
   }
   const anyOpen = expanded.size > 0;
+
+  function carryOverSelected() {
+    const ids = carryable.filter((c) => !carryUnticked.has(c.id)).map((c) => c.id);
+    if (ids.length === 0) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await carryOverUnfinished(ids).catch(() => ({ error: "Couldn't carry those over. Try again." }));
+      if ("error" in res) {
+        setError(res.error);
+        return;
+      }
+      const moved = new Set(res.lines.map((l) => l.id));
+      markDirty();
+      setLines((prev) => [...prev, ...res.lines.filter((l) => !prev.some((p) => p.id === l.id)).map((l) => ({ id: l.id, title: l.title, draft: draftFrom(l) }))]);
+      setCarryable((prev) => prev.filter((c) => !moved.has(c.id)));
+      setCarryUnticked(new Set());
+    });
+  }
 
   // PERF-4: the draft clears at once so the next line can be typed while this one saves;
   // lines are written in order on one queue, appear with their real id when written, and a
@@ -349,6 +373,45 @@ export function ClosePlanStage({
       <h2 id="close-plan-heading" className="text-sm font-medium text-muted-foreground">
         Plan {mode === "today" ? "today" : "tomorrow"}
       </h2>
+
+      {carryable.length > 0 ? (
+        <div data-testid="close-carry-over" role="group" aria-labelledby="close-carry-heading" className="space-y-2 rounded-md border p-3">
+          <h3 id="close-carry-heading" className="text-xs font-medium text-muted-foreground">
+            Unfinished today · {carryable.length}
+          </h3>
+          <ul className="space-y-1">
+            {carryable.map((c) => (
+              <li key={c.id}>
+                <label className="flex min-h-9 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="size-4"
+                    checked={!carryUnticked.has(c.id)}
+                    onChange={(e) =>
+                      setCarryUnticked((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      })
+                    }
+                  />
+                  {c.title}
+                </label>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            data-testid="close-carry-over-button"
+            onClick={carryOverSelected}
+            disabled={pending || carryable.every((c) => carryUnticked.has(c.id))}
+            className="min-h-9 rounded-md border px-3 text-sm transition-colors enabled:hover:bg-accent disabled:opacity-50"
+          >
+            Carry over to tomorrow
+          </button>
+        </div>
+      ) : null}
 
       {inboxItems.length > 0 ? (
         <div data-testid="close-inbox" aria-labelledby="close-inbox-heading" role="group" className="space-y-2">

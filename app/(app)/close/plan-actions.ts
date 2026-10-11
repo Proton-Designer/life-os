@@ -20,6 +20,9 @@ import { mirrorToKillListCore } from "@/lib/night-plan/kill-list-mirror";
 import { applyPlanDetailsCore, removePlanLinesCore } from "@/lib/night-plan/plan-details-core";
 import type { PlanLineInput } from "@/lib/night-plan/plan-details";
 import { MAX_STARRED } from "@/lib/night-plan/night-plan";
+import { carryOverCore } from "@/lib/night-plan/carry-over-core";
+import type { PlanLineState } from "@/lib/night-plan/plan-line";
+import { addDaysToDateString } from "@/lib/date-utils";
 import { loadHasKillList } from "@/lib/inbox/close-inbox";
 
 export type { PlanMode, SeedLine, SeedSource, ClaimedSeed };
@@ -321,4 +324,21 @@ export async function commitPlan(input: CommitPlanInput): Promise<{ ok: true; ki
   revalidatePath("/open");
   revalidatePath("/");
   return { ok: true, killListOverflow: details.killListOverflow, notices: details.notices };
+}
+
+/**
+ * "Carry over unfinished": moves the chosen unfinished lines of the day being closed onto the plan day (tomorrow),
+ * details kept (lib/night-plan/carry-over-core.ts). Returns the moved lines so the plan stage can show them at once.
+ */
+export async function carryOverUnfinished(ids: string[]): Promise<{ lines: PlanLineState[] } | { error: string }> {
+  if (ids.length > MAX_PLAN_LINES) return { error: "That is too many lines to carry at once." };
+  const ctx = await planningDateFor("tonight");
+  if (ctx === null) return { error: "Not signed in" };
+  const supabase = await createClient();
+  const res = await carryOverCore(supabase, ctx.userId, addDaysToDateString(ctx.plannedDate, -1), ctx.plannedDate, ids);
+  if ("error" in res) return res;
+  revalidatePath("/close");
+  revalidatePath("/open");
+  revalidatePath("/");
+  return res;
 }

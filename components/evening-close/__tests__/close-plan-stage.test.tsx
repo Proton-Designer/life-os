@@ -19,6 +19,7 @@ const dumpLineMock = vi.fn(async (..._args: unknown[]) => ({ id: "new-id" }));
 const refreshCloseViewsMock = vi.fn(async () => {});
 const commitPlanMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true; killListOverflow: string[]; notices: string[] } | { error: string }> => ({ ok: true, killListOverflow: [], notices: [] }));
 const claimSeedLinesMock = vi.fn(async (..._args: unknown[]): Promise<{ claimed: ClaimedSeed[] }> => ({ claimed: [] }));
+const carryOverMock = vi.fn(async (..._args: unknown[]): Promise<{ lines: unknown[] } | { error: string }> => ({ lines: [] }));
 const triageInboxItemMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true } | { error: string }> => ({ ok: true }));
 vi.mock("@/app/(app)/close/plan-actions", () => ({
   dumpLine: (...args: unknown[]) => dumpLineMock(...args),
@@ -26,6 +27,7 @@ vi.mock("@/app/(app)/close/plan-actions", () => ({
   commitPlan: (...args: unknown[]) => commitPlanMock(...args),
   claimSeedLines: (...args: unknown[]) => claimSeedLinesMock(...args),
   triageInboxItem: (...args: unknown[]) => triageInboxItemMock(...args),
+  carryOverUnfinished: (...args: unknown[]) => carryOverMock(...args),
 }));
 const markWorryHandledMock = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("@/app/(app)/worries/actions", () => ({
@@ -433,5 +435,41 @@ describe("ClosePlanStage — Save and expand/collapse", () => {
     // One line left: the bulk toggle is gone, and the remaining line starts collapsed.
     expect(screen.queryByRole("button", { name: /expand all|collapse all/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show details for Send the invoices" })).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("ClosePlanStage - carry over unfinished", () => {
+  const unfinished = (id: string, title: string) => ({ id, title, starred: false, crowned: false, area: null, addToKillList: false, startTime: null, durationMinutes: null, order: null, criteria: null, subdomain: null });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lists today's unfinished lines and carries the ticked ones onto tomorrow's plan", async () => {
+    const user = userEvent.setup();
+    carryOverMock.mockResolvedValueOnce({ lines: [unfinished("a", "Call the bank")] });
+    render(<ClosePlanStage initialLines={[]} carryOver={[unfinished("a", "Call the bank"), unfinished("b", "Email Sam")]} />);
+    expect(screen.getByText("Unfinished today · 2")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Email Sam" })); // leave this one behind
+    await user.click(screen.getByTestId("close-carry-over-button"));
+    await waitFor(() => expect(carryOverMock).toHaveBeenCalledWith(["a"]));
+    await waitFor(() => expect(screen.getByRole("button", { name: /star call the bank/i })).toBeInTheDocument());
+    expect(screen.getByRole("checkbox", { name: "Email Sam" })).toBeInTheDocument(); // still offered
+  });
+
+  it("shows nothing when there is nothing unfinished, and never in the replan (today) mode", () => {
+    const { rerender } = render(<ClosePlanStage initialLines={[]} carryOver={[]} />);
+    expect(screen.queryByTestId("close-carry-over")).not.toBeInTheDocument();
+    rerender(<ClosePlanStage initialLines={[]} mode="today" carryOver={[unfinished("a", "x")]} />);
+    expect(screen.queryByTestId("close-carry-over")).not.toBeInTheDocument();
+  });
+
+  it("keeps the list and shows the error when the move fails", async () => {
+    const user = userEvent.setup();
+    carryOverMock.mockResolvedValueOnce({ error: "boom" });
+    render(<ClosePlanStage initialLines={[]} carryOver={[unfinished("a", "Call the bank")]} />);
+    await user.click(screen.getByTestId("close-carry-over-button"));
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+    expect(screen.getByTestId("close-carry-over")).toBeInTheDocument();
   });
 });
