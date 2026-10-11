@@ -3,10 +3,25 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDaysToDateString, getWeekStartDate } from "@/lib/date-utils";
 import { ramadanWindow } from "@/lib/quran/ramadan";
 import { JUZ_START_PAGES, TOTAL_PAGES, juzForPage, surahLabelForSpan } from "@/lib/quran/page-map";
+import { pageOfAyah } from "@/lib/quran/ayah-map";
+import {
+  editEntry,
+  ledgerBookmark,
+  ledgerGaps,
+  lastSavedEntry,
+  NEW_ENTRY_ID,
+  removeEntry,
+  resolveLog,
+  trimLedgerTo,
+  type LedgerContext,
+  type LedgerEntry,
+  type LogMethod,
+  type EntryPatch,
+  type PageGap,
+} from "@/lib/quran/ledger";
 import {
   DEFAULT_PRESET,
   juzCompletedBetween,
-  applyReading,
   cumulativeTargetPages,
   isPlanSetupError,
   keepDateBaseline,
@@ -23,7 +38,6 @@ import {
   type Portion,
   type QuranPlanParams,
   type QuranPlanPreset,
-  type ReadingLog,
 } from "@/lib/quran/plan";
 
 /**
@@ -45,6 +59,7 @@ type PlanRow = {
   pace_pages_per_day: number | null;
   original_pace_pages_per_day: number;
   current_page: number;
+  current_ayah: number | null;
   status: string;
   paused_on: string | null;
   paused_days: number;
@@ -52,11 +67,11 @@ type PlanRow = {
 };
 
 const PLAN_COLUMNS =
-  "id, khatm_number, start_date, start_page, plan_set_on, plan_set_page, target_date, pace_pages_per_day, original_pace_pages_per_day, current_page, status, paused_on, paused_days, completed_on";
+  "id, khatm_number, start_date, start_page, plan_set_on, plan_set_page, target_date, pace_pages_per_day, original_pace_pages_per_day, current_page, current_ayah, status, paused_on, paused_days, completed_on";
 
 const num = (v: unknown): number => (typeof v === "number" ? v : Number(v));
 
-export function rowToPlan(row: PlanRow): QuranPlanParams & { id: string; khatmNumber: number; completedOn: string | null } {
+export function rowToPlan(row: PlanRow): QuranPlanParams & { id: string; khatmNumber: number; completedOn: string | null; currentAyah: number | null } {
   return {
     id: row.id,
     khatmNumber: row.khatm_number,
@@ -68,6 +83,7 @@ export function rowToPlan(row: PlanRow): QuranPlanParams & { id: string; khatmNu
     pacePagesPerDay: row.pace_pages_per_day === null ? null : num(row.pace_pages_per_day),
     originalPacePagesPerDay: num(row.original_pace_pages_per_day),
     currentPage: row.current_page,
+    currentAyah: row.current_ayah ?? null,
     status: row.status as QuranPlanParams["status"],
     pausedOn: row.paused_on,
     pausedDays: row.paused_days,
@@ -107,6 +123,8 @@ export type QuranOverview = {
     khatmNumber: number;
     status: QuranPlanParams["status"];
     currentPage: number;
+    /** The exact ayah (global number 1..6236) the reader is on inside currentPage, or null = the top of the page. */
+    currentAyah: number | null;
     startPage: number;
     startDate: string;
     /** The finish day including paused days. */
@@ -125,6 +143,8 @@ export type QuranOverview = {
   week: { pagesRead: number; plannedToDate: number; weeklyTargetPages: number | null };
   /** Pages the user read TODAY (any log). */
   pagesReadToday: number;
+  /** Pages read on each of the last 14 days, oldest first, ending today (every quran_sessions row). */
+  daily: { date: string; pages: number }[];
   juz: {
     current: number;
     completed: number;
@@ -152,9 +172,14 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
   const pagesReadToday = sessions.filter((s) => s.date === localDate).reduce((n, s) => n + s.pages, 0);
   const weekPagesRead = sessions.filter((s) => s.date >= weekStart && s.date <= localDate).reduce((n, s) => n + s.pages, 0);
 
+  const daily = Array.from({ length: 14 }, (_, i) => {
+    const date = addDaysToDateString(localDate, i - 13);
+    return { date, pages: sessions.filter((s) => s.date === date).reduce((n, s) => n + s.pages, 0) };
+  });
+
   const plan = (await getOpenPlanCore(supabase, userId)) ?? (await getLatestPlanCore(supabase, userId));
   if (!plan) {
-    return { plan: null, portion: null, status: null, readingDaysLast7: readingDaysInLast7(sessions, localDate), week: { ...EMPTY_WEEK, pagesRead: weekPagesRead }, pagesReadToday, juz: { current: 1, completed: 0, completedToday: [] } };
+    return { plan: null, portion: null, status: null, readingDaysLast7: readingDaysInLast7(sessions, localDate), week: { ...EMPTY_WEEK, pagesRead: weekPagesRead }, pagesReadToday, daily, juz: { current: 1, completed: 0, completedToday: [] } };
   }
 
   const pace = planPace(plan);
@@ -176,6 +201,7 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
       khatmNumber: plan.khatmNumber,
       status: plan.status,
       currentPage: plan.currentPage,
+      currentAyah: plan.currentAyah,
       startPage: plan.startPage,
       startDate: plan.startDate,
       targetDate: status.effectiveTargetDate,
@@ -189,6 +215,7 @@ export async function getQuranOverviewCore(supabase: SupabaseClient, userId: str
     readingDaysLast7: readingDaysInLast7(sessions, localDate),
     week: { pagesRead: weekPagesRead, plannedToDate, weeklyTargetPages: active ? Math.round(pace * 7) : null },
     pagesReadToday,
+    daily,
     juz: { current: juzForPage(current), completed: completedJuz, completedToday: juzCompletedToday(sessions, localDate) },
   };
 }
@@ -250,115 +277,260 @@ export async function startNextKhatmCore(supabase: SupabaseClient, userId: strin
   return startQuranPlanCore(supabase, userId, localDate, { preset: { kind: "custom_pace", pagesPerDay: latest.originalPacePagesPerDay }, startPage: 1 });
 }
 
-export type LogReadingInput = { toPage: number } | { nextPage: number } | { todaysPortion: true };
-export type LogReadingResult = { sessionId: string; pagesRead: number; fromPage: number; toPage: number; newCurrentPage: number; juzCompleted: number[]; khatmComplete: boolean; date: string };
+/** Any one of these resolves to a span of whole pages (lib/quran/ledger.ts). `ayah` is a GLOBAL ayah number (1..6236). */
+export type LogReadingInput = { toPage: number } | { nextPage: number } | { todaysPortion: true } | { pages: number } | { ayah: number };
+export type LogReadingResult = {
+  /** null when only the exact ayah moved (no whole page was finished). */
+  sessionId: string | null;
+  pagesRead: number;
+  fromPage: number;
+  toPage: number;
+  newCurrentPage: number;
+  juzCompleted: number[];
+  khatmComplete: boolean;
+  date: string;
+};
+
+/** "today" / "yesterday", or an explicit local YYYY-MM-DD. */
+export type LogForDate = "today" | "yesterday" | (string & {});
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function resolveLogDate(localDate: string, forDate: LogForDate): string | null {
+  if (forDate === "today") return localDate;
+  if (forDate === "yesterday") return addDaysToDateString(localDate, -1);
+  return DATE_RE.test(forDate) ? forDate : null;
+}
+
+/** The plan's reading log as ledger entries (only rows that carry a page span; legacy rows without one are never touched). */
+async function loadLedger(supabase: SupabaseClient, userId: string, planId: string): Promise<LedgerEntry[]> {
+  const { data, error } = await supabase.from("quran_sessions").select("id, date, from_page, to_page, created_at").eq("user_id", userId).eq("plan_id", planId).not("from_page", "is", null);
+  if (error) throw error;
+  return (data ?? [])
+    .filter((r) => r.from_page !== null && r.to_page !== null)
+    .map((r) => ({ id: r.id as string, date: r.date as string, from: r.from_page as number, to: r.to_page as number, seq: Date.parse(r.created_at as string) || 0 }));
+}
+
+const ledgerContext = (plan: StoredPlan, today: string): LedgerContext => ({ startPage: plan.startPage, startDate: plan.startDate, today });
+
+/** Everything the card's History needs: the entries (any order), the pages no entry covers, and the derived bookmark. */
+export async function getQuranLedgerCore(supabase: SupabaseClient, userId: string): Promise<{ entries: LedgerEntry[]; gaps: PageGap[]; bookmark: number } | null> {
+  const plan = (await getOpenPlanCore(supabase, userId)) ?? (await getLatestPlanCore(supabase, userId));
+  if (!plan) return null;
+  const entries = await loadLedger(supabase, userId, plan.id);
+  return { entries, gaps: ledgerGaps(entries, plan.startPage), bookmark: ledgerBookmark(entries, plan.startPage) };
+}
+
+type SessionWrite = { date: string; from: number; to: number };
+const sessionRow = (userId: string, planId: string, w: SessionWrite) => ({
+  user_id: userId,
+  date: w.date,
+  pages_read: w.to - w.from + 1,
+  surah: surahLabelForSpan(w.from, w.to),
+  juz: juzForPage(w.from),
+  from_page: w.from,
+  to_page: w.to,
+  plan_id: planId,
+});
 
 /**
- * Logs reading toward the open plan. `toPage` = the last page read; `nextPage` = "I'm on page N" (= toPage N-1);
- * `todaysPortion` = read through today's portion. `forDate` 'yesterday' files the reading under yesterday.
+ * Applies ONE ledger change (an insert, an edit of one entry, or a delete) and brings the plan in line with it: the
+ * bookmark is re-derived from the whole ledger (never trusted from the caller), the khatm completes / reopens when that
+ * crosses page 604, and the exact ayah survives only while it still sits on the bookmark's page. The plan row moves first,
+ * through a UPDATE guarded on the page it was read at (a concurrent change matches 0 rows), and is put back if the log write fails.
+ */
+async function applyLedgerChange(
+  supabase: SupabaseClient,
+  userId: string,
+  plan: StoredPlan,
+  localDate: string,
+  nextLedger: readonly LedgerEntry[],
+  change: { insert: SessionWrite } | { update: { id: string; write: SessionWrite } } | { remove: string } | { positionOnly: true },
+  restAyah: number | null | undefined
+): Promise<CoreResult<{ sessionId: string | null; newCurrentPage: number; khatmComplete: boolean }>> {
+  const newCurrent = ledgerBookmark(nextLedger, plan.startPage);
+  const finished = newCurrent > TOTAL_PAGES;
+  const keepAyah = restAyah === undefined && plan.currentAyah !== null && newCurrent === plan.currentPage && pageOfAyah(plan.currentAyah) === newCurrent;
+  const newAyah = finished ? null : restAyah !== undefined ? restAyah : keepAyah ? plan.currentAyah : null;
+  const newStatus = finished ? "completed" : plan.status === "completed" ? "active" : plan.status;
+  const planPatch: Record<string, unknown> = {};
+  if (newCurrent !== plan.currentPage) planPatch.current_page = newCurrent;
+  if (newAyah !== plan.currentAyah) planPatch.current_ayah = newAyah;
+  if (newStatus !== plan.status) Object.assign(planPatch, newStatus === "completed" ? { status: "completed", completed_on: localDate } : { status: "active", completed_on: null });
+  const planChanged = Object.keys(planPatch).length > 0;
+
+  if (planChanged) {
+    const { data: moved, error: moveError } = await supabase.from("quran_plans").update(planPatch).eq("id", plan.id).eq("user_id", userId).eq("current_page", plan.currentPage).select("id");
+    if (moveError) {
+      if ((moveError as { code?: string }).code === "23505") return { ok: false, message: "You've started another plan since, so that khatm can't be reopened." };
+      throw moveError;
+    }
+    if (!moved || moved.length === 0) return { ok: false, message: "Your reading just changed on another device. Refresh and try again." };
+  }
+  const undoPlan = async () => {
+    if (!planChanged) return;
+    await supabase
+      .from("quran_plans")
+      .update({ current_page: plan.currentPage, current_ayah: plan.currentAyah, status: plan.status, completed_on: plan.completedOn })
+      .eq("id", plan.id)
+      .eq("user_id", userId)
+      .eq("current_page", newCurrent);
+  };
+
+  let sessionId: string | null = null;
+  if ("insert" in change) {
+    const { data, error } = await supabase.from("quran_sessions").insert(sessionRow(userId, plan.id, change.insert)).select("id").single();
+    if (error) {
+      await undoPlan();
+      throw error;
+    }
+    sessionId = data.id as string;
+  } else if ("update" in change) {
+    const { error } = await supabase.from("quran_sessions").update(sessionRow(userId, plan.id, change.update.write)).eq("id", change.update.id).eq("user_id", userId);
+    if (error) {
+      await undoPlan();
+      throw error;
+    }
+    sessionId = change.update.id;
+  } else if ("remove" in change) {
+    const { error } = await supabase.from("quran_sessions").delete().eq("id", change.remove).eq("user_id", userId);
+    if (error) {
+      await undoPlan();
+      throw error;
+    }
+  }
+  return { ok: true, sessionId, newCurrentPage: newCurrent, khatmComplete: finished };
+}
+
+/**
+ * Logs reading toward the open plan, in whichever way the reader thinks of it: `toPage` = the last page read, `nextPage` =
+ * "I'm on page N" (= through N-1), `pages` = "I read N pages" (from where that day's reading left off), `ayah` = "I'm on
+ * this ayah" (= through the page before it, and the exact place is remembered), `todaysPortion` = today's pages.
+ * `forDate` files it under today, yesterday or any earlier day: it is placed right after the reading before that day and is
+ * refused if it would run into the reading after it (the ledger must stay in page order with no overlap).
  */
 export async function logQuranReadingCore(
   supabase: SupabaseClient,
   userId: string,
   localDate: string,
   input: LogReadingInput,
-  forDate: "today" | "yesterday" = "today"
+  forDate: LogForDate = "today"
 ): Promise<CoreResult<LogReadingResult>> {
   const plan = await getOpenPlanCore(supabase, userId);
   if (!plan) return { ok: false, message: "Start a Quran plan first." };
   if (plan.status === "paused") return { ok: false, message: "Your plan is paused. Resume it to log reading." };
 
-  let toPage: number;
+  const date = resolveLogDate(localDate, forDate);
+  if (!date) return { ok: false, message: "Pick a valid day." };
+  if (date < plan.startDate) return { ok: false, message: "That day is before your plan started." };
+
+  const ledger = await loadLedger(supabase, userId, plan.id);
+  let method: LogMethod;
   if ("todaysPortion" in input) {
     const portion = todaysPortion(plan, localDate);
     if (!portion) return { ok: false, message: "There is no portion to log today." };
-    toPage = portion.to;
+    method = { kind: "throughPage", page: portion.to };
   } else if ("nextPage" in input) {
-    toPage = input.nextPage - 1;
+    method = { kind: "onPage", page: input.nextPage };
+  } else if ("pages" in input) {
+    method = { kind: "pages", count: input.pages };
+  } else if ("ayah" in input) {
+    if (!Number.isInteger(input.ayah) || input.ayah < 1 || input.ayah > 6236) return { ok: false, message: "That ayah doesn't exist." };
+    method = { kind: "onAyah", ayah: input.ayah };
   } else {
-    toPage = input.toPage;
+    method = { kind: "throughPage", page: input.toPage };
   }
 
-  const date = forDate === "yesterday" ? addDaysToDateString(localDate, -1) : localDate;
-  if (date < plan.startDate) return { ok: false, message: "That day is before your plan started." };
+  const ctx = ledgerContext(plan, localDate);
+  const resolved = resolveLog(ledger, date, method, ctx);
+  if (!resolved.ok) return resolved;
 
-  const log = applyReading(plan.currentPage, toPage);
-  if ("error" in log) return { ok: false, message: log.error };
-  return commitLog(supabase, userId, plan, log, date, localDate);
-}
-
-async function commitLog(supabase: SupabaseClient, userId: string, plan: StoredPlan, log: ReadingLog, date: string, localDate: string): Promise<CoreResult<LogReadingResult>> {
-  // 1) Move the bookmark, guarded on the page it was read at: a concurrent log changes current_page and matches 0 rows.
-  const planPatch: Record<string, unknown> = { current_page: log.newCurrentPage };
-  if (log.khatmComplete) Object.assign(planPatch, { status: "completed", completed_on: localDate });
-  const { data: moved, error: moveError } = await supabase.from("quran_plans").update(planPatch).eq("id", plan.id).eq("user_id", userId).eq("current_page", plan.currentPage).select("id");
-  if (moveError) throw moveError;
-  if (!moved || moved.length === 0) return { ok: false, message: "Your bookmark just changed on another device. Refresh and try again." };
-
-  // 2) The log row (legacy columns surah/juz/pages_read stay filled so every existing Quran reader keeps working).
-  const { data: session, error: sessionError } = await supabase
-    .from("quran_sessions")
-    .insert({
-      user_id: userId,
-      date,
-      pages_read: log.pagesRead,
-      surah: surahLabelForSpan(log.fromPage, log.toPage),
-      juz: juzForPage(log.fromPage),
-      from_page: log.fromPage,
-      to_page: log.toPage,
-      plan_id: plan.id,
-    })
-    .select("id")
-    .single();
-  if (sessionError) {
-    // Put the bookmark back (guarded the same way) rather than leave a page counted with no log.
-    await supabase.from("quran_plans").update({ current_page: plan.currentPage, status: "active", completed_on: null }).eq("id", plan.id).eq("user_id", userId).eq("current_page", log.newCurrentPage);
-    throw sessionError;
+  if (resolved.positionOnly) {
+    const res = await applyLedgerChange(supabase, userId, plan, localDate, ledger, { positionOnly: true }, resolved.restAyah);
+    if (!res.ok) return res;
+    return { ok: true, sessionId: null, pagesRead: 0, fromPage: resolved.entry.from, toPage: resolved.entry.from - 1, newCurrentPage: res.newCurrentPage, juzCompleted: [], khatmComplete: false, date };
   }
-  return { ok: true, sessionId: session.id as string, pagesRead: log.pagesRead, fromPage: log.fromPage, toPage: log.toPage, newCurrentPage: log.newCurrentPage, juzCompleted: log.juzCompleted, khatmComplete: log.khatmComplete, date };
+
+  const { from, to } = resolved.entry;
+  const next: LedgerEntry[] = [...ledger, { id: NEW_ENTRY_ID, date, from, to, seq: Number.MAX_SAFE_INTEGER }];
+  const res = await applyLedgerChange(supabase, userId, plan, localDate, next, { insert: { date, from, to } }, resolved.restAyah);
+  if (!res.ok) return res;
+  return { ok: true, sessionId: res.sessionId, pagesRead: to - from + 1, fromPage: from, toPage: to, newCurrentPage: res.newCurrentPage, juzCompleted: juzCompletedBetween(from, to + 1), khatmComplete: res.khatmComplete, date };
 }
 
-/** Undoes the most recent log of the latest plan: deletes that session and puts the bookmark back to where it started. */
-export async function undoLastQuranLogCore(supabase: SupabaseClient, userId: string): Promise<CoreResult<{ currentPage: number }>> {
-  const plan = await getLatestPlanCore(supabase, userId);
+/** The open plan, else the latest finished khatm (History can fix a completed khatm and reopen it). */
+async function planForEdit(supabase: SupabaseClient, userId: string): Promise<StoredPlan | null> {
+  return (await getOpenPlanCore(supabase, userId)) ?? (await getLatestPlanCore(supabase, userId));
+}
+
+/** Changes one logged day (its date and/or its first/last page). Refused when it would overlap or run out of order with the days around it. */
+export async function editQuranLogEntryCore(supabase: SupabaseClient, userId: string, localDate: string, entryId: string, patch: EntryPatch): Promise<CoreResult<{ currentPage: number }>> {
+  const plan = await planForEdit(supabase, userId);
+  if (!plan) return { ok: false, message: "Start a Quran plan first." };
+  if (patch.date !== undefined && !DATE_RE.test(patch.date)) return { ok: false, message: "Pick a valid day." };
+  const ledger = await loadLedger(supabase, userId, plan.id);
+  const edited = editEntry(ledger, entryId, patch, ledgerContext(plan, localDate));
+  if (!edited.ok) return edited;
+  const row = edited.entries.find((e) => e.id === entryId)!;
+  const res = await applyLedgerChange(supabase, userId, plan, localDate, edited.entries, { update: { id: entryId, write: { date: row.date, from: row.from, to: row.to } } }, undefined);
+  if (!res.ok) return res;
+  return { ok: true, currentPage: res.newCurrentPage };
+}
+
+/** Removes one logged day. The pages it covered become a gap (shown in History) and the bookmark follows the furthest page still logged. */
+export async function deleteQuranLogEntryCore(supabase: SupabaseClient, userId: string, localDate: string, entryId: string): Promise<CoreResult<{ currentPage: number }>> {
+  const plan = await planForEdit(supabase, userId);
+  if (!plan) return { ok: false, message: "Start a Quran plan first." };
+  const ledger = await loadLedger(supabase, userId, plan.id);
+  if (!ledger.some((e) => e.id === entryId)) return { ok: false, message: "That entry no longer exists. Refresh and try again." };
+  const res = await applyLedgerChange(supabase, userId, plan, localDate, removeEntry(ledger, entryId), { remove: entryId }, undefined);
+  if (!res.ok) return res;
+  return { ok: true, currentPage: res.newCurrentPage };
+}
+
+/** Undoes the most recently SAVED log of the latest plan (whatever day it was filed under). */
+export async function undoLastQuranLogCore(supabase: SupabaseClient, userId: string, localDate: string = ""): Promise<CoreResult<{ currentPage: number }>> {
+  const plan = await planForEdit(supabase, userId);
   if (!plan) return { ok: false, message: "Nothing to undo." };
-  const { data, error } = await supabase
-    .from("quran_sessions")
-    .select("id, from_page, to_page")
-    .eq("user_id", userId)
-    .eq("plan_id", plan.id)
-    .not("from_page", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (error) throw error;
-  const last = (data ?? [])[0] as { id: string; from_page: number; to_page: number } | undefined;
+  const ledger = await loadLedger(supabase, userId, plan.id);
+  const last = lastSavedEntry(ledger);
   if (!last) return { ok: false, message: "Nothing to undo." };
-  // Only the log the bookmark currently sits right after can be undone (a bookmark edit since then makes it ambiguous).
-  if (last.to_page + 1 !== plan.currentPage) return { ok: false, message: "You've moved your bookmark since that log, so it can't be undone." };
-
-  const { data: moved, error: moveError } = await supabase
-    .from("quran_plans")
-    .update({ current_page: last.from_page, status: "active", completed_on: null })
-    .eq("id", plan.id)
-    .eq("user_id", userId)
-    .eq("current_page", plan.currentPage)
-    .select("id");
-  if (moveError) {
-    if ((moveError as { code?: string }).code === "23505") return { ok: false, message: "You've started another plan since, so that khatm can't be reopened." };
-    throw moveError;
-  }
-  if (!moved || moved.length === 0) return { ok: false, message: "Your bookmark just changed on another device. Refresh and try again." };
-  const { error: deleteError } = await supabase.from("quran_sessions").delete().eq("id", last.id).eq("user_id", userId);
-  if (deleteError) throw deleteError;
-  return { ok: true, currentPage: last.from_page };
+  const res = await applyLedgerChange(supabase, userId, plan, localDate, removeEntry(ledger, last.id), { remove: last.id }, undefined);
+  if (!res.ok) return res;
+  return { ok: true, currentPage: res.newCurrentPage };
 }
 
-/** Absolute bookmark edit (can go back, unlike a log): the NEXT page to read, 1..604. No log row is written. */
-export async function setQuranBookmarkCore(supabase: SupabaseClient, userId: string, page: number): Promise<CoreResult<{ currentPage: number }>> {
+/**
+ * Sets the NEXT page to read, 1..604 (absolute). Moving forward logs the skipped pages as today's reading; moving back
+ * trims the log (entries at or after that page go, the one straddling it is cut short), so the log always matches the bookmark.
+ */
+export async function setQuranBookmarkCore(supabase: SupabaseClient, userId: string, page: number, localDate: string = ""): Promise<CoreResult<{ currentPage: number }>> {
   if (!Number.isInteger(page) || page < 1 || page > TOTAL_PAGES) return { ok: false, message: `Page must be between 1 and ${TOTAL_PAGES}.` };
   const plan = await getOpenPlanCore(supabase, userId);
   if (!plan) return { ok: false, message: "Start a Quran plan first." };
-  const { data, error } = await supabase.from("quran_plans").update({ current_page: page }).eq("id", plan.id).eq("user_id", userId).select("id");
+  if (page < plan.startPage) return { ok: false, message: `Your plan starts at page ${plan.startPage}.` };
+  const ledger = await loadLedger(supabase, userId, plan.id);
+  const current = ledgerBookmark(ledger, plan.startPage);
+  if (page === current) return { ok: true, currentPage: current };
+  if (page > current) {
+    const logged = await logQuranReadingCore(supabase, userId, localDate, { nextPage: page });
+    return logged.ok ? { ok: true, currentPage: logged.newCurrentPage } : logged;
+  }
+  const trimmed = trimLedgerTo(ledger, page);
+  const keptIds = new Set(trimmed.map((e) => e.id));
+  for (const e of ledger) {
+    if (keptIds.has(e.id)) {
+      const cut = trimmed.find((t) => t.id === e.id)!;
+      if (cut.to !== e.to) {
+        const { error } = await supabase.from("quran_sessions").update(sessionRow(userId, plan.id, { date: cut.date, from: cut.from, to: cut.to })).eq("id", e.id).eq("user_id", userId);
+        if (error) throw error;
+      }
+    } else {
+      const { error } = await supabase.from("quran_sessions").delete().eq("id", e.id).eq("user_id", userId);
+      if (error) throw error;
+    }
+  }
+  const { data, error } = await supabase.from("quran_plans").update({ current_page: page, current_ayah: null }).eq("id", plan.id).eq("user_id", userId).select("id");
   if (error) throw error;
   if (!data || data.length === 0) return { ok: false, message: "Couldn't update the bookmark." };
   return { ok: true, currentPage: page };

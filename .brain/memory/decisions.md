@@ -286,3 +286,10 @@ Home's header is one slim row from md (768px) up: `Home | focus card | actions` 
 - **Dim the content, never the actions:** whole-row `opacity-70` turned primary Start buttons a flat grey that read as disabled; now only `data-dim` content dims.
 - **Pause from the overlay shows at once on Home** via the provider's `pausedHints` / `completedTaskIds` (the row would otherwise read idle for the 1-3 s before Home's refresh), and a line completed from the overlay leaves the list through the same overlay leave rule as every tick.
 
+
+## 2026-10-11 — Quran reading ledger: the log is the truth, the bookmark is derived (QURAN-03, migration 265)
+- **One position, derived:** a khatm's `quran_sessions` rows (with `from_page`/`to_page`) are a LEDGER (`lib/quran/ledger.ts`). The bookmark `quran_plans.current_page` is always re-derived as "furthest logged page + 1" (or the start page) on every write, so "pages read", "I'm on page N", "I'm on this ayah" and History edits, in any order, can never disagree. `setQuranBookmarkCore` now logs the skipped pages (forward) or trims the log (back).
+- **Consistency rule:** in day order (same day: save order) every entry must end before the next begins. Gaps are allowed (shown in History, fillable); overlaps / out-of-order are refused with a reason. The same pure code previews on the client and validates on the server. Only pairs touching the changed entry are checked, so an old inconsistency never blocks an unrelated edit.
+- **"I'm on page N" = finished through N-1** (stored semantics unchanged: `current_page` = the NEXT page to read). The card now says both: "You're on page N … finished through page N-1".
+- **Ayah precision:** `quran_plans.current_ayah` (global ayah number 1..6236, `lib/quran/ayah-map.ts`, Tanzil page table) remembers the exact place inside the current page; pages still count whole, and it clears when the bookmark moves to another page.
+- **Why the old graph looked dead:** it charted Sun-Sat of the CURRENT week, so on a Sunday it was one empty day. Now a labelled 14-day bar chart from the same `quran_sessions` rows as the weekly total.

@@ -22,7 +22,7 @@ import { PrayerRow } from "@/components/deen/prayer-row";
 import { SalahViewMoreButton } from "@/components/deen/salah-view-more-button";
 import { QuranPlanConnected } from "@/components/deen/quran-plan-connected";
 import { toQuranPlanView } from "@/components/deen/quran-plan-view";
-import { getQuranOverviewCore } from "@/lib/quran/plan-core";
+import { getQuranLedgerCore, getQuranOverviewCore } from "@/lib/quran/plan-core";
 import { weeklyQuranTarget } from "@/lib/quran/surfaces";
 import { ReflectionTracker } from "@/components/deen/reflection-tracker";
 import type { ReflectionEntry } from "@/lib/deen/reflection-strip";
@@ -45,7 +45,6 @@ import { PageHeader } from "@/components/shell/page-header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Panel } from "@/components/ui/panel";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AreaChart } from "@/components/charts/area-chart";
 import { ConsistencyGrid } from "@/components/charts/consistency-grid";
 import { getPageLayout } from "@/app/(app)/page-layout-actions";
 import { LayoutSlot, buildLayoutMap, allWidgetsHidden } from "@/components/page-layout/layout-slot";
@@ -105,6 +104,7 @@ export default async function DeenPage() {
     { data: currentFocusRow },
     { data: sunnahLogRows },
     quranOverview,
+    quranLedger,
     layout,
     onTimePrayerDays,
   ] = await Promise.all([
@@ -142,6 +142,8 @@ export default async function DeenPage() {
     supabase.from("sunnah_logs").select("prayer_name, slot, completed").eq("user_id", userId).eq("date", dateStr).eq("completed", true),
     // QURAN-02: the khatm plan's one read (plan, today's portion, status, week). Deen is ON here (the page redirects otherwise).
     getQuranOverviewCore(supabase, userId, dateStr),
+    // QURAN-03: the plan's reading log (History, the day chart and the fit-preview run on it); null without a plan.
+    getQuranLedgerCore(supabase, userId),
     getPageLayout("deen"),
     getOnTimePrayerDays(supabase, userId),
   ]);
@@ -293,8 +295,6 @@ export default async function DeenPage() {
   const pagesDelta = weekPagesRead - previousWeekPages;
   // The weekly target: the plan's (daily pace x 7) while a plan is active, else none.
   const quranTarget = weeklyQuranTarget(quranOverview);
-  const latestSession = sessions[0] ?? null;
-  const weekLabels = weekDates.map((d) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }));
 
   // --- Reflection ---
   const reflectionEntries: ReflectionEntry[] = (reflectionRows ?? []).map((r) => ({
@@ -458,10 +458,7 @@ export default async function DeenPage() {
           }
           caption="pages read this week"
         >
-          <div className="flex flex-col gap-4">
-            <QuranPlanConnected view={toQuranPlanView(quranOverview)} todayStr={dateStr} />
-            {latestSession ? <AreaChart categories={weekLabels} series={[{ label: "Pages", colorVar: "--series-deen", values: dailyPages }]} height={140} /> : null}
-          </div>
+          <QuranPlanConnected view={toQuranPlanView(quranOverview, quranLedger?.entries ?? [])} todayStr={dateStr} />
         </Panel>
       </LayoutSlot>
 

@@ -3321,6 +3321,7 @@ export type Database = {
         Row: {
           completed_on: string | null
           created_at: string
+          current_ayah: number | null
           current_page: number
           id: string
           khatm_number: number
@@ -3340,6 +3341,7 @@ export type Database = {
         Insert: {
           completed_on?: string | null
           created_at?: string
+          current_ayah?: number | null
           current_page: number
           id?: string
           khatm_number: number
@@ -3359,6 +3361,7 @@ export type Database = {
         Update: {
           completed_on?: string | null
           created_at?: string
+          current_ayah?: number | null
           current_page?: number
           id?: string
           khatm_number?: number

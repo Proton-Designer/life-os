@@ -11,9 +11,10 @@ const OK = { ok: true } as const;
 const actions = (): { [K in keyof QuranPlanActions]: ReturnType<typeof vi.fn> } => ({
   start: vi.fn().mockResolvedValue(OK),
   logPortion: vi.fn().mockResolvedValue(OK),
-  logOnPage: vi.fn().mockResolvedValue(OK),
+  log: vi.fn().mockResolvedValue(OK),
   undoLast: vi.fn().mockResolvedValue(OK),
-  setBookmark: vi.fn().mockResolvedValue(OK),
+  editEntry: vi.fn().mockResolvedValue(OK),
+  deleteEntry: vi.fn().mockResolvedValue(OK),
   keepDate: vi.fn().mockResolvedValue(OK),
   moveDate: vi.fn().mockResolvedValue(OK),
   pause: vi.fn().mockResolvedValue(OK),
@@ -25,6 +26,11 @@ const plan = (over: Partial<Extract<QuranPlanView, { kind: "plan" }>> = {}): Qur
   khatmNumber: 1,
   state: "active",
   currentPage: 41,
+  currentAyah: null,
+  startPage: 1,
+  startDate: "2026-10-01",
+  ledger: [{ id: "l1", date: "2026-10-04", from: 1, to: 40, seq: 1 }],
+  daily: Array.from({ length: 14 }, (_, i) => ({ date: `2026-09-${String(22 + i).padStart(2, "0")}`.replace(/2026-09-(3[1-9])/, (_m, d) => `2026-10-${String(Number(d) - 30).padStart(2, "0")}`), pages: i === 13 ? 0 : i === 12 ? 40 : 0 })),
   percent: 7,
   targetDate: "2026-12-04",
   pagesPerDay: 10,
@@ -134,32 +140,128 @@ describe("QuranPlanCard (QURAN-02)", () => {
     expect(screen.getByTestId("quran-log-portion")).toBeInTheDocument();
   });
 
-  it("'I'm on page' logs up to that page; it cannot go backwards (a page below the bookmark disables Log)", async () => {
+  it("log your way: 'Page I'm on' previews what fits, refuses a page already logged, and logs the day you chose", async () => {
     const user = userEvent.setup();
     renderIt(plan());
+    await user.click(screen.getByTestId("quran-mode-onPage"));
     await user.type(screen.getByLabelText("I'm on page"), "30");
-    expect(screen.getByTestId("quran-log-page")).toBeDisabled();
+    expect(screen.getByTestId("quran-log-submit")).toBeDisabled();
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent(/already logged/);
     await user.clear(screen.getByLabelText("I'm on page"));
     await user.type(screen.getByLabelText("I'm on page"), "47");
-    await user.click(screen.getByTestId("quran-log-page"));
-    expect(a.logOnPage).toHaveBeenCalledWith(47, "today");
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent("Adds pages 41–46 (6 pages)");
+    await user.click(screen.getByTestId("quran-log-submit"));
+    expect(a.log).toHaveBeenCalledWith({ nextPage: 47 }, "2026-10-05");
     expect(screen.getByTestId("quran-heading")).toHaveTextContent("page 47 of 604");
   });
 
-  it("log for yesterday, undo, edit bookmark", async () => {
+  it("log your way: a number of pages, for yesterday (filed under yesterday's date)", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ ledger: [{ id: "l1", date: "2026-10-03", from: 1, to: 40, seq: 1 }] }));
+    await user.click(screen.getByTestId("quran-day-yesterday"));
+    await user.type(screen.getByLabelText("I read"), "5");
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent("Adds pages 41–45 (5 pages)");
+    await user.click(screen.getByTestId("quran-log-submit"));
+    expect(a.log).toHaveBeenCalledWith({ pages: 5 }, "2026-10-04");
+  });
+
+  it("log your way: the exact ayah is previewed with its surah and sent as a global ayah number", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ currentPage: 22, ledger: [{ id: "l1", date: "2026-10-04", from: 1, to: 21, seq: 1 }] }));
+    await user.click(screen.getByTestId("quran-mode-onAyah"));
+    await user.selectOptions(screen.getByTestId("quran-surah"), "2");
+    await user.type(screen.getByLabelText("Ayah number"), "145");
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent("Saves your place at Al-Baqara 2:145");
+    await user.click(screen.getByTestId("quran-log-submit"));
+    expect(a.log).toHaveBeenCalledWith({ ayah: 7 + 145 }, "2026-10-05");
+    expect(screen.getByTestId("quran-position")).toHaveTextContent("Al-Baqara 2:145");
+  });
+
+  it("an ayah that doesn't exist is named, not silently accepted", async () => {
     const user = userEvent.setup();
     renderIt(plan());
-    await user.click(screen.getByTestId("quran-log-yesterday"));
-    expect(a.logPortion).toHaveBeenCalledWith("yesterday");
+    await user.click(screen.getByTestId("quran-mode-onAyah"));
+    await user.selectOptions(screen.getByTestId("quran-surah"), "1");
+    await user.type(screen.getByLabelText("Ayah number"), "9");
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent("Al-Faatiha has 7 ayahs.");
+    expect(screen.getByTestId("quran-log-submit")).toBeDisabled();
+  });
+
+  it("yesterday after today's reading doesn't fit and says so (page order must hold), with Log disabled", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ ledger: [{ id: "l1", date: "2026-10-04", from: 1, to: 20, seq: 1 }, { id: "l2", date: "2026-10-05", from: 21, to: 40, seq: 2 }] }));
+    await user.click(screen.getByTestId("quran-day-yesterday"));
+    await user.type(screen.getByLabelText("I read"), "3");
+    expect(screen.getByTestId("quran-log-preview")).toHaveTextContent(/no pages fit|Only/);
+    expect(screen.getByTestId("quran-log-submit")).toBeDisabled();
+  });
+
+  it("the position line says what page, ayah and juz you're on and what you've finished", () => {
+    renderIt(plan({ currentPage: 22, ledger: [{ id: "l1", date: "2026-10-04", from: 1, to: 21, seq: 1 }] }));
+    expect(screen.getByTestId("quran-position")).toHaveTextContent("You're on page 22 · Al-Baqara 2:142 · Juz 2 · finished through page 21");
+  });
+
+  it("undo last log calls the action", async () => {
+    const user = userEvent.setup();
+    renderIt(plan());
     await user.click(screen.getByTestId("quran-undo"));
     expect(a.undoLast).toHaveBeenCalled();
-    await user.click(screen.getByTestId("quran-edit-bookmark"));
-    const input = screen.getByLabelText("Next page to read");
-    await user.clear(input);
-    await user.type(input, "100");
-    await user.click(within(screen.getByTestId("quran-bookmark-form")).getByRole("button", { name: "Set" }));
-    expect(a.setBookmark).toHaveBeenCalledWith(100);
-    expect(screen.getByTestId("quran-heading")).toHaveTextContent("page 100 of 604");
+  });
+
+  it("History lists every day newest first with pages and the ayah span; editing a day that would overlap is refused with the reason", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ ledger: [{ id: "l1", date: "2026-10-03", from: 1, to: 20, seq: 1 }, { id: "l2", date: "2026-10-04", from: 21, to: 40, seq: 2 }] }));
+    await user.click(screen.getByTestId("quran-history-open"));
+    const rows = screen.getAllByTestId("quran-history-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Oct. 4th");
+    expect(rows[0]).toHaveTextContent("pages 21–40 · 20 pages");
+    expect(rows[1]).toHaveTextContent("pages 1–20");
+    await user.click(within(rows[1]).getByTestId("quran-history-edit"));
+    await user.clear(screen.getByTestId("quran-edit-to"));
+    await user.type(screen.getByTestId("quran-edit-to"), "25"); // would run into Oct 4's pages 21-40
+    expect(screen.getByTestId("quran-edit-preview")).toHaveTextContent(/doesn't fit/);
+    expect(screen.getByTestId("quran-edit-save")).toBeDisabled();
+    await user.clear(screen.getByTestId("quran-edit-to"));
+    await user.type(screen.getByTestId("quran-edit-to"), "15"); // shrinking opens a gap: allowed
+    expect(screen.getByTestId("quran-edit-save")).toBeEnabled();
+    await user.click(screen.getByTestId("quran-edit-save"));
+    expect(a.editEntry).toHaveBeenCalledWith("l1", { to: 15 });
+  });
+
+  it("History: removing a day asks first, then deletes; an open gap is listed and can be filled", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ ledger: [{ id: "l1", date: "2026-10-03", from: 1, to: 10, seq: 1 }, { id: "l2", date: "2026-10-04", from: 21, to: 40, seq: 2 }] }));
+    await user.click(screen.getByTestId("quran-history-open"));
+    expect(screen.getByTestId("quran-history-gap")).toHaveTextContent("pages 11–20 · not logged");
+    await user.click(screen.getAllByTestId("quran-history-delete")[0]);
+    expect(a.deleteEntry).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("quran-history-delete-confirm"));
+    expect(a.deleteEntry).toHaveBeenCalledWith("l2");
+  });
+
+  it("History: 'Fill in' opens the add form on the gap and logs it for the day that fits", async () => {
+    const user = userEvent.setup();
+    renderIt(plan({ ledger: [{ id: "l1", date: "2026-10-03", from: 1, to: 10, seq: 1 }, { id: "l2", date: "2026-10-04", from: 21, to: 40, seq: 2 }] }));
+    await user.click(screen.getByTestId("quran-history-open"));
+    await user.click(screen.getByTestId("quran-history-fill"));
+    const add = screen.getByTestId("quran-history-add");
+    expect(within(add).getByTestId("quran-log-preview")).toHaveTextContent("Adds pages 11–20 (10 pages)");
+    await user.click(within(add).getByTestId("quran-log-submit"));
+    expect(a.log).toHaveBeenCalledWith({ pages: 10 }, "2026-10-03");
+  });
+
+  it("the chart: 14 bars with a scale and the daily pace, empty fortnights say so, and tapping a day opens it in History", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderIt(plan());
+    expect(screen.getAllByTestId("quran-chart-bar")).toHaveLength(14);
+    expect(screen.getByTestId("quran-chart-goal")).toHaveTextContent("Daily pace 10");
+    await user.click(screen.getByLabelText(/2026-10-04: 40 pages/));
+    expect(screen.getByTestId("quran-history")).toBeInTheDocument();
+    expect(screen.getByTestId("quran-history-edit-row")).toBeInTheDocument(); // that day has reading: opened for editing
+    unmount();
+    renderIt(plan({ daily: Array.from({ length: 14 }, (_, i) => ({ date: `2026-10-${String(i + 1).padStart(2, "0")}`, pages: 0 })) }));
+    expect(screen.getByTestId("quran-chart-empty")).toBeInTheDocument();
   });
 
   it("behind: names the gap without guilt, shows the pace needed and the recent-pace finish, with Keep / Move", async () => {

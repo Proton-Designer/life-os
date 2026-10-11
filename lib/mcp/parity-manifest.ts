@@ -144,6 +144,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/deen/actions.ts#setAdhkar": { excluded: "ui_scaffold: idempotent setter twin of toggleAdhkar for the optimistic UI; MCP exposes the toggle" },
   "app/(app)/deen/quran-plan-actions.ts#getMyQuranOverview": { read_only: true },
   "app/(app)/deen/quran-plan-actions.ts#logQuranReading": { mcp: "deen.quran_plan.log_reading" },
+  "app/(app)/deen/quran-plan-actions.ts#editQuranLogEntry": { pending: "P4-26", note: "QURAN-03 History: change one logged day's date/pages (ledger-validated)" },
+  "app/(app)/deen/quran-plan-actions.ts#deleteQuranLogEntry": { excluded: "hard_delete: deletes one Quran log row (its pages become a gap)" },
   "app/(app)/deen/quran-plan-actions.ts#startQuranPlan": { pending: "P4-26", note: "QURAN-01 plan setup (presets/custom date/pace); MCP write widening" },
   "app/(app)/deen/quran-plan-actions.ts#startNextKhatm": { pending: "P4-26", note: "QURAN-01 next khatm at the same pace" },
   "app/(app)/deen/quran-plan-actions.ts#undoLastQuranLog": { excluded: "hard_delete: deletes the last Quran log row" },

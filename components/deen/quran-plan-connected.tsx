@@ -4,10 +4,11 @@ import { QuranPlanCard } from "@/components/deen/quran-plan-card";
 import type { QuranPlanActions, QuranPlanView, QuranStartInput } from "@/components/deen/quran-plan-types";
 import {
   keepOrMoveFinishDate,
+  deleteQuranLogEntry,
+  editQuranLogEntry,
   logQuranReading,
   pauseQuranPlan,
   resumeQuranPlan,
-  setQuranBookmark,
   startNextKhatm,
   startQuranPlan,
   undoLastQuranLog,
@@ -27,9 +28,10 @@ const presetFor = (input: QuranStartInput): QuranPlanPreset => {
 export const quranPlanActions: QuranPlanActions = {
   start: (input, startPage) => startQuranPlan({ preset: presetFor(input), startFrom: startPage > 1 ? "current_page" : "beginning", startPage }),
   logPortion: (forDate) => logQuranReading({ todaysPortion: true }, { forDate }),
-  logOnPage: (page, forDate) => logQuranReading({ nextPage: page }, { forDate }),
+  log: (input, forDate) => logQuranReading(input, { forDate }),
   undoLast: () => undoLastQuranLog(),
-  setBookmark: (page) => setQuranBookmark(page),
+  editEntry: (id, patch) => editQuranLogEntry(id, patch),
+  deleteEntry: (id) => deleteQuranLogEntry(id),
   keepDate: () => keepOrMoveFinishDate(null),
   moveDate: (date) => keepOrMoveFinishDate(date),
   pause: () => pauseQuranPlan(),

@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { BookOpen, Check, Pause, Play, Undo2 } from "lucide-react";
+import { BookOpen, Check, History, Pause, Play, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { QuranDailyChart } from "@/components/deen/quran-daily-chart";
+import { QuranHistory } from "@/components/deen/quran-history";
+import { QuranLogForm } from "@/components/deen/quran-log-form";
 import { KHATM_DUA } from "@/components/deen/khatm-dua";
-import { QURAN_TOTAL_PAGES, type QuranActionResult, type QuranPlanActions, type QuranPlanView, type QuranStartInput } from "@/components/deen/quran-plan-types";
+import { QURAN_TOTAL_PAGES, type QuranActionResult, type QuranLogInput, type QuranPlanActions, type QuranPlanView, type QuranStartInput } from "@/components/deen/quran-plan-types";
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { addDaysToDateString, formatShortDate } from "@/lib/date-utils";
+import { ayahLabel, firstAyahOfPage } from "@/lib/quran/ayah-map";
+import { juzForPage } from "@/lib/quran/page-map";
+import { ledgerBookmark, resolveLog, type EntryPatch, type ResolvedLog } from "@/lib/quran/ledger";
 import { ramadanWindow } from "@/lib/quran/ramadan";
 import { cn } from "@/lib/utils";
 
@@ -74,30 +80,38 @@ export function QuranPlanCard({ view, actions, todayStr }: { view: QuranPlanView
         <ActivePlan
           plan={local}
           busy={busy}
-          onLogPortion={(forDate) =>
+          error={error}
+          onLogPortion={() =>
             run(
-              () => actions.logPortion(forDate),
-              forDate === "today"
-                ? patchPlan((p) => {
-                    const next = p.portion ? p.portion.toPage + 1 : p.currentPage;
-                    return { currentPage: next, percent: percentOf(next), portionDone: true, state: next > QURAN_TOTAL_PAGES ? "completed" : p.state, last7Days: Math.min(7, p.last7Days + (p.portionDone ? 0 : 1)) };
-                  })
-                : undefined
+              () => actions.logPortion("today"),
+              patchPlan((p) => {
+                const next = p.portion ? p.portion.toPage + 1 : p.currentPage;
+                return { currentPage: next, currentAyah: null, percent: percentOf(next), portionDone: true, state: next > QURAN_TOTAL_PAGES ? "completed" : p.state, last7Days: Math.min(7, p.last7Days + (p.portionDone ? 0 : 1)) };
+              })
             )
           }
-          onLogOnPage={(page, forDate) =>
+          onLog={(input, date, resolved) =>
             run(
-              () => actions.logOnPage(page, forDate),
-              forDate === "today"
-                ? patchPlan((p) => {
-                    const next = Math.max(p.currentPage, page);
-                    return { currentPage: next, percent: percentOf(next), state: next > QURAN_TOTAL_PAGES ? "completed" : p.state };
-                  })
-                : undefined
+              () => actions.log(input, date),
+              patchPlan((p) => {
+                const { from, to } = resolved.entry;
+                const ledger = resolved.positionOnly ? p.ledger : [...p.ledger, { id: `pending-${p.ledger.length}`, date, from, to, seq: Number.MAX_SAFE_INTEGER }];
+                const next = ledgerBookmark(ledger, p.startPage);
+                const pages = resolved.positionOnly ? 0 : to - from + 1;
+                return {
+                  ledger,
+                  currentPage: next,
+                  currentAyah: next > QURAN_TOTAL_PAGES ? null : resolved.restAyah,
+                  percent: percentOf(next),
+                  state: next > QURAN_TOTAL_PAGES ? "completed" : p.state,
+                  daily: p.daily.map((d) => (d.date === date ? { ...d, pages: d.pages + pages } : d)),
+                };
+              })
             )
           }
+          onEditEntry={(id, patch) => run(() => actions.editEntry(id, patch))}
+          onDeleteEntry={(id) => run(() => actions.deleteEntry(id))}
           onUndo={() => run(() => actions.undoLast())}
-          onSetBookmark={(page) => run(() => actions.setBookmark(page), patchPlan(() => ({ currentPage: page, percent: percentOf(page) })))}
           onKeep={() => run(() => actions.keepDate())}
           onMove={(date) => run(() => actions.moveDate(date))}
           onPause={() => run(() => actions.pause(), patchPlan(() => ({ state: "paused" as const })))}
@@ -205,11 +219,13 @@ function Setup({ todayStr, busy, onStart }: { todayStr: string; busy: boolean; o
 function ActivePlan({
   plan,
   busy,
+  error,
   todayStr,
   onLogPortion,
-  onLogOnPage,
+  onLog,
+  onEditEntry,
+  onDeleteEntry,
   onUndo,
-  onSetBookmark,
   onKeep,
   onMove,
   onPause,
@@ -217,27 +233,31 @@ function ActivePlan({
 }: {
   plan: PlanView;
   busy: boolean;
+  error: string | null;
   todayStr: string;
-  onLogPortion: (forDate: "today" | "yesterday") => void;
-  onLogOnPage: (page: number, forDate: "today" | "yesterday") => void;
+  onLogPortion: () => void;
+  onLog: (input: QuranLogInput, date: string, resolved: ResolvedLog & { ok: true }) => void;
+  onEditEntry: (id: string, patch: EntryPatch) => void;
+  onDeleteEntry: (id: string) => void;
   onUndo: () => void;
-  onSetBookmark: (page: number) => void;
   onKeep: () => void;
   onMove: (date: string | null) => void;
   onPause: () => void;
   onResume: () => void;
 }) {
-  const [onPage, setOnPage] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [bookmark, setBookmark] = useState(String(plan.currentPage));
   const [moving, setMoving] = useState(false);
   const [moveDate, setMoveDate] = useState(plan.status?.suggestedDate ?? "");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [focusDate, setFocusDate] = useState<string | null>(null);
   const paused = plan.state === "paused";
   const s = plan.status;
-  const pageNum = Number(onPage);
-  const pageOk = Number.isInteger(pageNum) && pageNum > plan.currentPage && pageNum <= QURAN_TOTAL_PAGES;
-  const bookmarkNum = Number(bookmark);
-  const bookmarkOk = Number.isInteger(bookmarkNum) && bookmarkNum >= 1 && bookmarkNum <= QURAN_TOTAL_PAGES;
+  const logged = plan.currentPage - 1;
+  const here = Math.min(plan.currentPage, QURAN_TOTAL_PAGES);
+  const hereAyah = plan.currentAyah ?? firstAyahOfPage(here);
+  const openHistory = (date: string | null) => {
+    setFocusDate(date);
+    setHistoryOpen(true);
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -251,6 +271,10 @@ function ActivePlan({
         <div className="h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={plan.percent} aria-label="Khatm progress">
           <div className="h-full rounded-full bg-accent-deen" style={{ width: `${plan.percent}%` }} />
         </div>
+        <p className="text-xs text-muted-foreground" data-testid="quran-position">
+          You&apos;re on <span className="font-medium text-foreground">page {here}</span> · {ayahLabel(hereAyah)} · Juz {juzForPage(here)}
+          {logged >= plan.startPage ? ` · finished through page ${logged}` : ""}
+        </p>
       </div>
 
       {plan.juzComplete ? (
@@ -284,31 +308,13 @@ function ActivePlan({
               Today&apos;s portion is read
             </p>
           ) : (
-            <Button type="button" className="w-full sm:w-auto sm:self-start" onClick={() => onLogPortion("today")} disabled={busy || !plan.portion} data-testid="quran-log-portion">
+            <Button type="button" className="w-full sm:w-auto sm:self-start" onClick={onLogPortion} disabled={busy || !plan.portion} data-testid="quran-log-portion">
               <BookOpen className="size-4" aria-hidden />✓ Read today&apos;s portion
             </Button>
           )}
-          <form
-            className="flex flex-wrap items-center gap-2 text-sm"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!pageOk) return;
-              onLogOnPage(pageNum, "today");
-              setOnPage("");
-            }}
-          >
-            <label htmlFor="quran-on-page" className="text-xs text-muted-foreground">
-              I&apos;m on page
-            </label>
-            <Input id="quran-on-page" type="number" min={plan.currentPage + 1} max={QURAN_TOTAL_PAGES} value={onPage} onChange={(e) => setOnPage(e.target.value)} className="h-8 w-20" />
-            <Button type="submit" size="sm" variant="outline" disabled={!pageOk || busy} data-testid="quran-log-page">
-              Log
-            </Button>
-          </form>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            <button type="button" className="underline underline-offset-2 disabled:opacity-50" onClick={() => onLogPortion("yesterday")} disabled={busy} data-testid="quran-log-yesterday">
-              Log it for yesterday
-            </button>
+          <div className="border-t border-border/40 pt-3">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Or log it your way</p>
+            <QuranLogForm plan={plan} todayStr={todayStr} busy={busy} onSubmit={(input, date, resolved) => onLog(input, date, resolved)} />
           </div>
         </div>
       )}
@@ -354,15 +360,18 @@ function ActivePlan({
         </div>
       ) : null}
 
+      <QuranDailyChart days={plan.daily} goal={plan.pagesPerDay > 0 && !paused ? plan.pagesPerDay : null} todayStr={todayStr} onSelectDay={(d) => openHistory(d)} />
+
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span data-testid="quran-last7">{plan.last7Days} of last 7 days</span>
         <div className="flex flex-wrap gap-3">
+          <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2" onClick={() => openHistory(null)} data-testid="quran-history-open">
+            <History className="size-3" aria-hidden />
+            History
+          </button>
           <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2 disabled:opacity-50" onClick={onUndo} disabled={busy} data-testid="quran-undo">
             <Undo2 className="size-3" aria-hidden />
             Undo last log
-          </button>
-          <button type="button" className="underline underline-offset-2" onClick={() => setEditing((e) => !e)} data-testid="quran-edit-bookmark">
-            Edit bookmark
           </button>
           {!paused ? (
             <button type="button" className="inline-flex items-center gap-1 underline underline-offset-2 disabled:opacity-50" onClick={onPause} disabled={busy} data-testid="quran-pause">
@@ -373,28 +382,27 @@ function ActivePlan({
         </div>
       </div>
 
-      {editing ? (
-        <form
-          className="flex flex-wrap items-center gap-2 text-sm"
-          data-testid="quran-bookmark-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!bookmarkOk) return;
-            onSetBookmark(bookmarkNum);
-            setEditing(false);
-          }}
-        >
-          <label htmlFor="quran-bookmark" className="text-xs text-muted-foreground">
-            Next page to read
-          </label>
-          <Input id="quran-bookmark" type="number" min={1} max={QURAN_TOTAL_PAGES} value={bookmark} onChange={(e) => setBookmark(e.target.value)} className="h-8 w-20" />
-          <Button type="submit" size="sm" disabled={!bookmarkOk || busy}>
-            Set
-          </Button>
-        </form>
-      ) : null}
+      <QuranHistory
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        plan={plan}
+        todayStr={todayStr}
+        busy={busy}
+        error={error}
+        focusDate={focusDate}
+        onAdd={(input, date) => onLogViaHistory(input, date)}
+        onEdit={onEditEntry}
+        onDelete={onDeleteEntry}
+      />
     </div>
   );
+
+  function onLogViaHistory(input: QuranLogInput, date: string) {
+    // History adds are checked by the form with the same ledger code; the server re-checks and reports anything stale.
+    const method = "pages" in input ? ({ kind: "pages", count: input.pages } as const) : "nextPage" in input ? ({ kind: "onPage", page: input.nextPage } as const) : "toPage" in input ? ({ kind: "throughPage", page: input.toPage } as const) : ({ kind: "onAyah", ayah: input.ayah } as const);
+    const resolved = resolveLog(plan.ledger, date, method, { startPage: plan.startPage, startDate: plan.startDate, today: todayStr });
+    if (resolved.ok) onLog(input, date, resolved);
+  }
 }
 
 function Khatm({ plan, busy, onNext }: { plan: PlanView; busy: boolean; onNext: () => void }) {

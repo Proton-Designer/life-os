@@ -230,3 +230,4 @@ than the prose being absent. A proper operator-actions slot is a Day-2 item.
 
 | `264` | Plan subdomain, 2026-10-10 | `tasks.plan_subdomain` (text, nullable, CHECK 1..80 chars): the Work tab (`user_subdomains.key`) a plan line was attached to. Additive. **Apply BEFORE deploying the code that reads it** | allocated |
 | `263` | Plan criteria, 2026-10-10 | `tasks.plan_criteria` (text, nullable, CHECK 1..2000 chars): free-text criteria for a plan line, kept off the title. Additive. **Apply BEFORE deploying the code that reads it** | allocated |
+| `265` | Quran ayah position, 2026-10-11 | `quran_plans.current_ayah` (smallint, nullable, CHECK 1..6236): the global ayah number the reader is on inside `current_page`. Additive. **Apply BEFORE deploying the code that reads it** | allocated |

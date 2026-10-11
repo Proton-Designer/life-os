@@ -1,11 +1,12 @@
 import type { QuranOverview } from "@/lib/quran/plan-core";
+import type { LedgerEntry } from "@/lib/quran/ledger";
 import type { QuranPlanView } from "@/components/deen/quran-plan-types";
 
 /**
  * QURAN-02: maps QURAN-01's one QuranOverview read onto the card's view model. Pure and client-safe (type-only import of
  * plan-core). null in (Deen off / no overview) -> the setup state; the page decides whether to render the card at all.
  */
-export function toQuranPlanView(o: QuranOverview | null): QuranPlanView {
+export function toQuranPlanView(o: QuranOverview | null, ledger: LedgerEntry[] = []): QuranPlanView {
   if (!o?.plan) return { kind: "none" };
   const { plan, portion, status } = o;
   const kind = status?.kind;
@@ -16,6 +17,11 @@ export function toQuranPlanView(o: QuranOverview | null): QuranPlanView {
     khatmNumber: plan.khatmNumber,
     state: plan.status,
     currentPage: plan.currentPage,
+    currentAyah: plan.currentAyah,
+    startPage: plan.startPage,
+    startDate: plan.startDate,
+    ledger,
+    daily: o.daily,
     percent: plan.percent,
     targetDate: status?.effectiveTargetDate ?? plan.targetDate,
     pagesPerDay: Math.round(plan.pacePagesPerDay),

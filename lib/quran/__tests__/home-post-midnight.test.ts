@@ -12,7 +12,7 @@ const YESTERDAY = "2026-10-04";
 
 describe("Home's post-midnight Quran row credits exactly the portion it displays", () => {
   it("logging { toPage: displayed .to } files yesterday's reading from the bookmark to exactly that page", async () => {
-    const f = fakeSupabase({ quran_plans: [planRow({ current_page: 11 })] });
+    const f = fakeSupabase({ quran_plans: [planRow({ start_page: 11, current_page: 11 })] });
     const shown = (await getQuranOverviewCore(f.client, U, YESTERDAY)).portion!; // what the row displays at 00:30 on the 5th
     expect(shown.from).toBe(11);
 
@@ -25,22 +25,25 @@ describe("Home's post-midnight Quran row credits exactly the portion it displays
   });
 
   it("CONTRAST (why Home does not use todaysPortion after midnight): { todaysPortion: true } + forDate 'yesterday' credits TODAY's portion, more than the row showed", async () => {
-    const shownFor = async (date: string) => (await getQuranOverviewCore(fakeSupabase({ quran_plans: [planRow({ current_page: 11 })] }).client, U, date)).portion!;
+    const shownFor = async (date: string) => (await getQuranOverviewCore(fakeSupabase({ quran_plans: [planRow({ start_page: 11, current_page: 11 })] }).client, U, date)).portion!;
     const yesterdayPortion = await shownFor(YESTERDAY);
     const todayPortion = await shownFor(TODAY);
     expect(todayPortion.to).toBeGreaterThan(yesterdayPortion.to); // the premise: the two dates' portions differ
 
-    const f = fakeSupabase({ quran_plans: [planRow({ current_page: 11 })] });
+    const f = fakeSupabase({ quran_plans: [planRow({ start_page: 11, current_page: 11 })] });
     const res = await logQuranReadingCore(f.client, U, TODAY, { todaysPortion: true }, "yesterday");
     expect(res).toMatchObject({ ok: true, toPage: todayPortion.to, date: YESTERDAY });
     expect((res as { toPage: number }).toPage).not.toBe(yesterdayPortion.to); // over-credit: pages the row never showed
   });
 
   it("a stale row (the bookmark already moved past the displayed page) is REFUSED with the core's message, nothing is logged", async () => {
-    const f = fakeSupabase({ quran_plans: [planRow({ current_page: 41 })] }); // read elsewhere since the page rendered
+    const f = fakeSupabase({
+      quran_plans: [planRow({ current_page: 41 })],
+      quran_sessions: [{ id: "s", user_id: U, plan_id: "plan-1", date: YESTERDAY, pages_read: 40, from_page: 1, to_page: 40, created_at: "2026-10-05T01:00:00Z" }],
+    }); // read elsewhere since the page rendered
     const res = await logQuranReadingCore(f.client, U, TODAY, { toPage: 20 }, "yesterday"); // the row still says "through page 20"
-    expect(res).toMatchObject({ ok: false, message: expect.stringMatching(/Edit bookmark/) });
-    expect(f.tables.quran_sessions).toHaveLength(0);
+    expect(res).toMatchObject({ ok: false, message: expect.stringMatching(/already logged/) });
+    expect(f.tables.quran_sessions).toHaveLength(1); // only the one read elsewhere
     expect(f.tables.quran_plans[0].current_page).toBe(41);
   });
 });

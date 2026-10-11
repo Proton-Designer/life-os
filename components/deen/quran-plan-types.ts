@@ -5,7 +5,16 @@
  * QuranPlanActions; nothing in the card changes.
  */
 
+import type { EntryPatch, LedgerEntry } from "@/lib/quran/ledger";
+
 export const QURAN_TOTAL_PAGES = 604;
+
+/** Any one of these is a way of saying how far you read; the server turns each into a span of whole pages. */
+export type QuranLogInput =
+  | { pages: number } // "I read N pages"
+  | { toPage: number } // "I finished page N"
+  | { nextPage: number } // "I'm on page N"
+  | { ayah: number }; // "I'm on this ayah" (global ayah number 1..6236)
 
 export type QuranPortion = { fromPage: number; toPage: number; pages: number; /** "Al-Baqarah · Juz 1" */ label: string };
 
@@ -33,6 +42,15 @@ export type QuranPlanView =
       state: "active" | "paused" | "completed";
       /** The NEXT page to read (1..604; 605 = finished). */
       currentPage: number;
+      /** The exact ayah (global number) the reader is on inside currentPage; null = the top of that page. */
+      currentAyah: number | null;
+      startPage: number;
+      /** YYYY-MM-DD the plan started. */
+      startDate: string;
+      /** The reading log, any order: History, the day-by-day chart and the "will this fit" preview all run on it. */
+      ledger: LedgerEntry[];
+      /** Pages read on each of the last 14 days, oldest first. */
+      daily: { date: string; pages: number }[];
       percent: number;
       /** YYYY-MM-DD */
       targetDate: string;
@@ -55,10 +73,13 @@ export type QuranActionResult = { ok: true } | { ok: false; message: string };
 export type QuranPlanActions = {
   start(input: QuranStartInput, startPage: number): Promise<QuranActionResult>;
   logPortion(forDate: "today" | "yesterday"): Promise<QuranActionResult>;
-  /** "I'm on page N": the bookmark (the next page to read) becomes N and the pages in between are logged. */
-  logOnPage(page: number, forDate: "today" | "yesterday"): Promise<QuranActionResult>;
+  /** Log reading in any of the four ways, filed under `forDate` ("today", "yesterday" or a YYYY-MM-DD day). */
+  log(input: QuranLogInput, forDate: string): Promise<QuranActionResult>;
   undoLast(): Promise<QuranActionResult>;
-  setBookmark(page: number): Promise<QuranActionResult>;
+  /** History: change one logged day. */
+  editEntry(id: string, patch: EntryPatch): Promise<QuranActionResult>;
+  /** History: remove one logged day. */
+  deleteEntry(id: string): Promise<QuranActionResult>;
   /** Keep the date (acknowledge) or move it (null = to the projected finish). */
   keepDate(): Promise<QuranActionResult>;
   moveDate(newDate: string | null): Promise<QuranActionResult>;
