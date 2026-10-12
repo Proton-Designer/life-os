@@ -22,7 +22,7 @@ export async function WeeklyGoalStep() {
   const deenMode = isDeenModeOn(profile);
   const weekStart = getWeekStartDate(localDateString(new Date(), timezone));
   const domainsState = await getUserDomains();
-  const domains = weeklyGoalDomains(domainsState, deenMode);
+  const domains = weeklyGoalDomains();
   const showDeen = domains.includes("deen");
   const showBusiness = showBusinessWeeklyGoal(domainsState, deenMode);
 

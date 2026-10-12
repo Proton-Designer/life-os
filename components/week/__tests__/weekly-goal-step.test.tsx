@@ -40,11 +40,12 @@ describe("WeeklyGoalStep (/week step 5)", () => {
     expect(p.showDeen).toBe(true);
   });
 
-  it("Faith Mode OFF: the Faith slot is switched off (the editor renders nothing for it)", async () => {
+  it("Faith Mode OFF: the Personal slot is still there with its goal (it is not a Faith feature)", async () => {
     deenMode = false;
-    rows = [{ domain: "deen", headline: "secret", milestones: [], quran_page_target: 5 }];
+    rows = [{ domain: "deen", headline: "Read 20 minutes a day", milestones: [], quran_page_target: 5 }];
     const p = await props();
-    expect(p.showDeen).toBe(false);
+    expect(p.showDeen).toBe(true);
+    expect(p.deen).toMatchObject({ headline: "Read 20 minutes a day" });
     expect(p.showBusiness).toBe(true);
   });
 

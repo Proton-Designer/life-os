@@ -444,13 +444,13 @@ describe("Faith Mode OFF refuses the deen branches (data untouched)", () => {
       expect(chain.upsert).not.toHaveBeenCalled();
     });
 
-    it(`saveWeeklyGoal("deen") writes nothing with ${label}, but business still saves`, async () => {
+    it(`saveWeeklyGoal("deen") saves the Personal goal with ${label}, without a Quran target`, async () => {
       const chain = offChain(off);
       fromMock.mockReturnValue(chain);
       const { saveWeeklyGoal } = await import("../actions");
       await saveWeeklyGoal("deen", "h", ["m"], 10, new Date("2026-08-13T18:00:00Z"));
-      expect(chain.upsert).not.toHaveBeenCalled();
-      expect(chain.update).not.toHaveBeenCalled();
+      expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ domain: "deen", headline: "h", quran_page_target: null }), expect.anything());
+      chain.upsert.mockClear();
       await saveWeeklyGoal("business", "h", ["m"], undefined, new Date("2026-08-13T18:00:00Z"));
       expect(chain.upsert).toHaveBeenCalledWith(expect.objectContaining({ domain: "business" }), expect.anything());
     });

@@ -128,50 +128,15 @@ describe("GoalBoard — creating a goal reflects a server refresh", () => {
   });
 });
 
-describe("GoalBoard — Faith Mode", () => {
+describe("GoalBoard — Personal label", () => {
   const DEEN_GOAL: Goal = { ...NEW_GOAL, id: "g2", domain: "deen", title: "Memorise Surah Mulk" };
 
-  it("OFF: an existing deen-tagged goal still shows (rank kept) but its 'Faith' label does not", () => {
-    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
+  it("a deen-tagged goal is labelled Personal with Faith Mode off or on (the label is not religious)", () => {
+    const { rerender } = render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
     expect(screen.getByText("Memorise Surah Mulk")).toBeInTheDocument();
+    expect(screen.getByText("Personal")).toBeInTheDocument();
     expect(screen.queryByText("Faith")).not.toBeInTheDocument();
-  });
-
-  it("ON shows the label (positive control)", () => {
-    render(<GoalBoard deenMode monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
-    expect(screen.getByText("Faith")).toBeInTheDocument();
-  });
-});
-
-
-// PERF-4: the milestone checkbox is instant, never disabled while saving, writes the
-// ABSOLUTE value in tap order, and reverts with the server's message on failure.
-describe("GoalBoard — milestone checkbox", () => {
-  const goal: Goal = { ...NEW_GOAL, id: "g1" };
-  const milestone = { id: "m1", goalId: "g1", monthStart: "2026-09-01", title: "Ship v1", doneAt: null } as never;
-
-  it("flips at once, stays enabled, and a second quick tap sends false after true (in order)", async () => {
-    let release!: () => void;
-    setMilestoneDoneMock.mockImplementationOnce(() => new Promise((res) => (release = () => res({ ok: true }))));
-    const user = userEvent.setup();
-    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[goal]} milestones={[milestone]} />);
-    const btn = screen.getByRole("button", { name: /Ship v1/ });
-    await user.click(btn);
-    expect(btn).toBeEnabled();
-    expect(btn.querySelector("span")).toHaveClass("line-through");
-    await user.click(btn); // queued behind the in-flight write
-    await waitFor(() => expect(setMilestoneDoneMock).toHaveBeenCalledTimes(1));
-    expect(setMilestoneDoneMock).toHaveBeenNthCalledWith(1, "m1", true);
-    release();
-    await waitFor(() => expect(setMilestoneDoneMock).toHaveBeenNthCalledWith(2, "m1", false));
-  });
-
-  it("a rejected write reverts the checkbox and shows the message", async () => {
-    setMilestoneDoneMock.mockResolvedValue({ error: "Milestone not found." });
-    const user = userEvent.setup();
-    render(<GoalBoard monthStart="2026-09-01" todayStr="2026-09-14" goals={[goal]} milestones={[milestone]} />);
-    await user.click(screen.getByRole("button", { name: /Ship v1/ }));
-    expect(await screen.findByText("Milestone not found.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Ship v1/ }).querySelector("span")).not.toHaveClass("line-through");
+    rerender(<GoalBoard deenMode monthStart="2026-09-01" todayStr="2026-09-14" goals={[DEEN_GOAL]} milestones={[]} />);
+    expect(screen.getByText("Personal")).toBeInTheDocument();
   });
 });

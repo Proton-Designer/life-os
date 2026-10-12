@@ -40,19 +40,15 @@ const RANKS = [1, 2, 3, 4, 5] as const;
 
 const DOMAIN_OPTIONS: { value: string; label: string }[] = [
   { value: "none", label: "No domain" },
-  { value: "deen", label: "Faith" },
+  { value: "deen", label: "Personal" },
   { value: "business", label: "Business" },
   { value: "fitness", label: "Fitness" },
   { value: "school", label: "School" },
   { value: "co_op", label: "Work" },
 ];
 
-function domainLabel(domain: string | null, deenMode: boolean): string | null {
+function domainLabel(domain: string | null): string | null {
   if (!domain) return null;
-  // Deen Mode OFF: a goal already tagged "deen" keeps showing (its title is the
-  // user's own, and hiding it would still leave its rank occupied) but the
-  // religious domain label is not rendered. The tag itself is untouched.
-  if (domain === "deen" && !deenMode) return null;
   return DOMAIN_OPTIONS.find((d) => d.value === domain)?.label ?? domain;
 }
 
@@ -194,7 +190,7 @@ function ActiveGoalCard({
     });
   }
 
-  const label = domainLabel(goal.domain, deenMode);
+  const label = domainLabel(goal.domain);
 
   return (
     <li className="flex flex-col gap-2 rounded-2xl border border-border/40 bg-card p-4">

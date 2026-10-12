@@ -202,7 +202,7 @@ export default async function HomePage() {
         .select("domain, headline, milestones")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", weeklyGoalDomains(domainsState, deenMode)),
+        .in("domain", weeklyGoalDomains()),
       getAllTriggers(supabase, userId, dateStr).then((all) => withoutDeenDomain(all, deenMode)),
       getTodayDistractionCount(supabase, userId, dateStr, isDeenModeOn(profile)),
       // D-004: a lightweight "this is still happening" affordance for
@@ -326,7 +326,6 @@ export default async function HomePage() {
       onSaveDeen={saveWeeklyGoal.bind(null, "deen")}
       onSaveBusiness={saveWeeklyGoal.bind(null, "business")}
       showPlanningNudge={showPlanningNudge}
-      showDeen={hasFaith}
       showBusiness={hasBusinessGoal}
       extraActions={<GoalsSheetButton />}
       compact

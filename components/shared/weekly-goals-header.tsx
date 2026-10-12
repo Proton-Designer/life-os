@@ -54,7 +54,7 @@ export function WeeklyGoalsHeader({
   if (!showDeen && !showBusiness) return null;
 
   if (compact) {
-    const nudge = showDeen ? "It's the weekend — set next week's Faith and Business goals." : "It's the weekend — set next week's Business goal.";
+    const nudge = showDeen ? "It's the weekend — set next week's Personal and Business goals." : "It's the weekend — set next week's Business goal.";
     return (
       <div
         id="weekly-focus"
@@ -99,7 +99,7 @@ export function WeeklyGoalsHeader({
       {showPlanningNudge && (
         <p className="rounded-lg border border-accent-business/40 bg-accent-business/10 px-4 py-3 text-sm text-accent-business">
           {showDeen
-            ? "It's the weekend — set next week's Faith and Business goals below."
+            ? "It's the weekend — set next week's Personal and Business goals below."
             : "It's the weekend — set next week's Business goal below."}
         </p>
       )}

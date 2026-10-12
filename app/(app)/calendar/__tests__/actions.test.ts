@@ -33,12 +33,12 @@ vi.mock("@/lib/tasks/schedule-cancellations", () => ({
 describe("getWeekCalendar -- Faith Mode", () => {
   beforeEach(() => fromMock.mockClear());
 
-  it("OFF: no quran read, no deen goal, deenMode false (business untouched)", async () => {
+  it("OFF: no quran read and no Quran numbers, but the Personal goal and Business still come back, deenMode false", async () => {
     profile = { timezone: "UTC", deen_mode: false };
     const { getWeekCalendar } = await import("../actions");
     const data = await getWeekCalendar();
     expect(fromMock).not.toHaveBeenCalledWith("quran_sessions");
-    expect(data.deen).toBeNull();
+    expect(data.deen).toMatchObject({ headline: "Kahf", quranPages: undefined, quranTarget: null });
     expect(data.business?.headline).toBe("Ship");
     expect(data.deenMode).toBe(false);
   });

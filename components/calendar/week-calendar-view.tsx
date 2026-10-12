@@ -37,7 +37,6 @@ export function WeekCalendarView({
       <WeeklyGoalsHeader
         deen={data.deen}
         business={data.business}
-        showDeen={data.deenMode}
         onSaveDeen={onSaveDeen}
         onSaveBusiness={onSaveBusiness}
       />

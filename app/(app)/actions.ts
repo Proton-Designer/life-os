@@ -222,7 +222,6 @@ export async function saveWeeklyGoal(
   const { supabase, userId } = await requireUser();
 
   const profile = await getProfile();
-  if (domain === "deen" && !isDeenModeOn(profile)) return;
   const timezone = profile?.timezone ?? "UTC";
   const currentWeekStart = getWeekStartDate(localDateString(now, timezone));
   const previousWeekStart = addDaysToDateString(currentWeekStart, -7);
@@ -230,7 +229,7 @@ export async function saveWeeklyGoal(
   if (domain === "business") {
     await saveBusinessWeeklyGoalCore(supabase, userId, currentWeekStart, headline, milestones);
   } else {
-    await saveDeenWeeklyGoalCore(supabase, userId, currentWeekStart, headline, milestones, quranPageTarget ?? null);
+    await saveDeenWeeklyGoalCore(supabase, userId, currentWeekStart, headline, milestones, isDeenModeOn(profile) ? (quranPageTarget ?? null) : null);
   }
 
   const { data: previousWeek } = await supabase

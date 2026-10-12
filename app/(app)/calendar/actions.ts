@@ -91,7 +91,7 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
         .select("domain, headline, milestones")
         .eq("user_id", userId)
         .eq("week_start_date", weekStart)
-        .in("domain", weeklyGoalDomains(domainsState, deenMode)),
+        .in("domain", weeklyGoalDomains()),
       supabase
         .from("tasks")
         .select("id, title, domain, due_date, due_time, completed")
@@ -129,15 +129,15 @@ export async function getWeekCalendar(): Promise<WeekCalendarData> {
   ]);
 
   const quranWeekPages = (quranSessionRows ?? []).reduce((sum, s) => sum + s.pages_read, 0);
-  const deenGoalRow = deenMode ? ((weeklyGoalsRows ?? []).find((g) => g.domain === "deen") ?? null) : null;
+  const deenGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "deen") ?? null;
   const businessGoalRow = (weeklyGoalsRows ?? []).find((g) => g.domain === "business") ?? null;
   // QURAN-02: while a khatm plan is ACTIVE its pace x 7 is the week's Quran target (only read when there is a deen goal to show).
-  const khatmPlan = deenGoalRow ? await getOpenPlanCore(supabase, userId).catch(() => null) : null;
+  const khatmPlan = deenGoalRow && deenMode ? await getOpenPlanCore(supabase, userId).catch(() => null) : null;
   const deen: WeeklyGoalEntry = deenGoalRow
     ? {
         headline: deenGoalRow.headline,
         milestones: (deenGoalRow.milestones as string[] | null) ?? [],
-        quranPages: quranWeekPages,
+        quranPages: deenMode ? quranWeekPages : undefined,
         quranTarget: khatmPlan?.status === "active" ? Math.round(planPace(khatmPlan) * 7) : null,
       }
     : null;
