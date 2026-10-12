@@ -118,8 +118,27 @@ export function LockInOverlay({
   useEffect(() => {
     if (!visible) return;
     document.body.dataset.lockInOverlayOpen = "true";
+    // Freeze the page behind the full-screen view. `overflow: hidden` alone doesn't stop iOS/iPadOS Safari from scrolling
+    // the page under a fixed layer (the scrollbar moves, the site peeks out at the edge), so the body is pinned in place
+    // and the scroll position restored on minimize.
+    const { body, documentElement: html } = document;
+    const scrollY = window.scrollY;
+    const prev = { position: body.style.position, top: body.style.top, left: body.style.left, right: body.style.right, width: body.style.width, overscroll: html.style.overscrollBehavior };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    html.style.overscrollBehavior = "none";
     return () => {
-      delete document.body.dataset.lockInOverlayOpen;
+      delete body.dataset.lockInOverlayOpen;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      html.style.overscrollBehavior = prev.overscroll;
+      window.scrollTo(0, scrollY);
     };
   }, [visible]);
 
@@ -168,7 +187,7 @@ export function LockInOverlay({
           }}
           aria-label={`${kindLabel} — locked in`}
           className={cn(
-            "fixed inset-0 z-[60] flex flex-col items-center justify-between overflow-hidden p-6 text-foreground outline-none",
+            "fixed inset-0 z-[60] flex h-dvh flex-col items-center justify-between overflow-hidden overscroll-none p-6 text-foreground outline-none",
             "duration-200 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 motion-reduce:animate-none"
           )}
         >
