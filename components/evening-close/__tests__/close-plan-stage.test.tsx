@@ -15,6 +15,9 @@ import type { ClaimedSeed } from "@/app/(app)/close/plan-actions";
  * missing.
  */
 
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock, refresh: vi.fn() }) }));
+
 const dumpLineMock = vi.fn(async (..._args: unknown[]) => ({ id: "new-id" }));
 const refreshCloseViewsMock = vi.fn(async () => {});
 const commitPlanMock = vi.fn(async (..._args: unknown[]): Promise<{ ok: true; killListOverflow: string[]; notices: string[] } | { error: string }> => ({ ok: true, killListOverflow: [], notices: [] }));
@@ -471,5 +474,46 @@ describe("ClosePlanStage - carry over unfinished", () => {
     await user.click(screen.getByTestId("close-carry-over-button"));
     expect(await screen.findByText("boom")).toBeInTheDocument();
     expect(screen.getByTestId("close-carry-over")).toBeInTheDocument();
+  });
+});
+
+// The nightly close is ONE press: Finish saves and goes Home (Edit Plan is there if the plan needs a change).
+describe("ClosePlanStage - Finish goes straight Home (tonight)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    commitPlanMock.mockResolvedValue({ ok: true, killListOverflow: [], notices: [] });
+  });
+
+  async function starCrownThenFinish(user: ReturnType<typeof userEvent.setup>) {
+    render(<ClosePlanStage initialLines={[{ id: "t2", title: "Gym" }]} mode="tonight" />);
+    await user.click(screen.getByRole("button", { name: /^star gym/i }));
+    await user.click(screen.getByRole("button", { name: /crown gym/i }));
+    await user.click(screen.getByRole("button", { name: "Finish" }));
+  }
+
+  it("a clean save navigates to / and does not leave a second 'Back to Home' step behind", async () => {
+    const user = userEvent.setup();
+    await starCrownThenFinish(user);
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/"));
+    expect(commitPlanMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("close-done")).not.toBeInTheDocument();
+    expect(screen.queryByText("Back to Home")).not.toBeInTheDocument();
+  });
+
+  it("a save with a notice to read stays put (so the message isn't lost) and offers the way Home", async () => {
+    commitPlanMock.mockResolvedValue({ ok: true, killListOverflow: ["Gym"], notices: [] });
+    const user = userEvent.setup();
+    await starCrownThenFinish(user);
+    expect(await screen.findByTestId("close-done")).toBeInTheDocument();
+    expect(screen.getByTestId("plan-notice")).toHaveTextContent("Kill List is already full");
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  it("a failed save does not navigate", async () => {
+    commitPlanMock.mockResolvedValue({ error: "nope" });
+    const user = userEvent.setup();
+    await starCrownThenFinish(user);
+    await screen.findByText(/nope/);
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });

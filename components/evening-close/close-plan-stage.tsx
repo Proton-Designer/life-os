@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { dumpLine, refreshCloseViews, commitPlan, carryOverUnfinished, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
@@ -138,6 +139,7 @@ export function ClosePlanStage({
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
   const [saved, setSaved] = useState(false);
   // True once the draft differs from what was last written (any edit, add or remove); cleared by a successful save.
   const [dirty, setDirty] = useState(false);
@@ -365,6 +367,9 @@ export function ClosePlanStage({
       setSaved(true);
       setDirty(false);
       if (messages.length === 0) onSaved?.();
+      // The nightly close ends here: one press saves AND goes Home (Edit Plan is there if it needs a change).
+      // With a notice to read (e.g. the Kill List was full) it stays, so the message isn't lost.
+      if (mode === "tonight" && messages.length === 0) router.push("/");
     });
   }
 
@@ -618,8 +623,9 @@ export function ClosePlanStage({
       )}
       {mode === "tonight" ? <p className="text-xs text-muted-foreground">Domains, times and timers are saved when you Finish.</p> : null}
 
-      {/* IA-P2: the close ends on "Done for today" -- Home shows the same state from here on. */}
-      {saved && mode === "tonight" ? (
+      {/* IA-P2: the close ends on "Done for today" -- Home shows the same state from here on. A clean Finish goes straight
+          Home (commit()); this card is only left behind when there is a notice to read first. */}
+      {saved && mode === "tonight" && notice ? (
         <div role="status" data-testid="close-done" className="rounded-lg border border-primary/40 bg-primary/5 p-4">
           <p className="text-sm font-medium">Done for today.</p>
           <p className="mt-1 text-xs text-muted-foreground">Tomorrow&apos;s plan is set. Rest well.</p>
