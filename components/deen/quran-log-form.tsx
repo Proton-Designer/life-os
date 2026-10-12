@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import type { QuranLogInput } from "@/components/deen/quran-plan-types";
 import { addDaysToDateString, formatShortDate } from "@/lib/date-utils";
 import { ayahLabel, globalAyah, pageSpanAyahLabel } from "@/lib/quran/ayah-map";
-import { resolveLog, type LedgerEntry, type LogMethod, type ResolvedLog } from "@/lib/quran/ledger";
+import { logPageRange, resolveLog, type LedgerEntry, type LogMethod, type ResolvedLog } from "@/lib/quran/ledger";
 import { SURAHS } from "@/lib/quran/page-map";
 import { cn } from "@/lib/utils";
 
@@ -73,6 +73,10 @@ export function QuranLogForm({
       input = { ayah: g };
     }
   }
+  // "I'm on page N" can't go below the page after what's already logged before this day (nor past the next logged day): the stepper stops there.
+  const range = /^\d{4}-\d{2}-\d{2}$/.test(date) ? logPageRange(plan.ledger, date, ctx) : { from: plan.currentPage, limit: 604 };
+  const onPageMin = Math.min(604, range.from + 1);
+  const onPageMax = Math.min(604, range.limit + 1);
   const ayahMissing = mode === "onAyah" && /^\d+$/.test(ayahNum) && globalAyah(Number(surah), Number(ayahNum)) === null;
   const surahInfo = SURAHS[Number(surah) - 1];
   const resolved = method && /^\d{4}-\d{2}-\d{2}$/.test(date) ? resolveLog(plan.ledger, date, method, ctx) : null;
@@ -134,7 +138,7 @@ export function QuranLogForm({
             <label htmlFor="quran-on-page" className="text-xs text-muted-foreground">
               I&apos;m on page
             </label>
-            <Input id="quran-on-page" type="number" inputMode="numeric" min={1} max={604} value={page} onChange={(e) => setPage(e.target.value)} className="h-8 w-20" placeholder={String(Math.min(604, plan.currentPage + 1))} />
+            <Input id="quran-on-page" type="number" inputMode="numeric" min={onPageMin} max={Math.max(onPageMin, onPageMax)} value={page} onChange={(e) => setPage(e.target.value)} className="h-8 w-20" placeholder={String(onPageMin)} />
             <span className="text-xs text-muted-foreground">(finished through the page before)</span>
           </>
         ) : null}

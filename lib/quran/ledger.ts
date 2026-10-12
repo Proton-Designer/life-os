@@ -96,6 +96,15 @@ export function validateLedger(entries: readonly LedgerEntry[], ctx: LedgerConte
   return { ok: true };
 }
 
+/** The first page a reading on `date` can start at, and the last page it can reach (the next logged day's first page - 1). */
+export function logPageRange(entries: readonly LedgerEntry[], date: string, ctx: LedgerContext): { from: number; limit: number } {
+  const sorted = sortLedger(entries);
+  const before = sorted.filter((e) => e.date <= date);
+  const after = sorted.filter((e) => e.date > date);
+  const from = Math.max(ctx.startPage, before.length > 0 ? before[before.length - 1].to + 1 : ctx.startPage);
+  return { from, limit: after.length > 0 ? after[0].from - 1 : TOTAL_PAGES };
+}
+
 export type ResolvedLog = {
   ok: true;
   entry: { date: string; from: number; to: number };
