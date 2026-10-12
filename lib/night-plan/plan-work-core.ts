@@ -130,6 +130,79 @@ export async function endSessionAndBankCore(
   return { ended: true, bankedSeconds, taskId, elapsedSeconds };
 }
 
+/** Marks a just-ended session as PAUSED (paused_at = its ended_at), so Resume re-opens this row instead of starting another. */
+export async function markSessionPausedCore(supabase: SupabaseClient, userId: string, sessionId: string): Promise<void> {
+  const { data, error } = await supabase.from("work_sessions").select("ended_at").eq("id", sessionId).eq("user_id", userId).maybeSingle();
+  if (error) throw error;
+  if (!data?.ended_at) return;
+  const { error: updateError } = await supabase.from("work_sessions").update({ paused_at: data.ended_at }).eq("id", sessionId).eq("user_id", userId).not("ended_at", "is", null);
+  if (updateError) throw updateError;
+}
+
+/**
+ * RESUME of a paused plan-line session: re-opens the SAME work_sessions row. ended_at is cleared and started_at moves forward by
+ * the time spent paused, so every reader that computes (ended_at - started_at) or (now - started_at) keeps getting ACTIVE time
+ * (the goal countdown, hours, the overlay's clock) and the original start is kept in original_started_at. The plan line's bank
+ * held this session's earlier stretches, and the running session now counts them itself, so they are taken out of the bank
+ * (the next pause banks the whole session again): nothing is counted twice.
+ *
+ * Returns the re-opened session's id, or null when there is no paused session for this line (the caller then starts a new one).
+ * Throws "already active" when another session is running. Guarded on the paused marker, so a double tap resumes once.
+ */
+export async function resumePausedSessionCore(supabase: SupabaseClient, userId: string, task: { id: string; kill_list_item_id: string | null }, now: Date): Promise<string | null> {
+  const { data: candidates, error } = await supabase
+    .from("work_sessions")
+    .select("id, started_at, ended_at, original_started_at")
+    .eq("user_id", userId)
+    .eq("counts_toward_hours", true)
+    .not("paused_at", "is", null)
+    .not("ended_at", "is", null)
+    .order("ended_at", { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  for (const c of (candidates ?? []) as { id: string; started_at: string; ended_at: string; original_started_at: string | null }[]) {
+    const { data: objectives, error: objError } = await supabase.from("work_session_objectives").select("kind, task_id, kill_list_item_id").eq("session_id", c.id);
+    if (objError) throw objError;
+    const linked = ((objectives ?? []) as ObjectiveRow[]).some((o) => (o.kind === "task" && o.task_id === task.id) || (o.kind === "kill_list_item" && task.kill_list_item_id !== null && o.kill_list_item_id === task.kill_list_item_id));
+    if (!linked) continue;
+
+    const { data: active } = await supabase.from("work_sessions").select("id").eq("user_id", userId).is("ended_at", null).eq("counts_toward_hours", true).maybeSingle();
+    if (active) throw new Error("A work session is already active");
+
+    const startedMs = new Date(c.started_at).getTime();
+    const endedMs = new Date(c.ended_at).getTime();
+    const gapMs = Math.max(0, now.getTime() - endedMs);
+    const { data: reopened, error: updateError } = await supabase
+      .from("work_sessions")
+      .update({ ended_at: null, paused_at: null, started_at: new Date(startedMs + gapMs).toISOString(), original_started_at: c.original_started_at ?? c.started_at })
+      .eq("id", c.id)
+      .eq("user_id", userId)
+      .eq("ended_at", c.ended_at)
+      .not("paused_at", "is", null)
+      .select("id");
+    if (updateError) throw updateError;
+    if (!reopened || reopened.length === 0) return null; // another tap resumed it first
+    const activeSeconds = Math.max(0, Math.floor((endedMs - startedMs) / 1000));
+    await unbankSecondsCore(supabase, userId, task.id, activeSeconds);
+    return c.id;
+  }
+  return null;
+}
+
+/** Takes `delta` seconds back out of a line's bank (never below 0). */
+async function unbankSecondsCore(supabase: SupabaseClient, userId: string, taskId: string, delta: number): Promise<void> {
+  if (delta <= 0) return;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase.from("tasks").select("timer_elapsed_seconds").eq("id", taskId).eq("user_id", userId).maybeSingle();
+    if (error) throw error;
+    if (!data) return;
+    const prior = (data.timer_elapsed_seconds as number | null) ?? 0;
+    const { data: updated, error: updateError } = await supabase.from("tasks").update({ timer_elapsed_seconds: Math.max(0, prior - delta) }).eq("id", taskId).eq("user_id", userId).eq("timer_elapsed_seconds", prior).select("id");
+    if (updateError) throw updateError;
+    if (updated && updated.length > 0) return;
+  }
+}
+
 /**
  * Before a plan line is marked done from any state: bank a running inline stretch and end (and bank) a running session
  * working on it. Completion itself stays `setPlanLineCompletedCore`.

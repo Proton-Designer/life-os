@@ -4825,6 +4825,8 @@ export type Database = {
           kind: string
           local_date: string | null
           new_cards_introduced: number | null
+          original_started_at: string | null
+          paused_at: string | null
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
@@ -4845,6 +4847,8 @@ export type Database = {
           kind?: string
           local_date?: string | null
           new_cards_introduced?: number | null
+          original_started_at?: string | null
+          paused_at?: string | null
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string
@@ -4865,6 +4869,8 @@ export type Database = {
           kind?: string
           local_date?: string | null
           new_cards_introduced?: number | null
+          original_started_at?: string | null
+          paused_at?: string | null
           promotion_id?: string | null
           rep_goal_id?: string | null
           started_at?: string

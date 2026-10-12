@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-import { activeSessionForTaskCore, bankSecondsCore, endSessionAndBankCore, pauseTaskTimerCore, planTaskIdForSessionCore, settleTaskWorkCore } from "../plan-work-core";
+import { activeSessionForTaskCore, bankSecondsCore, endSessionAndBankCore, markSessionPausedCore, pauseTaskTimerCore, planTaskIdForSessionCore, resumePausedSessionCore, settleTaskWorkCore } from "../plan-work-core";
 
 type Row = Record<string, unknown>;
 
@@ -29,6 +29,8 @@ function fake(tables: Record<string, Row[]>) {
       };
       builder.eq = (col: string, v: unknown) => (filters.push((r) => r[col] === v), builder);
       builder.is = (col: string, v: unknown) => (filters.push((r) => (v === null ? r[col] === null || r[col] === undefined : r[col] === v)), builder);
+      builder.order = () => builder;
+      builder.limit = () => builder;
       builder.in = (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), builder);
       builder.not = (col: string, _op: string, v: unknown) => (filters.push((r) => (v === null ? r[col] !== null && r[col] !== undefined : r[col] !== v)), builder);
       const run = () => {
@@ -182,5 +184,40 @@ describe("activeSessionForTaskCore / settleTaskWorkCore", () => {
     const idle = fake({ tasks: [task()] });
     await settleTaskWorkCore(idle.client, U, "t1", new Date());
     expect(idle.tables.tasks![0]!.timer_elapsed_seconds).toBe(0);
+  });
+});
+
+describe("pause keeps the session; resume re-opens the same row", () => {
+  const T = { id: "t1", kill_list_item_id: null };
+  it("pause -> resume -> pause: ONE row, active time only, nothing counted twice", async () => {
+    const f = fake({ tasks: [task()], work_sessions: [session({ started_at: "2026-10-07T15:00:00.000Z" })], work_session_objectives: [objective()] });
+    // Pause after 10 minutes of work.
+    await endSessionAndBankCore(f.client, U, "s1", "2026-10-07T15:10:00.000Z", "t1");
+    await markSessionPausedCore(f.client, U, "s1");
+    expect(f.tables.tasks![0]!.timer_elapsed_seconds).toBe(600);
+    expect(f.tables.work_sessions![0]).toMatchObject({ ended_at: "2026-10-07T15:10:00.000Z", paused_at: "2026-10-07T15:10:00.000Z" });
+
+    // Resume 5 minutes later: the same row is open again, its start moved forward by the 5 paused minutes.
+    const id = await resumePausedSessionCore(f.client, U, T, new Date("2026-10-07T15:15:00.000Z"));
+    expect(id).toBe("s1");
+    expect(f.tables.work_sessions).toHaveLength(1);
+    expect(f.tables.work_sessions![0]).toMatchObject({ ended_at: null, paused_at: null, started_at: "2026-10-07T15:05:00.000Z", original_started_at: "2026-10-07T15:00:00.000Z" });
+    expect(f.tables.tasks![0]!.timer_elapsed_seconds).toBe(0); // the running session counts its own 10 minutes
+
+    // 4 more minutes of work, pause again: the bank is the whole 14 active minutes.
+    await endSessionAndBankCore(f.client, U, "s1", "2026-10-07T15:19:00.000Z", "t1");
+    expect(f.tables.tasks![0]!.timer_elapsed_seconds).toBe(840);
+  });
+
+  it("a double tap on Resume re-opens once; a line with no paused session gets null (the caller starts a new one)", async () => {
+    const f = fake({ tasks: [task({ timer_elapsed_seconds: 600 })], work_sessions: [session({ ended_at: "2026-10-07T15:10:00.000Z", paused_at: "2026-10-07T15:10:00.000Z" })], work_session_objectives: [objective()] });
+    expect(await resumePausedSessionCore(f.client, U, T, new Date("2026-10-07T15:12:00.000Z"))).toBe("s1");
+    await expect(resumePausedSessionCore(f.client, U, T, new Date("2026-10-07T15:12:01.000Z"))).resolves.toBeNull();
+    expect(await resumePausedSessionCore(fake({ tasks: [task()], work_sessions: [session({ ended_at: "2026-10-07T15:10:00.000Z" })], work_session_objectives: [objective()] }).client, U, T, new Date())).toBeNull();
+  });
+
+  it("refuses while another session is running", async () => {
+    const f = fake({ tasks: [task()], work_sessions: [session({ ended_at: "2026-10-07T15:10:00.000Z", paused_at: "2026-10-07T15:10:00.000Z" }), session({ id: "s2" })], work_session_objectives: [objective()] });
+    await expect(resumePausedSessionCore(f.client, U, T, new Date("2026-10-07T15:12:00.000Z"))).rejects.toThrow(/already active/);
   });
 });

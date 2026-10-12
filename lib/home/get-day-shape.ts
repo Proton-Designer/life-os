@@ -63,7 +63,7 @@ export type DayShapeWorkoutSchedule = { workout_name: string; time: string | nul
  * and it is why this type is written by hand at all.
  */
 export type DayShapeTaskRow = { title: string; domain: "school" | "co_op" | null; due_time: string };
-export type DayShapeSessionRow = { started_at: string; ended_at: string | null; kind: "deep_work" | "deep_study" };
+export type DayShapeSessionRow = { started_at: string; original_started_at?: string | null; ended_at: string | null; kind: "deep_work" | "deep_study" };
 export type DayShapeScheduleEventRow = {
   id: string;
   title: string;
@@ -151,7 +151,7 @@ export function defaultDataSource(): DayShapeDataSource {
       const dayEnd = resolveLocalTime(addDaysToDateString(date, 1), "00:00", timezone).toISOString();
       const { data } = await supabase
         .from("work_sessions")
-        .select("started_at, ended_at, kind")
+        .select("started_at, ended_at, kind, original_started_at")
         .eq("user_id", userId)
         .gte("started_at", dayStart)
         .lt("started_at", dayEnd)
@@ -307,7 +307,7 @@ export async function getDayShape(
       label: session.kind === "deep_study" ? "Deep Study" : "Deep Work",
       colorVar: "--series-business",
       kind: "focus",
-      start: new Date(session.started_at),
+      start: new Date(session.original_started_at ?? session.started_at),
       end: session.ended_at ? new Date(session.ended_at) : null,
     });
   }

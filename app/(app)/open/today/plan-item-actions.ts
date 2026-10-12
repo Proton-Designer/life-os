@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { startWorkSessionCore, type StartSessionObjectiveInput } from "@/lib/business/actions-core";
 import { setPlanLineCompletedCore, startTaskTimerCore } from "@/lib/night-plan/plan-details-core";
-import { activeSessionForTaskCore, endSessionAndBankCore, pauseTaskTimerCore, settleTaskWorkCore } from "@/lib/night-plan/plan-work-core";
+import { activeSessionForTaskCore, endSessionAndBankCore, markSessionPausedCore, pauseTaskTimerCore, resumePausedSessionCore, settleTaskWorkCore } from "@/lib/night-plan/plan-work-core";
 import { revalidateBusinessScreens } from "@/lib/work/revalidate-screens";
 import type { SessionObjective } from "@/lib/business/session-objectives";
 import { remainingGoalMinutes, startBehavior } from "@/lib/plan/plan-behavior";
@@ -69,12 +69,16 @@ export async function startPlanItem(taskId: string): Promise<StartPlanItemResult
     }
     // A paired Kill List line is a Kill List objective (completing it from the session completes both rows); anything else is a task objective.
     const objective: StartSessionObjectiveInput = task.kill_list_item_id ? { kind: "kill_list_item", killListItemId: task.kill_list_item_id as string } : { kind: "task", taskId };
-    await startWorkSessionCore(supabase, userId, {
-      kind: behavior.kind,
-      goalMinutes,
-      classId: behavior.kind === "deep_study" ? ((task.class_id as string | null) ?? null) : null,
-      objectives: [objective],
-    });
+    // Resume of a paused session re-opens the SAME row (the timer continues, no new block); only a line with no paused session starts a new one.
+    const resumed = bankedSeconds > 0 ? await resumePausedSessionCore(supabase, userId, { id: taskId, kill_list_item_id: (task.kill_list_item_id as string | null) ?? null }, new Date()) : null;
+    if (!resumed) {
+      await startWorkSessionCore(supabase, userId, {
+        kind: behavior.kind,
+        goalMinutes,
+        classId: behavior.kind === "deep_study" ? ((task.class_id as string | null) ?? null) : null,
+        objectives: [objective],
+      });
+    }
     // No revalidatePath here: it would make this action wait for Home to re-render before answering (the 2-3 s
     // lag). The client shows the session from the detail below and schedules its own refresh afterwards.
     const session = toStartedSession(await getActiveWorkSessionDetail(userId));
@@ -127,6 +131,7 @@ export async function pausePlanItem(taskId: string): Promise<PausePlanItemResult
     const sessionId = await activeSessionForTaskCore(supabase, userId, { id: task.id as string, kill_list_item_id: (task.kill_list_item_id as string | null) ?? null });
     if (sessionId) {
       const res = await endSessionAndBankCore(supabase, userId, sessionId, undefined, taskId);
+      if (res.ended) await markSessionPausedCore(supabase, userId, sessionId);
       // Same refresh End Session does: Home and the Business screens show the ended session.
       revalidateBusinessScreens();
       revalidatePath("/");
