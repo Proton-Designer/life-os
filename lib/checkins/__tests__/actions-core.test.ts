@@ -45,7 +45,7 @@ function makeClient(opts: { rpcData?: string; rpcError?: unknown; deenMode?: boo
   return { client: { rpc, from } as unknown as SupabaseClient, rpcCalls, from };
 }
 
-const EMPTY_QUEUE: AllocationQueueResult = { items: [], unknownCount: 0, timezone: "America/Chicago", deenMode: true, mostRecentUnanswered: null };
+const EMPTY_QUEUE: AllocationQueueResult = { items: [], unknownCount: 0, timezone: "America/Chicago", deenMode: true, mostRecentUnanswered: null, enabled: true };
 
 describe("saveAllocationCheckinCore — window selection (mirrors AllocationCheckinGate's own 3-tier fallback)", () => {
   it("prefers queue[0] (a window that fired within its answer window) when present", async () => {
@@ -162,7 +162,7 @@ describe("saveAllocationCheckinCore — Faith Mode gate on Faith minutes", () =>
   it("OFF + deen > 0 is refused BEFORE the RPC; no write happens", async () => {
     for (const deenMode of [false, null]) {
       const { client, rpcCalls } = makeClient({ deenMode });
-      getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
+      getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null, enabled: true });
       await expect(saveAllocationCheckinCore(client, "user-1", now, { deen: 30 })).rejects.toThrow(/Faith Mode is off/);
       expect(rpcCalls).toHaveLength(0);
     }
@@ -170,7 +170,7 @@ describe("saveAllocationCheckinCore — Faith Mode gate on Faith minutes", () =>
 
   it("OFF + deen 0/absent saves normally and never reads the profile", async () => {
     const { client, rpcCalls, from } = makeClient({ deenMode: false });
-    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
+    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null, enabled: true });
     await saveAllocationCheckinCore(client, "user-1", now, { business: 30, deen: 0 });
     expect(rpcCalls).toHaveLength(1);
     expect(from).not.toHaveBeenCalled();
@@ -178,7 +178,7 @@ describe("saveAllocationCheckinCore — Faith Mode gate on Faith minutes", () =>
 
   it("ON + deen > 0 (positive control) reaches the RPC", async () => {
     const { client, rpcCalls } = makeClient({ deenMode: true });
-    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: true, mostRecentUnanswered: null });
+    getPendingAllocationQueueMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", deenMode: true, mostRecentUnanswered: null, enabled: true });
     await saveAllocationCheckinCore(client, "user-1", now, { deen: 30 });
     expect(rpcCalls).toHaveLength(1);
   });

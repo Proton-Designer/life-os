@@ -31,6 +31,8 @@ export type ProfileUpdatable = Partial<{
   pin_hash: string | null;
   checkin_window_start: string;
   checkin_window_end: string;
+  // Migration 267: the automatic 2-hour check-in is opt-in (default OFF).
+  allocation_checkins_enabled: boolean;
   // checkin_interval_minutes is deliberately NOT writable: the column has had
   // no reader since the point-sample check-in model was replaced (2026-08-19),
   // and its Settings control was removed 2026-09-10. Leaving it writable would

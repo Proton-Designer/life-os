@@ -30,7 +30,33 @@ describe("getPendingAllocationQueue", () => {
       new Date("2026-08-19T18:00:00Z"),
       baseDataSource({ getProfile: async () => null })
     );
-    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null });
+    expect(result).toEqual({ items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null, enabled: false });
+  });
+
+  it("is off by choice (allocation_checkins_enabled false): no queue, no 'check in whenever' fallback, and the sources are not even read", async () => {
+    let read = 0;
+    const result = await getPendingAllocationQueue(
+      "user-1",
+      new Date("2026-08-19T18:00:00Z"), // well after the first windows fired
+      baseDataSource({
+        getProfile: async () => ({ ...(await baseDataSource().getProfile("user-1"))!, allocation_checkins_enabled: false }),
+        getWorkSessions: async () => (read++, []),
+      })
+    );
+    expect(result).toMatchObject({ items: [], unknownCount: 0, mostRecentUnanswered: null, enabled: false });
+    expect(read).toBe(0);
+  });
+
+  it("positive control: the same account with it on gets a queue and enabled true (a source that doesn't select the column reads as on)", async () => {
+    for (const flag of [true, undefined]) {
+      const result = await getPendingAllocationQueue(
+        "user-1",
+        new Date("2026-08-19T18:00:00Z"),
+        baseDataSource({ getProfile: async () => ({ ...(await baseDataSource().getProfile("user-1"))!, allocation_checkins_enabled: flag }) })
+      );
+      expect(result.enabled).toBe(true);
+      expect(result.mostRecentUnanswered).not.toBeNull();
+    }
   });
 
   it("surfaces a fired, unanswered window as a pending item with a prefill derived from real data", async () => {

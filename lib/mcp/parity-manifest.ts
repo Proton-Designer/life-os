@@ -66,6 +66,7 @@ export const PENDING_TASKS = {
   "P4-cov-P3-15": "lecture transcription MCP coverage",
   "P4-cov-P2-01": "monthly AI spend cap setting MCP coverage",
   "P4-cov-P2-20": "Canvas course mapping + sync trigger MCP coverage",
+  "P4-cov-GAP-CHECKIN": "evening close untracked-time answers (allocation check-ins for a stretch of the day) MCP coverage",
   "P4-cov-PLAN-DETAILS": "plan line details (domain, start time, timer, order) + Home plan list start/complete/stop MCP coverage",
 } as const;
 
@@ -261,6 +262,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/close/plan-actions.ts#commitPlan": { pending: "P4-cov-PLAN-DETAILS", note: "the plan stage's one-call Finish/Save: removals + per-line domain/Kill List/Work Backlog/School task/start time/timer/order + ranks (same savePlanRanksCore as review.night_plan_task.save_ranks); no hard delete reachable by MCP (typed lines are deleted, so the MCP twin must un-plan instead)" },
   "app/(app)/open/today/plan-item-actions.ts#startPlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "starts a Deep Work/Study session (work_session.start twin exists) or an inline timer" },
   "app/(app)/open/today/plan-item-actions.ts#setPlanItemCompleted": { pending: "P4-cov-PLAN-DETAILS" },
+  "app/(app)/close/gap-actions.ts#saveUntrackedGaps": { pending: "P4-cov-GAP-CHECKIN", note: "evening close: stores untracked-time answers as allocation check-ins; the MCP twin would save several windows at once (checkins.allocation.save saves one resolved window)" },
   "app/(app)/open/today/plan-item-actions.ts#pausePlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "Package E: Pause replaces Stop; banks tasks.timer_elapsed_seconds. Resume is startPlanItem" },
 
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────

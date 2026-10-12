@@ -18,8 +18,10 @@ import { cn } from "@/lib/utils";
  * in globals.css, which itself respects prefers-reduced-motion).
  */
 export function CheckInIconButton() {
-  const { queue, setOpen } = useAllocationQueue();
+  const { queue, setOpen, enabled } = useAllocationQueue();
   const pending = queue.length > 0;
+  // The 2-hour check-in is opt-in (Settings -> Check-ins); switched off, there is no icon.
+  if (!enabled) return null;
 
   return (
     <button

@@ -34,14 +34,21 @@ describe("CheckInIconButton", () => {
   });
 
   it("is always clickable — no time gating, unlike the old disabled 'too early' state", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", enabled: true });
     renderButton();
     const button = await screen.findByRole("button", { name: "Open check-in" });
     expect(button).toBeEnabled();
   });
 
+  it("is not there at all while the 2-hour check-in is off (opt-in, the default)", async () => {
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", enabled: false });
+    renderButton();
+    await waitFor(() => expect(getAllocationQueueForNowMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Open check-in" })).not.toBeInTheDocument();
+  });
+
   it("does not glow when nothing is pending", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", enabled: true });
     renderButton();
     const button = await screen.findByRole("button", { name: "Open check-in" });
     expect(button.className).not.toMatch(/is-pending/);
@@ -58,6 +65,7 @@ describe("CheckInIconButton", () => {
       ],
       unknownCount: 0,
       timezone: "UTC",
+      enabled: true,
     });
     renderButton();
     await waitFor(() => {
@@ -66,7 +74,7 @@ describe("CheckInIconButton", () => {
   });
 
   it("opens the check-in sheet (via context) on click regardless of pending state", async () => {
-    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC" });
+    getAllocationQueueForNowMock.mockResolvedValue({ items: [], unknownCount: 0, timezone: "UTC", enabled: true });
     const user = userEvent.setup();
     renderButton();
     const button = await screen.findByRole("button", { name: "Open check-in" });

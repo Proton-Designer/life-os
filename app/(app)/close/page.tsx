@@ -17,6 +17,8 @@ import { PanelSkeleton } from "@/components/shell/route-skeleton";
 import { VerdictDueList } from "@/components/promotions/verdict-card";
 import { getDuePromotions } from "@/lib/promotions/read";
 import { loadCloseInbox } from "@/lib/inbox/close-inbox";
+import { CloseGapsStage } from "@/components/evening-close/close-gaps-stage";
+import { loadUntrackedGapsCore } from "@/lib/checkins/gaps-core";
 
 /**
  * The evening close — B1.
@@ -51,7 +53,16 @@ export default async function EveningClosePage() {
     return getQuranOverviewCore(await createClient(), user.id, effectiveDayString(new Date(), profile?.timezone ?? "UTC"));
   })().catch(() => null);
   const inboxPromise = data.blockers.length === 0 ? loadCloseInbox() : Promise.resolve(null);
-  for (const p of [duePromotionsPromise, inboxPromise, quranPromise]) p.catch(() => undefined);
+  // The stretches of the day nothing accounted for ("Untracked time"): one tap each. Empty = nothing renders.
+  const gapsPromise = (async () => {
+    if (data.blockers.length > 0) return null;
+    const user = await getAuthedUser();
+    if (!user) return null;
+    const profile = await getProfile();
+    const now = new Date();
+    return loadUntrackedGapsCore(await createClient(), user.id, effectiveDayString(now, profile?.timezone ?? "UTC"), now);
+  })().catch(() => null);
+  for (const p of [duePromotionsPromise, inboxPromise, quranPromise, gapsPromise]) p.catch(() => undefined);
 
   return (
     <PageContainer>
@@ -78,6 +89,9 @@ export default async function EveningClosePage() {
             />
             <Stream promise={quranPromise} label="Quran" fallback={null}>
               {(quran) => <QuranCloseLine line={closeLine(quran)} />}
+            </Stream>
+            <Stream promise={gapsPromise} label="Untracked time" fallback={null}>
+              {(result) => (result && result.gaps.length > 0 ? <CloseGapsStage gaps={result.gaps} timezone={result.timezone} deenMode={result.deenMode} /> : null)}
             </Stream>
             <Stream promise={duePromotionsPromise} label="Promotions" fallback={null}>
               {(duePromotions) => <VerdictDueList promotions={duePromotions} />}

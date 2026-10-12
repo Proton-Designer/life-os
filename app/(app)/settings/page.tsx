@@ -156,6 +156,7 @@ export default async function SettingsPage() {
               },
               checkinWindowStart: profile?.checkin_window_start?.slice(0, 5) ?? "08:00",
               checkinWindowEnd: profile?.checkin_window_end?.slice(0, 5) ?? "22:00",
+              allocationCheckinsEnabled: profile?.allocation_checkins_enabled ?? false,
               pinLockEnabled: profile?.pin_lock_enabled ?? false,
             }}
           />

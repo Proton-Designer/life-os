@@ -45,6 +45,12 @@ export type AllocationQueueResult = {
    * logic needed.
    */
   mostRecentUnanswered: PendingAllocationItem | null;
+  /**
+   * profiles.allocation_checkins_enabled (migration 267): the automatic 2-hour check-in is opt-in. False = the queue is
+   * empty on purpose and the topbar icon / toast / notification stay away; nothing is deleted. A reader that doesn't select
+   * the column (the MCP data source) reads it as enabled, so an external agent can still record a check-in.
+   */
+  enabled: boolean;
 };
 
 export type AllocationQueueDataSource = {
@@ -58,6 +64,8 @@ export type AllocationQueueDataSource = {
     asr_madhab: string;
     /** Deen Mode switch; absent/null reads as OFF. */
     deen_mode?: boolean | null;
+    /** The 2-hour check-in switch (migration 267). Only an explicit false turns it off; absent = not selected by this data source. */
+    allocation_checkins_enabled?: boolean | null;
   } | null>;
   /** Today's Deep Work / Deep Study sessions, each with the domain its kind is credited to. */
   getWorkSessions: (userId: string, dateStr: string, timezone: string) => Promise<SessionRange[]>;
@@ -81,7 +89,7 @@ function defaultDataSource(): AllocationQueueDataSource {
       const { data } = await supabase
         .from("profiles")
         .select(
-          "timezone, checkin_window_start, checkin_window_end, location_lat, location_lng, prayer_calc_method, asr_madhab, deen_mode"
+          "timezone, checkin_window_start, checkin_window_end, location_lat, location_lng, prayer_calc_method, asr_madhab, deen_mode, allocation_checkins_enabled"
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -251,7 +259,11 @@ export async function getPendingAllocationQueue(
   dataSource: AllocationQueueDataSource = defaultDataSource()
 ): Promise<AllocationQueueResult> {
   const profile = await dataSource.getProfile(userId);
-  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null };
+  if (!profile) return { items: [], unknownCount: 0, timezone: "UTC", deenMode: false, mostRecentUnanswered: null, enabled: false };
+  // Opt-in (migration 267): switched off, there is no queue to compute -- not even the "check in whenever" fallback.
+  if (profile.allocation_checkins_enabled === false) {
+    return { items: [], unknownCount: 0, timezone: profile.timezone, deenMode: isDeenModeOn(profile), mostRecentUnanswered: null, enabled: false };
+  }
 
   // Deen Mode OFF: no prayer-window suppression, no logged-prayer query, no
   // Deen prefill -- the prayer tables are not even read. (Gate only; nothing
@@ -357,5 +369,5 @@ export async function getPendingAllocationQueue(
       }
     : null;
 
-  return { items, unknownCount: unknownCount(slots), timezone, deenMode, mostRecentUnanswered };
+  return { items, unknownCount: unknownCount(slots), timezone, deenMode, mostRecentUnanswered, enabled: true };
 }

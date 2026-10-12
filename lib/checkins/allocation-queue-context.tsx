@@ -31,6 +31,8 @@ type AllocationQueueContextValue = {
   timezone: string;
   /** Deen Mode for this user (from the queue read). Starts false until the first poll lands -- fails closed. */
   deenMode: boolean;
+  /** The 2-hour check-in is switched on in Settings (opt-in, default off). False until the first poll lands, so nothing flashes for someone who never turned it on. */
+  enabled: boolean;
   /** "N of total" tracking across polls — only grows when genuinely new windows fire, resets once the queue clears. See allocation-checkin-gate.tsx. */
   total: number;
   open: boolean;
@@ -114,6 +116,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
   const [queue, setQueue] = useState<AllocationQueueItem[]>([]);
   const [timezone, setTimezone] = useState("UTC");
   const [deenMode, setDeenMode] = useState(false);
+  const [enabled, setEnabled] = useState(false);
   const [total, setTotal] = useState(0);
   const [mostRecentUnanswered, setMostRecentUnanswered] = useState<AllocationQueueItem | null>(null);
   const [open, setOpen] = useState(false);
@@ -137,6 +140,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
     }
     setTimezone(result.timezone);
     setDeenMode(result.deenMode === true);
+    setEnabled(result.enabled === true);
     const items = result.items.map((item) => ({
       windowStart: item.windowStartIso,
       windowEnd: item.windowEndIso,
@@ -201,7 +205,7 @@ export function AllocationQueueProvider({ children }: { children: React.ReactNod
 
   return (
     <AllocationQueueContext.Provider
-      value={{ queue, timezone, deenMode, total, open, setOpen, completeCurrent, toast, dismissToast, mostRecentUnanswered }}
+      value={{ queue, timezone, deenMode, enabled, total, open, setOpen, completeCurrent, toast, dismissToast, mostRecentUnanswered }}
     >
       {children}
     </AllocationQueueContext.Provider>

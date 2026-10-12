@@ -19,6 +19,7 @@ const INITIAL: SettingsFormData = {
   location: { lat: null, lng: null, label: null, timezone: null },
   checkinWindowStart: "08:00",
   checkinWindowEnd: "22:00",
+  allocationCheckinsEnabled: false,
   pinLockEnabled: false,
 };
 
@@ -85,6 +86,29 @@ describe("SettingsForm section order (matches the left tabs)", () => {
     for (const title of ["Profile", "Prayer", "Check-ins", "Location", "Security", "Data"]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
+  });
+});
+
+describe("SettingsForm 2-hour check-in switch", () => {
+  beforeEach(() => updateProfile.mockClear());
+
+  it("reflects the stored value (off by default) and turning it on saves immediately", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initial={INITIAL} email="a@b.c" deenMode />);
+    const sw = screen.getByRole("switch", { name: "Check in every 2 hours" });
+    expect(sw).not.toBeChecked();
+    await user.click(sw);
+    expect(updateProfile).toHaveBeenCalledWith({ allocation_checkins_enabled: true });
+    expect(sw).toBeChecked();
+  });
+
+  it("shows it on when the account has it on, and turning it off saves false", async () => {
+    const user = userEvent.setup();
+    render(<SettingsForm initial={{ ...INITIAL, allocationCheckinsEnabled: true }} email="a@b.c" deenMode />);
+    const sw = screen.getByRole("switch", { name: "Check in every 2 hours" });
+    expect(sw).toBeChecked();
+    await user.click(sw);
+    expect(updateProfile).toHaveBeenCalledWith({ allocation_checkins_enabled: false });
   });
 });
 

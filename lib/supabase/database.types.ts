@@ -683,6 +683,7 @@ export type Database = {
           answered: boolean
           checkin_time: string
           created_at: string
+          gap_label: string | null
           id: string
           kind: string
           tag_label: string | null
@@ -697,6 +698,7 @@ export type Database = {
           answered?: boolean
           checkin_time: string
           created_at?: string
+          gap_label?: string | null
           id?: string
           kind?: string
           tag_label?: string | null
@@ -711,6 +713,7 @@ export type Database = {
           answered?: boolean
           checkin_time?: string
           created_at?: string
+          gap_label?: string | null
           id?: string
           kind?: string
           tag_label?: string | null
@@ -3170,6 +3173,7 @@ export type Database = {
           pin_lock_enabled: boolean
           prayer_calc_method: string
           qada_owed: number
+          allocation_checkins_enabled: boolean
           sleep_reminder_enabled: boolean
           theme_preset: string
           timezone: string
@@ -3199,6 +3203,7 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          allocation_checkins_enabled?: boolean
           sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string
@@ -3228,6 +3233,7 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
+          allocation_checkins_enabled?: boolean
           sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string

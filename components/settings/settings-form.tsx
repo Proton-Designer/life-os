@@ -22,6 +22,7 @@ export type SettingsFormData = {
   location: { lat: number | null; lng: number | null; label: string | null; timezone: string | null };
   checkinWindowStart: string;
   checkinWindowEnd: string;
+  allocationCheckinsEnabled: boolean;
   pinLockEnabled: boolean;
 };
 
@@ -55,6 +56,11 @@ export function SettingsForm({
         checkin_window_end: form.checkinWindowEnd,
       })
     );
+  }
+
+  function toggleAllocationCheckins(enabled: boolean) {
+    setForm((f) => ({ ...f, allocationCheckinsEnabled: enabled }));
+    startTransition(() => updateProfile({ allocation_checkins_enabled: enabled }));
   }
 
   function togglePinLock(enabled: boolean) {
@@ -185,6 +191,16 @@ export function SettingsForm({
             the layout-overflow spec's determinism fix (2026-08-16), not by
             eyeballing. Kept unchanged through the Phase G restructure --
             re-verified live. */}
+        <div className="flex items-start justify-between gap-4" data-testid="allocation-checkins-setting">
+          <div className="flex flex-col gap-0.5">
+            <Label htmlFor="allocation-checkins">Check in every 2 hours</Label>
+            <p className="text-xs text-muted-foreground">
+              A prompt every 2 hours asking where the time went. Off by default: your evening close already asks about any time that wasn&apos;t tracked.
+            </p>
+          </div>
+          <Switch id="allocation-checkins" checked={form.allocationCheckinsEnabled} onCheckedChange={toggleAllocationCheckins} aria-label="Check in every 2 hours" disabled={isPending} />
+        </div>
+        <p className="text-xs text-muted-foreground">Your waking hours: the evening close only asks about time between these.</p>
         <div className="flex flex-col gap-3 sm:flex-row">
           <div className="flex flex-col gap-1">
             <Label htmlFor="window-start">Window start</Label>

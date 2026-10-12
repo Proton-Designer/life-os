@@ -44,7 +44,7 @@ import type { SessionRange } from "./session-accounting";
 // Fallback only, per 023_workout_schedule_duration.sql — `duration_minutes`
 // is nullable specifically so this stays the documented guess it always
 // was, not dead code, whenever a schedule row hasn't set a real value.
-const NOMINAL_WORKOUT_MINUTES = 30;
+export const NOMINAL_WORKOUT_MINUTES = 30;
 
 /** Minutes of overlap between a window and a range, snapped down to the nearest STEP, clamped to the window's own length. */
 function overlapStepMinutes(window: AllocationWindow, range: TimeRange): number {
