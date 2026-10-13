@@ -80,7 +80,7 @@ export function ReplanDialog() {
         {/* Pinned above the header so the total stays in view however far the list is scrolled; it also holds the close button. */}
         <div
           data-testid="replan-total-banner"
-          className="sticky top-0 z-10 -mx-4 -mt-4 flex shrink-0 items-center justify-between gap-3 rounded-t-xl border-b bg-muted px-4 py-1.5"
+          className="sticky -top-4 z-10 -mx-4 -mt-4 flex shrink-0 items-center justify-between gap-3 rounded-t-xl border-b bg-muted px-4 py-1.5"
         >
           <p className="text-xs text-muted-foreground" aria-live="polite">
             Total planned time{" "}
