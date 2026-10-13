@@ -312,82 +312,17 @@ describe("LockInOverlayProvider", () => {
     });
   });
 
-  describe("goal-reached auto-end", () => {
+  describe("past the goal", () => {
     beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
     afterEach(() => vi.useRealTimers());
 
-    it("does nothing for a legacy/goal-less session (goalMinutes: null) — no ticking, no auto-end, ever", async () => {
-      renderHarness({ id: "s1", startedAtIso: "2026-09-10T18:00:00.000Z", kind: "deep_work", goalMinutes: null, objectives: [] });
+    it("never auto-ends a session that has passed its goal - it runs until marked done or paused", async () => {
+      vi.setSystemTime(new Date("2026-09-11T08:00:00.000Z")); // 14h past a 30-min goal at mount
+      renderHarness({ id: "s1", startedAtIso: "2026-09-10T18:00:00.000Z", kind: "deep_work", goalMinutes: 30, objectives: [] });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(20_000);
       });
       expect(endWorkSessionMock).not.toHaveBeenCalled();
-    });
-
-    it("auto-ends at started_at + goal_minutes once the goal is reached, not the wall-clock check time", async () => {
-      vi.setSystemTime(new Date("2026-09-10T18:00:00.000Z"));
-      renderHarness({ id: "s1", startedAtIso: "2026-09-10T18:00:00.000Z", kind: "deep_work", goalMinutes: 30, objectives: [] });
-
-      // Jump well past the goal (14 hours) — same reopened-tab shape
-      // session-goal.test.ts already proves at the pure-function level; this
-      // proves the provider actually wires goalEndsAtIso in, not now().
-      vi.setSystemTime(new Date("2026-09-11T08:00:00.000Z"));
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-
-      await vi.waitFor(() => expect(endWorkSessionMock).toHaveBeenCalledTimes(1));
-      const [, endedAtArg] = endWorkSessionMock.mock.calls[0]!;
-      expect(endedAtArg).toBe("2026-09-10T18:30:00.000Z"); // started_at + 30min, NOT the 08:00 check time
-    });
-
-    it("checks immediately on mount/reopen, not only after the first interval tick (the reopened-tab case)", async () => {
-      vi.setSystemTime(new Date("2026-09-11T08:00:00.000Z")); // already 14h past a 30-min goal at mount
-      renderHarness({ id: "s1", startedAtIso: "2026-09-10T18:00:00.000Z", kind: "deep_work", goalMinutes: 30, objectives: [] });
-
-      await vi.waitFor(() => expect(endWorkSessionMock).toHaveBeenCalledTimes(1));
-    });
-
-    // Found in review (Opus Lead, 2026-09-10): endSessionAt used to take
-    // `[session]` as its useCallback dep, so it got a new identity on every
-    // objective toggle (toggleObjective replaces the whole `session`
-    // object) — which this effect depends on, so the interval was silently
-    // torn down and recreated on every toggle despite a comment claiming it
-    // wasn't. Runtime-harmless (checkGoal is idempotent and reruns
-    // immediately on the new effect instance), but the comment was lying —
-    // fixed via a stable sessionRef rather than by rewriting the comment to
-    // describe the bug. This test pins the property directly rather than
-    // trusting the comment again.
-    it("does not tear down and recreate the interval when an objective is toggled — the interval survives session-object churn", async () => {
-      vi.setSystemTime(new Date("2026-09-10T18:00:00.000Z"));
-      const setIntervalSpy = vi.spyOn(global, "setInterval");
-      const clearIntervalSpy = vi.spyOn(global, "clearInterval");
-
-      renderHarness({
-        id: "s1",
-        startedAtIso: "2026-09-10T18:00:00.000Z",
-        kind: "deep_work",
-        goalMinutes: 30,
-        // Two objectives, toggling one: stays short of all-complete, so
-        // this session update is isolated to exercising the goal-check
-        // effect's dependency array, not also triggering the OTHER
-        // auto-end path.
-        objectives: [objective({ id: "obj-1", completed: false }), objective({ id: "obj-2", completed: false })],
-      });
-      await vi.waitFor(() => expect(setIntervalSpy).toHaveBeenCalledTimes(1));
-
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      await user.click(screen.getByText("toggle-obj-1"));
-
-      // The interval created on mount must still be the only one — a
-      // second setInterval call (with a matching clearInterval for the
-      // first) would mean the effect tore down and rebuilt on the toggle,
-      // exactly what the fix prevents.
-      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
-      expect(clearIntervalSpy).not.toHaveBeenCalled();
-
-      setIntervalSpy.mockRestore();
-      clearIntervalSpy.mockRestore();
     });
   });
 });

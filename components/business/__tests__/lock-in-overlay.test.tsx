@@ -147,6 +147,14 @@ describe("LockInOverlay", () => {
       expect(screen.getByText("/ 30")).toBeInTheDocument();
     });
 
+    it("shows no overtime marker before the planned time, and '+N min over' once past it", () => {
+      const { unmount } = renderOverlay(WITH_OBJECTIVES);
+      expect(screen.queryByTestId("lock-in-overtime")).not.toBeInTheDocument();
+      unmount();
+      renderOverlay({ ...WITH_OBJECTIVES, startedAtIso: new Date(Date.now() - 37 * 60_000).toISOString() });
+      expect(screen.getByTestId("lock-in-overtime")).toHaveTextContent("+7 min over");
+    });
+
     it("shows a progress bar reflecting elapsed/goal", () => {
       renderOverlay(WITH_OBJECTIVES);
       const bar = screen.getByRole("progressbar");

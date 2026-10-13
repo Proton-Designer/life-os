@@ -245,6 +245,16 @@ export function LockInOverlay({
             {isGoalBased && customObjective && (
               <CustomObjectiveHeadline objective={customObjective} onToggle={() => toggleObjective(customObjective.id)} />
             )}
+            {/* Past the planned time the session just keeps running; this small marker counts the minutes over. */}
+            {isGoalBased && minutes > (session.goalMinutes as number) && (
+              <p
+                data-testid="lock-in-overtime"
+                aria-live="off"
+                className="-mb-2 font-mono text-sm tabular-nums text-foreground/70"
+              >
+                +{minutes - (session.goalMinutes as number)} min over
+              </p>
+            )}
             <p className="text-lg font-medium uppercase tracking-[0.2em] text-foreground/80">{kindLabel}</p>
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-8xl font-semibold tabular-nums sm:text-9xl">{minutes}</span>

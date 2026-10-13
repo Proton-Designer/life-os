@@ -6,7 +6,6 @@ import { pausePlanItem, setPlanItemCompleted } from "@/app/(app)/open/today/plan
 import { enqueueByKey } from "@/lib/client/keyed-queue";
 import { scheduleRouteRefresh } from "@/lib/client/deferred-refresh";
 import { readLockInMinimized, writeLockInMinimized } from "@/lib/business/lock-in-storage";
-import { goalProgress, goalEndsAtIso } from "@/lib/business/session-goal";
 import type { WorkSessionKind } from "@/lib/business/work-session-kind";
 import type { SessionObjective } from "@/lib/business/session-objectives";
 import type { ObjectiveSelection, SessionStartPayload } from "@/lib/business/session-setup-data";
@@ -371,33 +370,8 @@ export function LockInOverlayProvider({
     [session, endSessionAt]
   );
 
-  // Goal-reached auto-end. Lives in the PROVIDER, not the overlay
-  // component, deliberately: a session keeps running when minimized, and
-  // must still auto-end on schedule while minimized — an effect scoped to
-  // the (conditionally rendered) overlay would miss that entirely. Keyed on
-  // primitives (id/goalMinutes/startedAtIso), not the whole `session`
-  // object, so an objective toggle (which changes `session`'s identity but
-  // not these three) doesn't restart the interval.
-  const sessionId = session?.id ?? null;
-  const goalMinutes = session?.goalMinutes ?? null;
-  const startedAtIso = session?.startedAtIso ?? null;
-  useEffect(() => {
-    if (sessionId === null || goalMinutes === null || startedAtIso === null) return;
-    const checkGoal = () => {
-      if (goalProgress(startedAtIso, goalMinutes, new Date()).reached) {
-        // THE AUTO-END TIMESTAMP RULE (lib/business/session-goal.ts):
-        // started_at + goal_minutes, never the wall-clock moment this
-        // check happened to run — correct even if the tab was closed and
-        // reopened long after the goal passed (checkGoal() below runs
-        // immediately on mount/reopen, not only after the first interval
-        // tick, for exactly that case).
-        void endSessionAt(goalEndsAtIso(startedAtIso, goalMinutes));
-      }
-    };
-    checkGoal();
-    const interval = setInterval(checkGoal, 5000);
-    return () => clearInterval(interval);
-  }, [sessionId, goalMinutes, startedAtIso, endSessionAt]);
+  // No goal-reached auto-end: a session past its planned time keeps running until the person marks it done or
+  // pauses it; the overlay shows the minutes over.
 
   const minimize = useCallback(() => {
     setMinimized(true);
