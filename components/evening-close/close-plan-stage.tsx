@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { dumpLine, refreshCloseViews, commitPlan, carryOverUnfinished, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
@@ -98,6 +98,7 @@ export function ClosePlanStage({
   workTabs = [],
   timezone = "UTC",
   onSaved,
+  onTotalMinutesChange,
 }: {
   /** Lines already on the plan day. Each may carry what the person already decided (star, crown, domain, time, timer). */
   initialLines: InitialLine[];
@@ -119,6 +120,8 @@ export function ClosePlanStage({
   timezone?: string;
   /** Called after a successful save (Edit Plan closes its dialog). A plain callback between client components. */
   onSaved?: () => void;
+  /** Reports the summed timers of every line on the plan, live as they are set, changed or removed (Edit Plan's total banner). */
+  onTotalMinutesChange?: (minutes: number) => void;
 }) {
   const [inboxItems, setInboxItems] = useState<InboxEntry[]>(inbox);
   const pendingPlanTriage = useRef(new Map<string, Promise<boolean>>());
@@ -147,6 +150,11 @@ export function ClosePlanStage({
   const scheduleRefresh = useScheduleRefresh(refreshClose);
 
   const atStarCap = starred.length >= MAX_STARRED;
+
+  const totalMinutes = lines.reduce((sum, l) => sum + (l.draft.durationMinutes ?? 0), 0);
+  useEffect(() => {
+    onTotalMinutesChange?.(totalMinutes);
+  }, [totalMinutes, onTotalMinutesChange]);
 
   function markDirty() {
     setSaved(false);

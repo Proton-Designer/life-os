@@ -349,6 +349,25 @@ describe("ClosePlanStage — line details", () => {
     expect(call.lines.map((l) => [l.id, l.order])).toEqual([["t2", 0], ["t1", 1]]);
   });
 
+  it("reports the summed timers of every line, and drops a removed line's time (Edit Plan's total banner)", async () => {
+    const user = userEvent.setup();
+    const onTotal = vi.fn();
+    render(
+      <ClosePlanStage
+        mode="today"
+        onTotalMinutesChange={onTotal}
+        initialLines={[
+          { id: "t1", title: "Send the invoices", durationMinutes: 45 },
+          { id: "t2", title: "Gym", durationMinutes: 60 },
+          { id: "t3", title: "Untimed" },
+        ]}
+      />,
+    );
+    expect(onTotal).toHaveBeenLastCalledWith(105);
+    await user.click(screen.getAllByRole("button", { name: /^remove/i })[1]);
+    expect(onTotal).toHaveBeenLastCalledWith(45);
+  });
+
   it("opens an existing plan with its stars, crown, domain and timing already set (Edit Plan)", async () => {
     const user = userEvent.setup();
     render(

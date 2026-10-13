@@ -3,8 +3,17 @@
 import { useRef, useState } from "react";
 import { getReplanData, type ReplanData } from "@/app/(app)/close/actions";
 import { ClosePlanStage } from "@/components/evening-close/close-plan-stage";
+import { XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
+/** 45 -> "45m", 120 -> "2h", 150 -> "2h 30m". */
+function formatPlanTotal(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
 
 /**
  * "Edit Plan" on Home's day card: today's plan, editable in place -- add, remove and reorder lines, change which are
@@ -19,6 +28,7 @@ export function ReplanDialog() {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<ReplanData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [totalMinutes, setTotalMinutes] = useState(0);
   // One read at a time; a fresh read replaces the last (a stale prefetch is never shown after the plan changed).
   const inflight = useRef<Promise<void> | null>(null);
   const loadedAt = useRef(0);
@@ -46,6 +56,7 @@ export function ReplanDialog() {
     if (next) void load();
     else {
       setData(null);
+      setTotalMinutes(0);
       inflight.current = null;
     }
   }
@@ -65,7 +76,25 @@ export function ReplanDialog() {
           Edit Plan
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto">
+      <DialogContent showCloseButton={false} className="flex max-h-[88vh] w-full max-w-xl flex-col overflow-y-auto">
+        {/* Pinned above the header so the total stays in view however far the list is scrolled; it also holds the close button. */}
+        <div
+          data-testid="replan-total-banner"
+          className="sticky top-0 z-10 -mx-4 -mt-4 flex shrink-0 items-center justify-between gap-3 rounded-t-xl border-b bg-muted px-4 py-1.5"
+        >
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            Total planned time{" "}
+            <span data-testid="replan-total" className="font-medium text-foreground">
+              {totalMinutes > 0 ? formatPlanTotal(totalMinutes) : "none set"}
+            </span>
+          </p>
+          <DialogClose asChild>
+            <Button type="button" variant="ghost" size="icon-sm" className="-mr-2">
+              <XIcon />
+              <span className="sr-only">Close</span>
+            </Button>
+          </DialogClose>
+        </div>
         <DialogHeader>
           <DialogTitle>Edit plan</DialogTitle>
           <DialogDescription>Change today&apos;s plan: add, remove or reorder tasks, change the star and crown, and set each task&apos;s domain, start time, timer or criteria.</DialogDescription>
@@ -95,6 +124,7 @@ export function ReplanDialog() {
             workTabs={data.workTabs}
             timezone={data.timezone}
             onSaved={() => onOpenChange(false)}
+            onTotalMinutesChange={setTotalMinutes}
           />
         ) : null}
       </DialogContent>
