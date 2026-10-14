@@ -264,6 +264,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/open/today/plan-item-actions.ts#setPlanItemCompleted": { pending: "P4-cov-PLAN-DETAILS" },
   "app/(app)/close/gap-actions.ts#saveUntrackedGaps": { pending: "P4-cov-GAP-CHECKIN", note: "evening close: stores untracked-time answers as allocation check-ins; the MCP twin would save several windows at once (checkins.allocation.save saves one resolved window)" },
   "app/(app)/open/today/plan-item-actions.ts#pausePlanItem": { pending: "P4-cov-PLAN-DETAILS", note: "Package E: Pause replaces Stop; banks tasks.timer_elapsed_seconds. Resume is startPlanItem" },
+  "app/(app)/insights/actions.ts#correctSessionLength": { pending: "P4-cov-PLAN-DETAILS", note: "Insights Session log: shorten an ended Deep session left running (moves ended_at, un-banks the plan line). No MCP twin yet" },
 
   // ── Self-Mastery (ULM) ──────────────────────────────────────────────────
   "app/(app)/personal/answer-feedback-actions.ts#getAnswerFeedback": { excluded: "llm_spend: grades a typed answer with gatewayChat; the agent can judge the answer itself" },

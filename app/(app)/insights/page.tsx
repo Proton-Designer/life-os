@@ -3,7 +3,7 @@ import { InsightsWeekTab } from "@/components/week/insights-week-tab";
 import { redirect } from "next/navigation";
 import { Radar, Volume2, Target, Flame, CheckCircle2, BookOpen } from "lucide-react";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
-import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
+import { localDateString, getWeekStartDate, addDaysToDateString, resolveLocalTime, formatClock12 } from "@/lib/date-utils";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { computeTrackingFloorDateStr } from "@/lib/deen/prayer-status";
 import { createClient } from "@/lib/supabase/server";
@@ -17,6 +17,8 @@ import { formatElapsedDuration } from "@/lib/business/format-elapsed";
 import { buildWeeklyRecap, type WeekWindow } from "@/lib/weekly-planning/weekly-recap";
 import { getRescueTimeInsightsData } from "@/lib/insights/get-rescuetime-summary";
 import { RescueTimePanel } from "@/components/insights/rescuetime-panel";
+import { SessionLogPanel, type SessionLogRow } from "@/components/insights/session-log-panel";
+import { looksLeftRunning } from "@/lib/business/session-correction";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/ui/icon-chip";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -173,6 +175,35 @@ export default async function InsightsPage({
   const earliestRecapWeekStart = recapWeekStarts[0];
 
   const supabase = await createClient();
+
+  // Deep sessions of the last 14 days, so one left running overnight can be corrected here (the Session log panel).
+  const { data: sessionRows } = await supabase
+    .from("work_sessions")
+    .select("id, kind, started_at, ended_at, goal_minutes")
+    .eq("user_id", userId)
+    .eq("counts_toward_hours", true)
+    .not("ended_at", "is", null)
+    .gte("started_at", new Date(now.getTime() - 14 * 86_400_000).toISOString())
+    .order("started_at", { ascending: false })
+    .limit(30);
+  const sessionLog: SessionLogRow[] = (sessionRows ?? []).map((r) => {
+    const startedAt = new Date(r.started_at as string);
+    const endedAt = new Date(r.ended_at as string);
+    const durationMinutes = Math.max(0, Math.floor((endedAt.getTime() - startedAt.getTime()) / 60_000));
+    const goalMinutes = (r.goal_minutes as number | null) ?? null;
+    const startDay = localDateString(startedAt, timezone);
+    const endDay = localDateString(endedAt, timezone);
+    return {
+      id: r.id as string,
+      kindLabel: r.kind === "deep_study" ? "Deep Study" : r.kind === "exam_prep" ? "Exam prep" : "Deep Work",
+      dayLabel: new Date(`${startDay}T00:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }),
+      startLabel: formatClock12(startedAt, timezone),
+      endLabel: formatClock12(endedAt, timezone) + (endDay !== startDay ? " next day" : ""),
+      durationMinutes,
+      goalMinutes,
+      suspicious: looksLeftRunning(durationMinutes, goalMinutes),
+    };
+  });
   const [
     { segments: allSegments },
     kpis,
@@ -609,6 +640,12 @@ export default async function InsightsPage({
         )}
       </Panel>
       </LayoutSlot>
+
+      {sessionLog.length > 0 && (
+        <Panel title="Session log">
+          <SessionLogPanel rows={sessionLog} />
+        </Panel>
+      )}
 
       {/* P3-19 -- RescueTime daily productive-vs-distracting breakdown.
           Placed last, own top-level Panel: unlike everything above (all

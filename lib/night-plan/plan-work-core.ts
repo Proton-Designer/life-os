@@ -190,7 +190,7 @@ export async function resumePausedSessionCore(supabase: SupabaseClient, userId: 
 }
 
 /** Takes `delta` seconds back out of a line's bank (never below 0). */
-async function unbankSecondsCore(supabase: SupabaseClient, userId: string, taskId: string, delta: number): Promise<void> {
+export async function unbankSecondsCore(supabase: SupabaseClient, userId: string, taskId: string, delta: number): Promise<void> {
   if (delta <= 0) return;
   for (let attempt = 0; attempt < 2; attempt++) {
     const { data, error } = await supabase.from("tasks").select("timer_elapsed_seconds").eq("id", taskId).eq("user_id", userId).maybeSingle();
