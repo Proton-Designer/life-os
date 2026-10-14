@@ -138,3 +138,19 @@ export function rankedPlan(state: NightPlanState): RankedItem[] {
     })
     .filter((i): i is RankedItem => i !== null);
 }
+
+const normTitle = (t: string) => t.trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Drops seeds that are already a line of the plan day. A worry seed IS its own task row, so its id matches; a school
+ * deliverable or goal milestone is claimed into a NEW task at save, so its seed id never matches again and the same
+ * item reappeared as a duplicate on the next open. Those are matched by title instead.
+ */
+export function dropSeedsAlreadyPlanned<S extends { id: string; title: string; source: DumpSource }>(
+  seeds: readonly S[],
+  lines: readonly { id: string; title: string }[],
+): S[] {
+  const ids = new Set(lines.map((l) => l.id));
+  const titles = new Set(lines.map((l) => normTitle(l.title)));
+  return seeds.filter((s) => !ids.has(s.id) && !(s.source !== "worry" && titles.has(normTitle(s.title))));
+}

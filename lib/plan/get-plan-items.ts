@@ -2,10 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPlanArea, orderPlanItems, type PlanArea } from "@/lib/plan/plan-behavior";
 
 /**
- * Today's plan as Home's plan list shows it: every task on today's plan the person COMMITTED to -- starred, attached
- * to a domain, or given a start time / timer. A bare dumped line (typed, never starred or detailed) stays out, the
- * same "dumped, not starred" rule the Night Plan has always had. Completed lines stay (crossed out) so the list is a
- * truer record of the day than one that deletes a line the moment it is done.
+ * Today's plan as Home's plan list shows it: EVERY task on today's plan, starred or not, with or without a domain,
+ * start time or timer (a line added in Edit Plan with nothing else set used to be filtered out and looked lost).
+ * Completed lines stay (crossed out) so the list is a truer record of the day than one that deletes a line the moment
+ * it is done.
  */
 export type PlanItem = {
   id: string;
@@ -65,8 +65,7 @@ export async function getTodaysPlanItems(supabase: SupabaseClient, userId: strin
     .from("tasks")
     .select("id, title, plan_area, planned_start_time, planned_duration_minutes, timer_started_at, timer_elapsed_seconds, completed, mit_rank, plan_order, kill_list_item_id, class_id, created_at")
     .eq("user_id", userId)
-    .eq("planned_date", plannedDate)
-    .or("mit_rank.not.is.null,plan_area.not.is.null,planned_start_time.not.is.null,planned_duration_minutes.not.is.null");
+    .eq("planned_date", plannedDate);
   if (error) throw error;
   return orderPlanItems(((data ?? []) as Row[]).map(toPlanItem));
 }

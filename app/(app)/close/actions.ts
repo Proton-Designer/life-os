@@ -12,7 +12,7 @@ import { withoutDeenDomain } from "@/lib/distractions/deen-filter";
 import { getHoursTodayMinutes } from "@/lib/evening-close/hours-today";
 import { getTodayDayStart } from "@/lib/day-structure/day-start";
 import { computeDeltaMinutes } from "@/lib/day-structure/delta-clock";
-import { composeDump, type DumpItem } from "@/lib/night-plan/night-plan";
+import { composeDump, dropSeedsAlreadyPlanned, type DumpItem } from "@/lib/night-plan/night-plan";
 import { getOpenWorries, worriesToDumpItems } from "@/lib/night-plan/worries";
 import { getUnfinishedMilestonesForMonth, getDeenGoalIdsForMonth, monthStartFor } from "@/lib/goals/queries";
 import { getSchoolTodayFeed } from "@/lib/school/school-today";
@@ -219,14 +219,9 @@ export async function getEveningCloseData(): Promise<EveningCloseData | null> {
   const blockingIds = new Set(blockers.map((b) => b.triggerId));
 
   const tomorrowLines = tomorrowRows;
-  const planSeeds = await computePlanSeeds(
-    supabase,
-    user.id,
-    timezone,
-    now,
-    tomorrow,
-    new Set(tomorrowLines.map((l) => l.id)),
-    isDeenModeOn(profile)
+  const planSeeds = dropSeedsAlreadyPlanned(
+    await computePlanSeeds(supabase, user.id, timezone, now, tomorrow, new Set(tomorrowLines.map((l) => l.id)), isDeenModeOn(profile)),
+    tomorrowLines,
   );
 
   return {
@@ -298,8 +293,7 @@ export async function getReplanData(): Promise<ReplanData | null> {
   ]);
 
 
-  const todayIds = new Set(todayLines.map((l) => l.id));
-  const planSeeds = allSeeds.filter((s) => !todayIds.has(s.id));
+  const planSeeds = dropSeedsAlreadyPlanned(allSeeds, todayLines);
 
   return { dateLabel: today, todayLines, planSeeds, killList: areaOptions.killList, areas: areaOptions.areas, workTabs: areaOptions.workTabs, timezone };
 }
