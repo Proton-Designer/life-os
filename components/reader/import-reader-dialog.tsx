@@ -54,6 +54,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
   const [title, setTitle] = useState(initial?.title ?? "");
   const [author, setAuthor] = useState("");
   const [wpm, setWpm] = useState(300);
+  const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -231,10 +232,25 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
             </div>
 
             {tab === "file" ? (
-              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center">
+              <div
+                data-testid="import-dropzone"
+                onDragOver={(e) => {
+                  if (busy !== null) return;
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  const dropped = e.dataTransfer?.files?.[0];
+                  if (busy === null && dropped) pickFile(dropped);
+                }}
+                className={cn("flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-8 text-center", dragging ? "border-ring bg-muted/40" : "border-border")}
+              >
                 <Upload className="size-6 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground" data-testid="import-file-label">
-                  {file ? file.name : "PDF, EPUB, text, Markdown or HTML — up to 50 MB."}
+                  {file ? file.name : "Drop a file here, or choose one. PDF, EPUB, text, Markdown or HTML — up to 50 MB."}
                 </p>
                 <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy !== null}>
                   {file ? "Choose a different file" : "Choose file"}

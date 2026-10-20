@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReaderImportPreview } from "@/lib/reader/types";
@@ -80,6 +80,30 @@ describe("ImportReaderDialog", () => {
     await user.click(screen.getByRole("button", { name: "Import" }));
     expect(await screen.findByTestId("import-stats")).toHaveTextContent("about 1 h 42 min at 600 words per minute");
     localStorage.clear();
+  });
+
+  it("dropping a file on the file area picks it, with the same size check as the picker", async () => {
+    const user = userEvent.setup();
+    render(<ImportReaderDialog />);
+    await user.click(screen.getByTestId("import-to-read-trigger"));
+    const zone = screen.getByTestId("import-dropzone");
+    const small = new File(["PK"], "dropped.epub");
+    fireEvent.drop(zone, { dataTransfer: { files: [small] } });
+    expect(screen.getByTestId("import-file-label")).toHaveTextContent("dropped.epub");
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    await waitFor(() => expect(createImport).toHaveBeenCalledWith({ kind: "file", filename: "dropped.epub", fileSizeBytes: 2 }));
+  });
+
+  it("an oversized dropped file is refused with the size message and not selected", async () => {
+    const user = userEvent.setup();
+    render(<ImportReaderDialog />);
+    await user.click(screen.getByTestId("import-to-read-trigger"));
+    const big = new File(["x"], "huge.pdf");
+    Object.defineProperty(big, "size", { value: 60 * 1024 * 1024 });
+    fireEvent.drop(screen.getByTestId("import-dropzone"), { dataTransfer: { files: [big] } });
+    expect(screen.getByRole("alert")).toHaveTextContent(/50 MB|too large|size/i);
+    expect(screen.getByTestId("import-file-label")).not.toHaveTextContent("huge.pdf");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled(); // nothing selected, so nothing to import
   });
 
   it("cancel in the preview deletes the import and returns to the form", async () => {
