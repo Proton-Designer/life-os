@@ -31,6 +31,10 @@ export function ReplanDialog() {
   const [totalMinutes, setTotalMinutes] = useState(0);
   // One read at a time; a fresh read replaces the last (a stale prefetch is never shown after the plan changed).
   const inflight = useRef<Promise<void> | null>(null);
+  // Edit Plan saves by itself when it closes: the stage hands over its save, and a failed save keeps the dialog open once.
+  const flushPlan = useRef<(() => Promise<boolean>) | null>(null);
+  const closing = useRef(false);
+  const discardNext = useRef(false);
   const loadedAt = useRef(0);
 
   function load(force = false): Promise<void> {
@@ -51,14 +55,37 @@ export function ReplanDialog() {
     return run;
   }
 
+  function finishClose() {
+    setOpen(false);
+    setData(null);
+    setTotalMinutes(0);
+    inflight.current = null;
+    flushPlan.current = null;
+  }
+
   function onOpenChange(next: boolean) {
-    setOpen(next);
-    if (next) void load();
-    else {
-      setData(null);
-      setTotalMinutes(0);
-      inflight.current = null;
+    if (next) {
+      discardNext.current = false;
+      setOpen(true);
+      void load();
+      return;
     }
+    if (closing.current) return;
+    const flush = flushPlan.current;
+    // Nothing loaded, or the last save failed and they closed again: just close. Otherwise save first; only a clean save closes.
+    if (!flush || discardNext.current) return finishClose();
+    closing.current = true;
+    void flush()
+      .then((ok) => {
+        if (ok) finishClose();
+        else discardNext.current = true; // the error / notice is on screen; closing again leaves it
+      })
+      .catch(() => {
+        discardNext.current = true;
+      })
+      .finally(() => {
+        closing.current = false;
+      });
   }
 
   return (
@@ -123,7 +150,9 @@ export function ReplanDialog() {
             areas={data.areas}
             workTabs={data.workTabs}
             timezone={data.timezone}
-            onSaved={() => onOpenChange(false)}
+            registerFlush={(f) => {
+              flushPlan.current = f;
+            }}
             onTotalMinutesChange={setTotalMinutes}
           />
         ) : null}

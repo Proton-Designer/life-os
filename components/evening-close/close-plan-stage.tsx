@@ -98,6 +98,7 @@ export function ClosePlanStage({
   workTabs = [],
   timezone = "UTC",
   onSaved,
+  registerFlush,
   onTotalMinutesChange,
 }: {
   /** Lines already on the plan day. Each may carry what the person already decided (star, crown, domain, time, timer). */
@@ -120,6 +121,8 @@ export function ClosePlanStage({
   timezone?: string;
   /** Called after a successful save (Edit Plan closes its dialog). A plain callback between client components. */
   onSaved?: () => void;
+  /** Edit Plan only: hands the parent a function that saves whatever changed (called on every render, so it is always current). */
+  registerFlush?: (flush: () => Promise<boolean>) => void;
   /** Reports the summed timers of every line on the plan, live as they are set, changed or removed (Edit Plan's total banner). */
   onTotalMinutesChange?: (minutes: number) => void;
 }) {
@@ -319,13 +322,14 @@ export function ClosePlanStage({
     setLines((prev) => prev.map((l) => (l.id === id ? { ...l, draft: next } : l)));
   }
 
-  function commit() {
+  /** Writes the whole plan in one `commitPlan`. "saved" = written with nothing to read; "notice" = written, with a message the person should see; "failed" = nothing was saved (the error is on screen). */
+  async function runCommit(): Promise<"saved" | "notice" | "failed"> {
     setError(null);
-    startTransition(async () => {
+    {
       // Settle in-flight "Plan" triage writes first; if one failed it already put the item back
       // and showed its error, so stop here and let the user finish again.
       const settled = await Promise.all([...pendingPlanTriage.current.values()]);
-      if (settled.some((ok) => !ok)) return;
+      if (settled.some((ok) => !ok)) return "failed";
       const seedLines: SeedLine[] = lines
         .filter((l): l is Line & { seedSource: SeedSource } => l.seedSource !== undefined)
         .map((l) => ({ id: l.id, title: l.title, source: l.seedSource }));
@@ -335,7 +339,7 @@ export function ClosePlanStage({
         const claimRes = await claimSeedLines(seedLines, mode);
         if ("error" in claimRes) {
           setError(claimRes.error);
-          return;
+          return "failed";
         }
         idMap = new Map(claimRes.claimed.map((c) => [c.seedId, c.taskId]));
       }
@@ -365,7 +369,7 @@ export function ClosePlanStage({
       const res = await commitPlan({ mode, starred: remappedStarred, crowned: remappedCrowned, lines: planLines, removed });
       if ("error" in res) {
         setError(res.error);
-        return;
+        return "failed";
       }
       const messages = [
         res.killListOverflow.length > 0 ? `Your Kill List is already full, so these stayed off it: ${res.killListOverflow.join(", ")}.` : null,
@@ -379,8 +383,31 @@ export function ClosePlanStage({
       // The nightly close ends here: one press saves AND goes Home (Edit Plan is there if it needs a change).
       // With a notice to read (e.g. the Kill List was full) it stays, so the message isn't lost.
       if (mode === "tonight" && messages.length === 0) router.push("/");
+      return messages.length === 0 ? "saved" : "notice";
+    }
+  }
+
+  function commit() {
+    startTransition(async () => {
+      await runCommit();
     });
   }
+
+  // Edit Plan (today) has no Save button: the dialog asks for this when it is being closed (X, Esc, a tap outside).
+  // True = nothing is left unsaved and it can close; false = it stays open, showing the error or notice.
+  const [saving, setSaving] = useState(false);
+  async function flush(): Promise<boolean> {
+    if (!dirty) return true;
+    setSaving(true);
+    try {
+      return (await runCommit()) === "saved";
+    } finally {
+      setSaving(false);
+    }
+  }
+  useEffect(() => {
+    registerFlush?.(flush);
+  });
 
   return (
     <section aria-labelledby="close-plan-heading" className="space-y-4">
@@ -609,7 +636,11 @@ export function ClosePlanStage({
       {/* Edit Plan ("today") always has a Save: domains, times and timers are worth saving with no star or crown.
           The nightly ceremony keeps its rule -- Finish is absent until a crown exists, for the same reason Continue is
           absent while a rewrite is outstanding: a disabled control still says there is a way through. */}
-      {mode === "today" || crowned !== null ? (
+      {mode === "today" ? (
+        <p data-testid="plan-autosave" role="status" className="text-xs text-muted-foreground">
+          {saving ? "Saving…" : dirty ? "Changes save when you close this." : "Everything is saved."}
+        </p>
+      ) : crowned !== null ? (
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -617,13 +648,8 @@ export function ClosePlanStage({
             disabled={pending}
             className="inline-flex h-10 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors enabled:hover:bg-primary/85 disabled:opacity-50"
           >
-            {saved ? "Saved" : pending ? "Saving…" : mode === "today" ? "Save plan" : "Finish"}
+            {saved ? "Saved" : pending ? "Saving…" : "Finish"}
           </button>
-          {mode === "today" && dirty && !pending ? (
-            <span data-testid="plan-unsaved" className="text-xs text-muted-foreground">
-              Unsaved changes
-            </span>
-          ) : null}
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">

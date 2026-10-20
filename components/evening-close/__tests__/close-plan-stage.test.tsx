@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ClosePlanStage } from "../close-plan-stage";
@@ -14,6 +14,13 @@ import type { ClaimedSeed } from "@/app/(app)/close/plan-actions";
  * which is exactly why nothing caught it. This file is the render-layer test that was
  * missing.
  */
+
+// Edit Plan (today) has no Save button: the dialog asks the stage to save through the function it registers.
+let flush: (() => Promise<boolean>) | null = null;
+const registerFlush = (f: () => Promise<boolean>) => {
+  flush = f;
+};
+const closeEditPlan = () => act(async () => ({ saved: await flush!() }).saved);
 
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock, refresh: vi.fn() }) }));
@@ -138,12 +145,12 @@ describe("ClosePlanStage — Add (PERF-4)", () => {
   it("a new line goes on TOP of the list (its domain/time/timer are set next, so it must not sit below the fold), and is first in the saved order", async () => {
     dumpLineMock.mockResolvedValue({ id: "new-id" });
     const user = userEvent.setup();
-    render(<ClosePlanStage initialLines={[{ id: "a", title: "Old one" }, { id: "b", title: "Old two" }]} mode="today" />);
+    render(<ClosePlanStage initialLines={[{ id: "a", title: "Old one" }, { id: "b", title: "Old two" }]} mode="today" registerFlush={registerFlush} />);
     await user.type(screen.getByLabelText("Dump a line"), "Fresh task{Enter}");
     await screen.findByText("Fresh task");
     const removeOrder = screen.getAllByRole("button", { name: /^Remove / }).map((b) => b.getAttribute("aria-label"));
     expect(removeOrder).toEqual(["Remove Fresh task", "Remove Old one", "Remove Old two"]);
-    await user.click(screen.getByRole("button", { name: /Save plan/ }));
+    await closeEditPlan();
     const call = commitPlanMock.mock.calls[0]![0] as { lines: { id: string; order: number }[] };
     expect(call.lines.map((l) => [l.id, l.order])).toEqual([["new-id", 0], ["a", 1], ["b", 2]]);
   });
@@ -386,6 +393,7 @@ describe("ClosePlanStage — line details", () => {
     render(
       <ClosePlanStage
         mode="today"
+        registerFlush={registerFlush}
         areas={["business"]}
         killList
         initialLines={[
@@ -397,7 +405,9 @@ describe("ClosePlanStage — line details", () => {
     expect(screen.getByRole("button", { name: "Unstar Send the invoices" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Remove crown from Send the invoices" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^details for send the invoices/i })).toHaveTextContent("Business · Kill List · 9:00 AM · 45m");
-    await user.click(screen.getByRole("button", { name: "Save plan" }));
+    await user.click(screen.getByRole("button", { name: "Move Gym up" })); // a change (and back), so there is something to save
+    await user.click(screen.getByRole("button", { name: "Move Gym down" }));
+    await closeEditPlan();
     expect(commitPlanMock).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "today", starred: ["t1"], crowned: "t1", lines: [expect.objectContaining({ id: "t1", area: "business", addToKillList: true, startTime: "09:00", durationMinutes: 45, order: 0 }), expect.objectContaining({ id: "t2", area: null })] }),
     );
@@ -426,17 +436,42 @@ describe("ClosePlanStage — Save and expand/collapse", () => {
   const two = [{ id: "t1", title: "Send the invoices" }, { id: "t2", title: "Gym" }];
   beforeEach(() => commitPlanMock.mockClear());
 
-  it("Edit Plan (today) with nothing starred shows an enabled Save plan, and it saves an empty rank set", async () => {
+  it("Edit Plan (today) has no Save button; closing it saves what changed (an empty rank set when nothing is starred) and says so", async () => {
     const user = userEvent.setup();
-    render(<ClosePlanStage initialLines={two} mode="today" />);
-    const save = screen.getByRole("button", { name: "Save plan" });
-    expect(save).toBeEnabled();
-    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+    render(<ClosePlanStage initialLines={two} mode="today" registerFlush={registerFlush} />);
+    expect(screen.queryByRole("button", { name: /Save plan|^Saved$|Finish/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-autosave")).toHaveTextContent("Everything is saved.");
     await user.click(screen.getByRole("button", { name: "Move Gym up" }));
-    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
-    await user.click(save);
+    expect(screen.getByTestId("plan-autosave")).toHaveTextContent("Changes save when you close this.");
+    expect(await closeEditPlan()).toBe(true);
     expect(commitPlanMock).toHaveBeenCalledWith(expect.objectContaining({ mode: "today", starred: [], crowned: null }));
-    await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("plan-autosave")).toHaveTextContent("Everything is saved."));
+  });
+
+  it("closing with no changes writes nothing (positive control for the dirty rule)", async () => {
+    render(<ClosePlanStage initialLines={two} mode="today" registerFlush={registerFlush} />);
+    expect(await closeEditPlan()).toBe(true);
+    expect(commitPlanMock).not.toHaveBeenCalled();
+  });
+
+  it("a failed save keeps Edit Plan open (flush says false) with the error shown, and the changes are still unsaved", async () => {
+    commitPlanMock.mockResolvedValueOnce({ error: "Your plan wasn't saved." });
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={two} mode="today" registerFlush={registerFlush} />);
+    await user.click(screen.getByRole("button", { name: "Move Gym up" }));
+    expect(await closeEditPlan()).toBe(false);
+    expect(screen.getByText("Your plan wasn't saved.")).toBeInTheDocument();
+    expect(screen.getByTestId("plan-autosave")).toHaveTextContent("Changes save when you close this.");
+  });
+
+  it("a save with a notice to read keeps it open too (so the message isn't lost)", async () => {
+    commitPlanMock.mockResolvedValueOnce({ ok: true, killListOverflow: ["Gym"], notices: [] });
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={two} mode="today" registerFlush={registerFlush} />);
+    await user.click(screen.getByRole("button", { name: "Move Gym up" }));
+    expect(await closeEditPlan()).toBe(false);
+    expect(screen.getByTestId("plan-notice")).toHaveTextContent("Kill List is already full");
+    expect(await closeEditPlan()).toBe(true); // saved already: the next close goes through
   });
 
   it("tonight with nothing starred shows no Finish, and says what Finish saves", () => {
