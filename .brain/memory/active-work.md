@@ -35,7 +35,7 @@ in the repo should be built to "detect" this condition; per the source doc,
 the request never arrives when it triggers, so no code of ours can see it.
 
 ### Focus reader in Self-Mastery (overnight run 2026-10-19/20)
-**Goal:** every Self-Mastery library book opens in a focus reader (RSVP / page view, narration, highlights, stats). **Status:** built and reviewed on `main`; migrations 268 and 269 are applied, **270 (unique `reader_sessions` stretch key) is applied by the lead AFTER the deploy** (code first, schema second; the code works without it). Open lows: see known-issues "Open lows from the Focus reader run". Decisions: `mem.decisions` 2026-10-20.
+**Goal:** every Self-Mastery library book opens in a focus reader (RSVP / page view, narration, highlights, stats). **Status:** SHIPPED 2026-10-20 01:20 CDT — `659d410` deployed to production (tracking-lur6c1v6h…); migrations 268, 269 and 270 (unique `reader_sessions` stretch key, applied after the deploy and proven to reject a duplicate in a rolled-back insert) are live. Not yet tried on a real iPad/phone. Migration ledger: 266/267 columns exist live but are unrecorded (pre-existing, from an earlier run) — record them. Open lows: see known-issues "Open lows from the Focus reader run". Decisions: `mem.decisions` 2026-10-20.
 
 ## Partially migrated
 
