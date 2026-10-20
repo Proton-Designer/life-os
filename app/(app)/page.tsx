@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { hasArea } from "@/lib/domains/area-vocabulary";
 import { createClient } from "@/lib/supabase/server";
@@ -32,6 +33,7 @@ import { saveWeeklyGoal } from "@/app/(app)/actions";
 import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
+import { ContinueReadingSection } from "@/components/self-mastery/continue-reading-section";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
@@ -149,6 +151,8 @@ export default async function HomePage() {
   for (const p of [snapshotsPromise, quranPromise, quranStripPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
   const hasSelfMastery = hasArea(domainsState, "learning");
+  // Legacy-mode accounts have no domain list, but Self-Mastery (and its reader) is in their fixed nav, so the entry shows there too.
+  const showContinueReading = hasSelfMastery || domainsState.mode === "legacy";
   const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
     // showSessionEntry, not hasSelfMastery alone -- a School-only user's due questions must be able
     // to compete for the top "Now" slot too (see shouldShowSessionEntry's header).
@@ -415,6 +419,11 @@ export default async function HomePage() {
           own comment on why this widget's ORDER is deliberately not
           user-configurable even though its VISIBILITY is (WIDGET-02). */}
       {!sessionEntryHidden && selfMasteryRanksFirst && <SessionEntryCard dueSummary={showSessionEntry ? dueSummary : null} />}
+      {showContinueReading && (
+        <Suspense fallback={null}>
+          <ContinueReadingSection />
+        </Suspense>
+      )}
 
       <LayoutSlot layout={layoutMap} widgetKey="domain_status">
         <Stream promise={sectorPromise} label="Sector progress" fallback={<DomainStatusStripSkeleton />}>
