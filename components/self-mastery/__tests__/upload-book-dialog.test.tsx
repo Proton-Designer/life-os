@@ -70,7 +70,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
     expect(uploadToSignedUrlMock).toHaveBeenCalledWith("user-1/book-1.pdf", "tok-1", expect.any(File), { contentType: "application/pdf" });
     expect(finalizeBookUploadMock).toHaveBeenCalledWith("book-1", "user-1/book-1.pdf");
     expect(cancelBookUploadMock).not.toHaveBeenCalled();
-    expect(pushMock).toHaveBeenCalledWith("/personal/self_mastery/book-1");
+    expect(pushMock).toHaveBeenCalledWith("/self-mastery/book-1");
 
     const prepareOrder = prepareBookUploadMock.mock.invocationCallOrder[0]!;
     const uploadOrder = uploadToSignedUrlMock.mock.invocationCallOrder[0]!;
@@ -92,7 +92,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
     await user.click(screen.getByRole("button", { name: "Add to library" }));
 
     await waitFor(() => expect(finalizeBookUploadMock).toHaveBeenCalledTimes(1));
-    expect(pushMock).toHaveBeenCalledWith("/personal/self_mastery/book-1");
+    expect(pushMock).toHaveBeenCalledWith("/self-mastery/book-1");
   });
 
   it("rejects a file over the real 50MB limit client-side, before ever calling prepare", async () => {

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { UploadBookDialog } from "./upload-book-dialog";
+import { ReadButton } from "./read-button";
+import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
@@ -100,6 +102,11 @@ export async function SelfMasteryLibrary() {
   const cardsLibraryEnabled = hasOptInFeature(profile?.enabled_features, "cards_library");
   const reflectionCards = cardsLibraryEnabled ? await listMyReflectionCards() : [];
 
+  const continueReading = books
+    .filter((b) => b.canRead && b.readProgress)
+    .sort((a, b) => (b.readProgress?.updatedAt ?? "").localeCompare(a.readProgress?.updatedAt ?? ""))
+    .slice(0, 3);
+
   return (
     <PageContainer>
       <PageHeader
@@ -107,6 +114,7 @@ export async function SelfMasteryLibrary() {
         description="Reading, learning, spaced review."
         actions={
           <div className="flex items-center gap-2">
+            <ImportReaderDialog />
             {books.length > 0 && canUpload ? <UploadBookDialog /> : null}
             <WidgetManagerButton domainKey="self_mastery" />
           </div>
@@ -117,6 +125,23 @@ export async function SelfMasteryLibrary() {
         <div className="rounded-lg border p-4 text-sm text-muted-foreground">
           Every widget on this page is hidden. <WidgetManagerButton domainKey="self_mastery" variant="text" />
         </div>
+      ) : null}
+
+      {continueReading.length > 0 ? (
+        <section aria-label="Continue reading" className="flex flex-col gap-2" data-testid="continue-reading">
+          <h2 className="text-sm font-medium text-foreground">Continue reading</h2>
+          <div className="flex flex-col gap-2">
+            {continueReading.map((b) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border/40 bg-card p-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <BookCoverChip title={b.title} author={b.author} coverHue={b.coverHue} />
+                  <span className="truncate text-sm font-medium">{b.title}</span>
+                </div>
+                <ReadButton bookId={b.id} progressPct={b.readProgress?.pct ?? null} started />
+              </div>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <LayoutSlot layout={layoutMap} widgetKey="search">
@@ -148,11 +173,11 @@ export async function SelfMasteryLibrary() {
         // centered action), just with UploadBookDialog's real trigger.
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <BookOpen className="size-8 text-muted-foreground/50" strokeWidth={1.5} />
+          <p className="max-w-xs text-sm text-muted-foreground">Import a book, article or pasted text and read it in the focus reader.</p>
+          <ImportReaderDialog trigger={<Button size="sm">Import to read</Button>} />
           {canUpload ? (
             <>
-              <p className="max-w-xs text-sm text-muted-foreground">
-                Upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.
-              </p>
+              <p className="max-w-xs text-xs text-muted-foreground">Or upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.</p>
               <UploadBookDialog trigger={<Button size="sm" variant="outline">Add a book</Button>} />
             </>
           ) : (
@@ -168,8 +193,8 @@ export async function SelfMasteryLibrary() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {books.map((book) => (
+            <div key={book.id} className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:border-border">
             <Link
-              key={book.id}
               // Canonical, mode-independent URL (see app/(app)/self-mastery/
               // and get-in-progress-books.ts's own comment) -- NOT
               // /personal/self_mastery/${book.id}. This component renders at
@@ -180,7 +205,7 @@ export async function SelfMasteryLibrary() {
               // they tried to open a book from this exact grid, which is
               // precisely the S6 bug this pass exists to close.
               href={`/self-mastery/${book.id}`}
-              className="flex flex-col gap-3 rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:border-border"
+              className="flex flex-col gap-3"
             >
               <div className="flex items-start gap-3">
                 <BookCoverChip title={book.title} author={book.author} coverHue={book.coverHue} />
@@ -190,7 +215,12 @@ export async function SelfMasteryLibrary() {
                 </div>
               </div>
 
-              {book.status === "ready" ? (
+              {book.ingestionMode === "reader" ? (
+                <span className="text-xs text-muted-foreground">
+                  {book.readerWordCount ? `${book.readerWordCount.toLocaleString()} words` : "Reader book"}
+                  {book.readProgress?.pct != null ? ` · ${book.readProgress.pct}% read` : ""}
+                </span>
+              ) : book.status === "ready" ? (
                 <>
                   <span className="text-xs text-muted-foreground">
                     {book.lessonCount} lesson{book.lessonCount === 1 ? "" : "s"}
@@ -201,6 +231,8 @@ export async function SelfMasteryLibrary() {
                 <span className="text-xs text-muted-foreground">{statusLine(book, now)}</span>
               )}
             </Link>
+            {book.canRead ? <ReadButton bookId={book.id} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} /> : null}
+            </div>
           ))}
         </div>
       )}

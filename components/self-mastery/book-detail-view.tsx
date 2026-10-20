@@ -4,6 +4,7 @@ import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { LessonCard } from "./lesson-card";
 import { Button } from "@/components/ui/button";
+import { ReadButton } from "./read-button";
 import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet";
 import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
 import { hasAction } from "@/lib/promotions/types";
@@ -42,6 +43,11 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">{book.title}</h1>
           {book.author ? <p className="text-sm text-muted-foreground">{book.author}</p> : null}
         </div>
+        {book.canRead ? (
+          <div className="ml-auto">
+            <ReadButton bookId={bookId} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} size="default" />
+          </div>
+        ) : null}
       </div>
 
       {book.status === "failed" ? (
@@ -139,7 +145,9 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
       ) : null}
 
       {book.status === "ready" && book.lessons.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No lessons found for this book yet.</p>
+        <p className="text-sm text-muted-foreground">
+          {book.ingestionMode === "reader" ? "This book is for reading — it has no lesson cards." : "No lessons found for this book yet."}
+        </p>
       ) : null}
     </PageContainer>
   );

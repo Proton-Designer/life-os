@@ -101,7 +101,8 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
           return;
         }
         handleOpenChange(false);
-        router.push(`/personal/self_mastery/${result.bookId}`);
+        // Canonical, mode-independent door (same as the library cards): /personal/* redirects legacy-mode accounts away.
+        router.push(`/self-mastery/${result.bookId}`);
       } catch (err) {
         await cancelBookUpload(bookId).catch(() => {});
         // Storage's own raw rejection for an over-limit object (this can
