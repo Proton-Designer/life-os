@@ -14,8 +14,9 @@ const redirectMock = vi.fn((destination: string) => {
 vi.mock("next/navigation", () => ({ redirect: (d: string) => redirectMock(d) }));
 
 let pathname = "/";
+let search = "";
 vi.mock("next/headers", () => ({
-  headers: async () => ({ get: (key: string) => (key === "x-pathname" ? pathname : null) }),
+  headers: async () => ({ get: (key: string) => (key === "x-pathname" ? pathname : key === "x-search" ? search : null) }),
 }));
 
 const getAuthedUserMock = vi.fn();
@@ -52,6 +53,7 @@ describe("AuthedShell — onboarding gate (app/(app)/layout.tsx)", () => {
     getAuthedUserMock.mockReset();
     getProfileMock.mockReset();
     pathname = "/";
+    search = "";
   });
 
   // The specific regression the Lead found live 2026-09-01: visiting
@@ -103,5 +105,14 @@ describe("AuthedShell — onboarding gate (app/(app)/layout.tsx)", () => {
     await expect(renderShell()).rejects.toThrow(RedirectSignal);
     expect(redirectMock).toHaveBeenCalledWith("/login");
     expect(getProfileMock).not.toHaveBeenCalled();
+  });
+
+  it("signed out on the reader share landing: login keeps the exact url (query too); elsewhere plain /login", async () => {
+    getAuthedUserMock.mockResolvedValue(null);
+    pathname = "/read/import";
+    search = "?text=hi&url=https%3A%2F%2Fa.test%2Fx";
+    await expect(renderShell()).rejects.toMatchObject({ destination: `/login?next=${encodeURIComponent("/read/import?text=hi&url=https%3A%2F%2Fa.test%2Fx")}` });
+    pathname = "/settings";
+    await expect(renderShell()).rejects.toMatchObject({ destination: "/login" });
   });
 });

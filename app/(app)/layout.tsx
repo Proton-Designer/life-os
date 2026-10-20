@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getAuthedUser, getProfile } from "@/lib/supabase/auth";
 import { getActiveWorkSessionDetail } from "@/lib/business/active-session";
+import { loginRedirectFor } from "@/lib/auth/login-redirect";
 import { AppShell } from "@/components/shell/app-shell";
 import { saveWeeklyGoal } from "@/app/(app)/actions";
 
@@ -42,11 +43,12 @@ import { saveWeeklyGoal } from "@/app/(app)/actions";
 export async function AuthedShell({ children }: { children: React.ReactNode }) {
   const user = await getAuthedUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  const requestHeaders = await headers();
+  const pathname = requestHeaders.get("x-pathname") ?? "";
 
-  const pathname = (await headers()).get("x-pathname") ?? "";
+  if (!user) {
+    redirect(loginRedirectFor(pathname, requestHeaders.get("x-search") ?? ""));
+  }
   // getProfile and getActiveWorkSessionDetail are each a real Supabase round
   // trip and neither depends on the other — issue them together rather than
   // serially (Opus Lead, batch 5: this is the layer AppShell's own

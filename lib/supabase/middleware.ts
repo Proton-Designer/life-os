@@ -9,6 +9,8 @@ export async function updateSession(request: NextRequest) {
   // avoid redirecting to itself in a loop.
   const requestWithPathname = new Headers(request.headers);
   requestWithPathname.set("x-pathname", request.nextUrl.pathname);
+  // The query string, for the few signed-out pages that return to their exact url after login (lib/auth/login-redirect.ts).
+  requestWithPathname.set("x-search", request.nextUrl.search);
 
   let supabaseResponse = NextResponse.next({ request: { headers: requestWithPathname } });
 
