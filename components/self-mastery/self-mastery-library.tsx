@@ -7,6 +7,8 @@ import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { UploadBookDialog } from "./upload-book-dialog";
 import { ReadButton } from "./read-button";
+import { GlobalHighlightsDialog } from "./global-highlights-dialog";
+import { ReadingStatsChip } from "./reading-stats-chip";
 import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
@@ -114,6 +116,7 @@ export async function SelfMasteryLibrary() {
         description="Reading, learning, spaced review."
         actions={
           <div className="flex items-center gap-2">
+            <GlobalHighlightsDialog />
             <ImportReaderDialog />
             {books.length > 0 && canUpload ? <UploadBookDialog /> : null}
             <WidgetManagerButton domainKey="self_mastery" />
@@ -126,6 +129,8 @@ export async function SelfMasteryLibrary() {
           Every widget on this page is hidden. <WidgetManagerButton domainKey="self_mastery" variant="text" />
         </div>
       ) : null}
+
+      <ReadingStatsChip />
 
       {continueReading.length > 0 ? (
         <section aria-label="Continue reading" className="flex flex-col gap-2" data-testid="continue-reading">
