@@ -1,13 +1,19 @@
 "use client";
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Highlighter } from "lucide-react";
 import type { DocWords } from "@/lib/reader/doc-words";
 import { blockSlotOf, wordIndexAtOffset } from "@/lib/reader/doc-words";
+import { clampRange, rangesByBlock, segmentBlock, wordIsHighlighted, type WordRange } from "@/lib/reader/highlights";
 import type { ReaderBlock, ReaderDoc } from "@/lib/reader/types";
+import { cn } from "@/lib/utils";
+
+// Saved highlights are a soft band behind the words, in the theme's focal colour.
+const MARK_CLASS = "rounded-sm bg-[color-mix(in_srgb,var(--reader-focal)_28%,transparent)] text-inherit";
 
 // Only the block holding the current word is split into per-word spans; every other block is one plain text node, so
 // a 100k-word book stays a few thousand paragraphs. Tapping elsewhere finds the word from the caret position.
-const StaticBlock = memo(function StaticBlock({ block, blockId }: { block: ReaderBlock; blockId: number }) {
+const StaticBlock = memo(function StaticBlock({ block, blockId, ranges }: { block: ReaderBlock; blockId: number; ranges: readonly WordRange[] }) {
   const Tag = block.kind === "h" ? "h2" : "p";
   return (
     <Tag
@@ -16,7 +22,17 @@ const StaticBlock = memo(function StaticBlock({ block, blockId }: { block: Reade
       className={block.kind === "h" ? "mt-10 text-xl font-semibold leading-snug" : "mt-5"}
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 6rem" }}
     >
-      {block.text}
+      {ranges.length === 0
+        ? block.text
+        : segmentBlock(block.text, block.firstWord, ranges).map((run, i) =>
+            run.marked ? (
+              <mark key={i} data-highlight className={MARK_CLASS}>
+                {run.text}
+              </mark>
+            ) : (
+              run.text
+            )
+          )}
     </Tag>
   );
 });
@@ -27,6 +43,7 @@ function ActiveBlock({
   start,
   words,
   index,
+  ranges,
   onSeek,
 }: {
   block: ReaderBlock;
@@ -34,6 +51,7 @@ function ActiveBlock({
   start: number;
   words: string[];
   index: number;
+  ranges: readonly WordRange[];
   onSeek: (wordIndex: number) => void;
 }) {
   const Tag = block.kind === "h" ? "h2" : "p";
@@ -46,8 +64,9 @@ function ActiveBlock({
             <span
               data-word={start + i}
               data-active={active ? "true" : undefined}
+              data-highlight={!active && wordIsHighlighted(ranges, start + i) ? "" : undefined}
               onClick={() => onSeek(start + i)}
-              className={active ? "rounded-sm bg-[var(--reader-hl-bg)] text-[var(--reader-hl-fg)]" : undefined}
+              className={active ? "rounded-sm bg-[var(--reader-hl-bg)] text-[var(--reader-hl-fg)]" : wordIsHighlighted(ranges, start + i) ? MARK_CLASS : undefined}
             >
               {w}
             </span>
@@ -77,18 +96,61 @@ export function PageView({
   index,
   playing,
   fontScale,
+  highlights = [],
   onSeek,
+  onHighlight,
 }: {
   doc: ReaderDoc;
   dw: DocWords;
   index: number;
   playing: boolean;
   fontScale: number;
+  /** Saved highlight ranges (global word indices), drawn over the text. */
+  highlights?: readonly WordRange[];
   onSeek: (wordIndex: number) => void;
+  /** The person chose "Highlight" for the text they selected. */
+  onHighlight?: (range: WordRange) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const programmaticUntil = useRef(0);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const blockRanges = useMemo(() => rangesByBlock(dw, highlights), [dw, highlights]);
+  const [selection, setSelection] = useState<WordRange | null>(null);
+
+  // Track what the person has selected, as a word range, so "Highlight" saves whole words however the selection was dragged.
+  useEffect(() => {
+    if (!onHighlight) return;
+    function wordAt(node: Node, offset: number, isEnd: boolean): number | null {
+      const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element);
+      const wordEl = el?.closest<HTMLElement>("[data-word]");
+      if (wordEl) return Number(wordEl.dataset.word);
+      const blockEl = el?.closest<HTMLElement>("[data-block]");
+      if (!blockEl) return null;
+      const id = Number(blockEl.dataset.block);
+      const block = doc.blocks[id];
+      const first = Number(blockEl.dataset.firstWord);
+      if (!block || !Number.isFinite(first)) return null;
+      const r = document.createRange();
+      r.selectNodeContents(blockEl);
+      r.setEnd(node, offset);
+      const chars = r.toString().length;
+      return first + wordIndexAtOffset(block.text, isEnd ? Math.max(0, chars - 1) : chars);
+    }
+    function onSelectionChange() {
+      const sel = document.getSelection();
+      const root = scrollRef.current;
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !root) return setSelection(null);
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return setSelection(null);
+      const a = wordAt(range.startContainer, range.startOffset, false);
+      const b = wordAt(range.endContainer, range.endOffset, true);
+      if (a === null || b === null) return setSelection(null);
+      setSelection(clampRange({ start: Math.min(a, b), end: Math.max(a, b) }));
+    }
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () => document.removeEventListener("selectionchange", onSelectionChange);
+  }, [doc, onHighlight]);
 
   const slot = dw.blockStarts.length === 0 ? -1 : blockSlotOf(dw, index);
   const activeBlockId = slot < 0 ? -1 : dw.blockIds[slot];
@@ -152,6 +214,7 @@ export function PageView({
   }
 
   return (
+    <div className="relative h-full">
     <div
       ref={scrollRef}
       onScroll={onScroll}
@@ -163,19 +226,39 @@ export function PageView({
         className="mx-auto max-w-[40rem] font-serif leading-[1.75]"
         style={{ fontSize: `calc(1.125rem * ${fontScale})` }}
       >
-        {/* R7 slot: saved highlight ranges are drawn over these blocks. */}
         {doc.blocks.map((block, id) => {
           const first = firstWordOfBlock.get(id);
           if (first === undefined) return null;
           if (id === activeBlockId) {
             const end = (dw.blockStarts[slot + 1] ?? dw.words.length);
             return (
-              <ActiveBlock key={id} block={block} blockId={id} start={first} words={dw.words.slice(first, end)} index={index} onSeek={onSeek} />
+              <ActiveBlock key={id} block={block} blockId={id} start={first} words={dw.words.slice(first, end)} index={index} ranges={blockRanges.get(id)} onSeek={onSeek} />
             );
           }
-          return <StaticBlock key={id} block={block} blockId={id} />;
+          return <StaticBlock key={id} block={block} blockId={id} ranges={blockRanges.get(id)} />;
         })}
       </article>
+    </div>
+    {selection && onHighlight ? (
+      <button
+        type="button"
+        data-testid="highlight-selection"
+        // Keep the text selected while the button is pressed (a click would otherwise collapse it first on some browsers).
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => {
+          onHighlight(selection);
+          document.getSelection()?.removeAllRanges();
+          setSelection(null);
+        }}
+        className={cn(
+          "absolute bottom-3 left-1/2 flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--reader-border)]",
+          "bg-[var(--reader-surface)] px-5 text-sm font-medium text-[var(--reader-fg)] shadow-lg"
+        )}
+      >
+        <Highlighter className="size-4" aria-hidden />
+        Highlight
+      </button>
+    ) : null}
     </div>
   );
 }

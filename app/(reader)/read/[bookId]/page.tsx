@@ -24,15 +24,18 @@ async function loadReaderPageData(bookId: string): Promise<ReaderPageData | null
   return result.ok ? { kind: "book", bootstrap: result.bootstrap, backHref: BACK_HREF } : null;
 }
 
-export default async function ReaderPage({ params }: { params: Promise<{ bookId: string }> }) {
+export default async function ReaderPage({ params, searchParams }: { params: Promise<{ bookId: string }>; searchParams: Promise<{ at?: string | string[] }> }) {
   const { bookId } = await params;
+  const atParam = (await searchParams).at;
+  const at = Number(Array.isArray(atParam) ? atParam[0] : atParam);
+  const startAt = atParam !== undefined && Number.isInteger(at) && at >= 0 ? at : null;
   // Same guard as the book pages: a non-uuid reaching the database is a 500, not a 404.
   if (bookId !== SAMPLE_BOOK_ID && !UUID_RE.test(bookId)) notFound();
 
   const data = await loadReaderPageData(bookId);
   if (!data) notFound();
 
-  if (data.kind === "sample") return <ReaderApp bookId={bookId} doc={data.doc} backHref={data.backHref} />;
+  if (data.kind === "sample") return <ReaderApp bookId={bookId} doc={data.doc} backHref={data.backHref} startAt={startAt} />;
   const { bootstrap } = data;
   return (
     <ReaderLoader
@@ -44,6 +47,8 @@ export default async function ReaderPage({ params }: { params: Promise<{ bookId:
       docVersion={bootstrap.book.docVersion}
       position={bootstrap.position ? { wordIndex: bootstrap.position.wordIndex, clientUpdatedAt: bootstrap.position.clientUpdatedAt } : null}
       settings={bootstrap.settings}
+      highlights={bootstrap.highlights}
+      startAt={startAt}
     />
   );
 }

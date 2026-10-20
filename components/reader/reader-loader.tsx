@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { prepareReaderDoc, updateReaderSettings } from "@/app/(app)/personal/reader-actions";
+import { createHighlight, deleteHighlight, getReadingStats, prepareReaderDoc, recordReaderSession, updateReaderSettings } from "@/app/(app)/personal/reader-actions";
 import { indexedDbDocCache, loadReaderDoc } from "@/lib/reader/doc-cache";
+import type { HighlightItem } from "@/lib/reader/highlights";
 import { createPositionSync, sendPositionBeacon } from "@/lib/reader/position-sync";
+import type { ReadingStats } from "@/lib/reader/server/stats";
+import type { ReadingStretch } from "@/lib/reader/session-tracker";
 import { readerThemeVars } from "@/lib/reader/themes";
 import { DEFAULT_READER_SETTINGS, type ReaderDoc, type ReaderSettings } from "@/lib/reader/types";
 import { ReaderApp } from "./reader-app";
@@ -21,6 +24,9 @@ export interface ReaderLoaderProps {
   docVersion: number | null;
   position: { wordIndex: number; clientUpdatedAt: string } | null;
   settings: ReaderSettings;
+  highlights?: HighlightItem[];
+  /** Open at this word in the Page view (a link from the highlights list). */
+  startAt?: number | null;
 }
 
 type Phase = { kind: "loading" } | { kind: "preparing" } | { kind: "failed"; message: string } | { kind: "ready"; doc: ReaderDoc };
@@ -63,14 +69,90 @@ export function ReaderLoader(props: ReaderLoaderProps) {
 
   const pendingSettings = useRef<Partial<ReaderSettings>>({});
   const settingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const persistSettings = useCallback((patch: Partial<ReaderSettings>) => {
-    pendingSettings.current = { ...pendingSettings.current, ...patch };
+  /** Sends whatever settings are waiting out the debounce, once. */
+  const flushSettings = useCallback(() => {
     if (settingsTimer.current) clearTimeout(settingsTimer.current);
-    settingsTimer.current = setTimeout(() => {
-      const body = pendingSettings.current;
-      pendingSettings.current = {};
-      void updateReaderSettings(body).catch(() => {});
-    }, 800);
+    settingsTimer.current = null;
+    const body = pendingSettings.current;
+    if (Object.keys(body).length === 0) return;
+    pendingSettings.current = {};
+    void updateReaderSettings(body).catch(() => {});
+  }, []);
+  const persistSettings = useCallback(
+    (patch: Partial<ReaderSettings>) => {
+      pendingSettings.current = { ...pendingSettings.current, ...patch };
+      if (settingsTimer.current) clearTimeout(settingsTimer.current);
+      settingsTimer.current = setTimeout(flushSettings, 800);
+    },
+    [flushSettings]
+  );
+  // A setting changed in the last 800 ms must not be lost when the tab is hidden or the reader closes.
+  useEffect(() => {
+    window.addEventListener("pagehide", flushSettings);
+    return () => {
+      window.removeEventListener("pagehide", flushSettings);
+      flushSettings();
+    };
+  }, [flushSettings]);
+
+  const [stats, setStats] = useState<ReadingStats | null>(null);
+  const refreshStats = useCallback(async () => {
+    try {
+      const r = await getReadingStats();
+      if (r.ok) setStats(r.stats);
+    } catch {
+      // Stats are decoration: a failure just leaves the bar as it was.
+    }
+  }, []);
+  const isReady = phase.kind === "ready";
+  useEffect(() => {
+    if (!isReady) return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => getReadingStats())
+      .then((r) => {
+        if (!cancelled && r.ok) setStats(r.stats);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady]);
+
+  const onSession = useCallback(
+    (s: ReadingStretch) => {
+      void recordReaderSession({
+        bookId,
+        startedAt: new Date(s.startedAt).toISOString(),
+        endedAt: new Date(s.endedAt).toISOString(),
+        wordsRead: s.wordsRead,
+        mode: s.mode,
+        avgWpm: s.avgWpm,
+      })
+        .then((r) => {
+          if (r.ok) void refreshStats();
+        })
+        .catch(() => {});
+    },
+    [bookId, refreshStats]
+  );
+  const onCreateHighlight = useCallback(
+    async (range: { startWord: number; endWord: number; text: string }): Promise<HighlightItem | null> => {
+      try {
+        const r = await createHighlight({ bookId, ...range });
+        return r.ok ? r.highlight : null;
+      } catch {
+        return null;
+      }
+    },
+    [bookId]
+  );
+  const onDeleteHighlight = useCallback(async (id: string) => {
+    try {
+      return (await deleteHighlight(id)).ok;
+    } catch {
+      return false;
+    }
   }, []);
 
   if (phase.kind === "ready") {
@@ -84,6 +166,12 @@ export function ReaderLoader(props: ReaderLoaderProps) {
         onPositionWrite={(index, updatedAt, wpm) => sync.push(index, updatedAt, wpm)}
         onLeave={() => sync.flush()}
         onSettingsChange={persistSettings}
+        highlights={props.highlights}
+        onCreateHighlight={onCreateHighlight}
+        onDeleteHighlight={onDeleteHighlight}
+        onSession={onSession}
+        stats={stats}
+        startAt={props.startAt ?? null}
       />
     );
   }
@@ -103,7 +191,11 @@ export function ReaderLoader(props: ReaderLoaderProps) {
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={() => setAttempt((n) => n + 1)}
+              onClick={() => {
+                // A ready book that failed to load may only have an expired signed URL: ask the server for a fresh one too.
+                router.refresh();
+                setAttempt((n) => n + 1);
+              }}
               className="min-h-11 rounded-full border border-[var(--reader-border)] bg-[var(--reader-surface)] px-5 text-sm"
             >
               Try again

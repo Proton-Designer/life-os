@@ -16,6 +16,12 @@ describe("readerKeyAction", () => {
     expect(readerKeyAction(ev("ArrowUp"), "rsvp")).toBe("wpmUp");
     expect(readerKeyAction(ev("ArrowDown"), "rsvp")).toBe("wpmDown");
   });
+  it("h highlights; not inside a dialog", () => {
+    expect(readerKeyAction(ev("h"), "page")).toBe("highlight");
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    expect(readerKeyAction(ev("h", { target: dialog }), "page")).toBeNull();
+  });
   it("leaves up/down to native scrolling in page view", () => {
     expect(readerKeyAction(ev("ArrowUp"), "page")).toBeNull();
     expect(readerKeyAction(ev("ArrowDown"), "page")).toBeNull();

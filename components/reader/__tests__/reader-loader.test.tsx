@@ -7,7 +7,14 @@ import { resetBodyPinForTests } from "@/lib/client/use-body-pin";
 const prepare = vi.fn();
 const updateSettings = vi.fn(async (_patch: unknown) => ({ ok: true }));
 const refresh = vi.fn();
-vi.mock("@/app/(app)/personal/reader-actions", () => ({ prepareReaderDoc: (id: string) => prepare(id), updateReaderSettings: (p: unknown) => updateSettings(p) }));
+vi.mock("@/app/(app)/personal/reader-actions", () => ({
+  prepareReaderDoc: (id: string) => prepare(id),
+  updateReaderSettings: (p: unknown) => updateSettings(p),
+  getReadingStats: async () => ({ ok: false, message: "n/a" }),
+  recordReaderSession: async () => ({ ok: true }),
+  createHighlight: async () => ({ ok: false, message: "n/a" }),
+  deleteHighlight: async () => ({ ok: true }),
+}));
 const router = { refresh };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const loadDoc = vi.fn();
@@ -75,5 +82,39 @@ describe("ReaderLoader", () => {
     render(<ReaderLoader {...base} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn't be downloaded");
     expect(screen.getByRole("link", { name: "Back to library" })).toHaveAttribute("href", "/self-mastery");
+  });
+
+  it("Try again after a failed load of a ready book also asks the server for a fresh document URL", async () => {
+    loadDoc.mockResolvedValueOnce({ ok: false, message: "That link expired." });
+    render(<ReaderLoader {...base} />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    loadDoc.mockResolvedValue({ ok: true, doc: SAMPLE_DOC, fromCache: false });
+    fireEvent.click(retry);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
+  });
+
+  it("sends a setting changed inside the debounce window when the page is hidden, once", async () => {
+    updateSettings.mockClear();
+    loadDoc.mockResolvedValue({ ok: true, doc: SAMPLE_DOC, fromCache: false });
+    render(<ReaderLoader {...base} />);
+    await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Faster" }));
+    expect(updateSettings).not.toHaveBeenCalled();
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings).toHaveBeenCalledWith({ wpm: 325 });
+    act(() => void window.dispatchEvent(new Event("pagehide")));
+    expect(updateSettings).toHaveBeenCalledTimes(1); // positive control: nothing pending, nothing re-sent
+  });
+
+  it("sends pending settings when the reader unmounts", async () => {
+    updateSettings.mockClear();
+    loadDoc.mockResolvedValue({ ok: true, doc: SAMPLE_DOC, fromCache: false });
+    const { unmount } = render(<ReaderLoader {...base} />);
+    await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Slower" }));
+    unmount();
+    expect(updateSettings).toHaveBeenCalledWith({ wpm: 275 });
   });
 });

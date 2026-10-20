@@ -9,6 +9,8 @@ import { READER_PALETTES, READER_THEMES, READER_THEME_LABEL } from "@/lib/reader
 import type { ReaderSettings } from "@/lib/reader/types";
 import { cn } from "@/lib/utils";
 
+const GOAL_CHOICES = [250, 500, 1000, 2000, 3000, 5000];
+
 export function ReaderSettingsDialog({
   open,
   onOpenChange,
@@ -131,7 +133,25 @@ export function ReaderSettingsDialog({
             )}
           </div>
 
-          {/* R7 slot: daily word goal. */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="reader-daily-goal">Daily word goal</Label>
+            <select
+              id="reader-daily-goal"
+              value={settings.dailyWordGoal ?? ""}
+              onChange={(e) => onChange({ dailyWordGoal: e.target.value ? Number(e.target.value) : null })}
+              className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+            >
+              <option value="">No goal</option>
+              {[...new Set([...GOAL_CHOICES, ...(settings.dailyWordGoal ? [settings.dailyWordGoal] : [])])]
+                .sort((a, b) => a - b)
+                .map((g) => (
+                  <option key={g} value={g}>
+                    {g.toLocaleString()} words a day
+                  </option>
+                ))}
+            </select>
+            <span className="text-xs text-muted-foreground">Days you reach it build a streak.</span>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
