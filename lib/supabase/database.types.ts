@@ -363,6 +363,12 @@ export type Database = {
           milestone_80_at: string | null
           page_count: number | null
           progress_pct: number
+          reader_doc_version: number | null
+          reader_error: string | null
+          reader_source: string | null
+          reader_source_url: string | null
+          reader_status: string
+          reader_word_count: number | null
           ready_at: string | null
           stage: Database["public"]["Enums"]["ingest_stage"]
           status: Database["public"]["Enums"]["book_status"]
@@ -384,6 +390,12 @@ export type Database = {
           milestone_80_at?: string | null
           page_count?: number | null
           progress_pct?: number
+          reader_doc_version?: number | null
+          reader_error?: string | null
+          reader_source?: string | null
+          reader_source_url?: string | null
+          reader_status?: string
+          reader_word_count?: number | null
           ready_at?: string | null
           stage?: Database["public"]["Enums"]["ingest_stage"]
           status?: Database["public"]["Enums"]["book_status"]
@@ -405,6 +417,12 @@ export type Database = {
           milestone_80_at?: string | null
           page_count?: number | null
           progress_pct?: number
+          reader_doc_version?: number | null
+          reader_error?: string | null
+          reader_source?: string | null
+          reader_source_url?: string | null
+          reader_status?: string
+          reader_word_count?: number | null
           ready_at?: string | null
           stage?: Database["public"]["Enums"]["ingest_stage"]
           status?: Database["public"]["Enums"]["book_status"]
@@ -3154,6 +3172,7 @@ export type Database = {
       profiles: {
         Row: {
           ai_monthly_spend_cap_usd: number | null
+          allocation_checkins_enabled: boolean
           asr_madhab: string
           checkin_interval_minutes: number
           checkin_window_end: string
@@ -3173,7 +3192,6 @@ export type Database = {
           pin_lock_enabled: boolean
           prayer_calc_method: string
           qada_owed: number
-          allocation_checkins_enabled: boolean
           sleep_reminder_enabled: boolean
           theme_preset: string
           timezone: string
@@ -3184,6 +3202,7 @@ export type Database = {
         }
         Insert: {
           ai_monthly_spend_cap_usd?: number | null
+          allocation_checkins_enabled?: boolean
           asr_madhab?: string
           checkin_interval_minutes?: number
           checkin_window_end?: string
@@ -3203,7 +3222,6 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
-          allocation_checkins_enabled?: boolean
           sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string
@@ -3214,6 +3232,7 @@ export type Database = {
         }
         Update: {
           ai_monthly_spend_cap_usd?: number | null
+          allocation_checkins_enabled?: boolean
           asr_madhab?: string
           checkin_interval_minutes?: number
           checkin_window_end?: string
@@ -3233,7 +3252,6 @@ export type Database = {
           pin_lock_enabled?: boolean
           prayer_calc_method?: string
           qada_owed?: number
-          allocation_checkins_enabled?: boolean
           sleep_reminder_enabled?: boolean
           theme_preset?: string
           timezone?: string
@@ -3428,6 +3446,123 @@ export type Database = {
             foreignKeyName: "quran_sessions_plan_same_user"
             columns: ["user_id", "plan_id"]
             referencedRelation: "quran_plans"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      reader_highlights: {
+        Row: {
+          book_id: string
+          created_at: string
+          end_word: number
+          id: string
+          note: string | null
+          start_word: number
+          text: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          end_word: number
+          id?: string
+          note?: string | null
+          start_word: number
+          text: string
+          user_id?: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          end_word?: number
+          id?: string
+          note?: string | null
+          start_word?: number
+          text?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reader_highlights_book_fk"
+            columns: ["user_id", "book_id"]
+            referencedRelation: "books"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      reader_positions: {
+        Row: {
+          book_id: string
+          client_updated_at: string
+          updated_at: string
+          user_id: string
+          word_index: number
+          wpm: number | null
+        }
+        Insert: {
+          book_id: string
+          client_updated_at: string
+          updated_at?: string
+          user_id?: string
+          word_index: number
+          wpm?: number | null
+        }
+        Update: {
+          book_id?: string
+          client_updated_at?: string
+          updated_at?: string
+          user_id?: string
+          word_index?: number
+          wpm?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reader_positions_book_fk"
+            columns: ["user_id", "book_id"]
+            referencedRelation: "books"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      reader_sessions: {
+        Row: {
+          avg_wpm: number | null
+          book_id: string
+          ended_at: string
+          id: string
+          local_date: string
+          mode: string
+          started_at: string
+          user_id: string
+          words_read: number
+        }
+        Insert: {
+          avg_wpm?: number | null
+          book_id: string
+          ended_at: string
+          id?: string
+          local_date: string
+          mode: string
+          started_at: string
+          user_id?: string
+          words_read: number
+        }
+        Update: {
+          avg_wpm?: number | null
+          book_id?: string
+          ended_at?: string
+          id?: string
+          local_date?: string
+          mode?: string
+          started_at?: string
+          user_id?: string
+          words_read?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reader_sessions_book_fk"
+            columns: ["user_id", "book_id"]
+            referencedRelation: "books"
             referencedColumns: ["user_id", "id"]
           },
         ]
@@ -4541,6 +4676,13 @@ export type Database = {
           notification_time: string
           quran_reminder_end: string | null
           quran_reminder_start: string | null
+          reader_daily_word_goal: number | null
+          reader_focal_lines: boolean
+          reader_font_scale: number
+          reader_speech_rate: number
+          reader_theme: string
+          reader_voice_uri: string | null
+          reader_wpm: number
           session_target_minutes: number
           sleep_need_minutes: number | null
           updated_at: string
@@ -4560,6 +4702,13 @@ export type Database = {
           notification_time?: string
           quran_reminder_end?: string | null
           quran_reminder_start?: string | null
+          reader_daily_word_goal?: number | null
+          reader_focal_lines?: boolean
+          reader_font_scale?: number
+          reader_speech_rate?: number
+          reader_theme?: string
+          reader_voice_uri?: string | null
+          reader_wpm?: number
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
@@ -4579,6 +4728,13 @@ export type Database = {
           notification_time?: string
           quran_reminder_end?: string | null
           quran_reminder_start?: string | null
+          reader_daily_word_goal?: number | null
+          reader_focal_lines?: boolean
+          reader_font_scale?: number
+          reader_speech_rate?: number
+          reader_theme?: string
+          reader_voice_uri?: string | null
+          reader_wpm?: number
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
@@ -5297,6 +5453,15 @@ export type Database = {
         }
       }
       purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
+      reader_save_position: {
+        Args: {
+          p_book_id: string
+          p_client_updated_at: string
+          p_word_index: number
+          p_wpm: number
+        }
+        Returns: number
+      }
       record_plan_outcome: {
         Args: {
           p_date: string
@@ -5352,6 +5517,12 @@ export type Database = {
           milestone_80_at: string | null
           page_count: number | null
           progress_pct: number
+          reader_doc_version: number | null
+          reader_error: string | null
+          reader_source: string | null
+          reader_source_url: string | null
+          reader_status: string
+          reader_word_count: number | null
           ready_at: string | null
           stage: Database["public"]["Enums"]["ingest_stage"]
           status: Database["public"]["Enums"]["book_status"]
@@ -5447,6 +5618,8 @@ export type Database = {
           kind: string
           local_date: string | null
           new_cards_introduced: number | null
+          original_started_at: string | null
+          paused_at: string | null
           promotion_id: string | null
           rep_goal_id: string | null
           started_at: string
