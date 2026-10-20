@@ -55,7 +55,7 @@ function trailingPunct(word: string): string {
 }
 
 const ABBREVIATIONS = new Set([
-  "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "st.", "vs.", "etc.", "e.g.", "i.e.", "cf.", "no.", "fig.", "inc.", "ltd.",
+  "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "st.", "vs.", "etc.", "e.g.", "i.e.", "cf.", "fig.", "inc.", "ltd.",
 ]);
 
 export function endsSentence(word: string): boolean {

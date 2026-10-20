@@ -90,6 +90,8 @@ describe("delayMs", () => {
     expect(endsSentence("e.g.")).toBe(false);
     expect(endsSentence("J.")).toBe(false);
     expect(endsSentence("Done.")).toBe(true);
+    expect(endsSentence("no.")).toBe(true); // "...I said no." ends the sentence
+    expect(endsSentence("No.")).toBe(true);
   });
   it("clamps wpm", () => {
     expect(clampWpm(5)).toBe(100);

@@ -97,6 +97,12 @@ export const realNarrationScheduler: NarrationScheduler = {
   now: () => Date.now(),
 };
 
+/**
+ * Chrome and Safari can silently drop an utterance spoken in the same tick as speechSynthesis.cancel(); a seek or a
+ * speed change while speaking therefore waits this long between the cancel and the next speak().
+ */
+export const CANCEL_TO_SPEAK_GAP_MS = 50;
+
 export interface NarratorOptions {
   backend: SpeechBackend;
   words: DocWords;
@@ -186,6 +192,7 @@ export function createNarrator(opts: NarratorOptions): Narrator {
   }
 
   function begin(wordIndex: number) {
+    const wasSpeaking = speaking;
     generation++;
     clearTimers();
     backend.cancel();
@@ -195,7 +202,13 @@ export function createNarrator(opts: NarratorOptions): Narrator {
     if (!speaking) return;
     // The first word is reported even when it equals `current`, so the UI sees "speaking started here".
     opts.onWord(clamped);
-    speakFrom(clamped, generation);
+    const gen = generation;
+    if (!wasSpeaking) return speakFrom(clamped, gen);
+    timers.push(
+      sched.setTimeout(() => {
+        if (gen === generation) speakFrom(clamped, gen);
+      }, CANCEL_TO_SPEAK_GAP_MS)
+    );
   }
 
   return {

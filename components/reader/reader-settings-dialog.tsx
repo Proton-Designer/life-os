@@ -119,7 +119,9 @@ export function ReaderSettingsDialog({
                   onChange={(e) => onChange({ speechRate: Number(e.target.value) })}
                   className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
                 >
-                  <option value={1}>Match my reading speed</option>
+                  <option value={1}>Auto (matches reading speed)</option>
+                  {/* speechRate 1 is the "follow reading speed" sentinel, so a literal normal-speed voice is 0.99 (inaudibly different). */}
+                  <option value={0.99}>1x (normal voice speed)</option>
                   {[0.7, 0.85, 1.15, 1.3, 1.5, 1.75, 2].map((r) => (
                     <option key={r} value={r}>
                       {r}x

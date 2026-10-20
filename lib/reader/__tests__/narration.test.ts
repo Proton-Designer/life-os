@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDocWords } from "../doc-words";
 import {
   BOUNDARY_GRACE_MS,
+  CANCEL_TO_SPEAK_GAP_MS,
   chunkFrom,
   createNarrator,
   estimateWordInChunk,
@@ -140,7 +141,32 @@ describe("createNarrator", () => {
     s.settings.rate = 1.5;
     s.settings.voiceUri = "v1";
     s.narrator.restart();
+    s.clock.advance(CANCEL_TO_SPEAK_GAP_MS);
     expect(s.backend.last).toMatchObject({ text: "two three.", rate: 1.5, voiceUri: "v1" });
+  });
+  it("a seek while speaking cancels first and speaks only after the gap (Chrome/Safari drop same-tick speak)", () => {
+    const s = setup();
+    s.narrator.start(0);
+    const spokenBefore = s.backend.spoken.length;
+    const cancelsBefore = s.backend.cancels;
+    s.narrator.start(4);
+    expect(s.backend.cancels).toBe(cancelsBefore + 1);
+    expect(s.backend.spoken.length).toBe(spokenBefore); // nothing yet
+    s.clock.advance(CANCEL_TO_SPEAK_GAP_MS - 1);
+    expect(s.backend.spoken.length).toBe(spokenBefore);
+    s.clock.advance(1);
+    expect(s.backend.spoken.length).toBe(spokenBefore + 1);
+  });
+  it("pausing during the gap cancels the pending speak; a first start from idle has no gap", () => {
+    const s = setup();
+    s.narrator.start(0);
+    s.narrator.start(4);
+    s.narrator.pause();
+    s.clock.advance(500);
+    expect(s.backend.spoken.length).toBe(1);
+    const fresh = setup();
+    fresh.narrator.start(0);
+    expect(fresh.backend.spoken.length).toBe(1);
   });
   it("estimates the word by elapsed time when no boundary events arrive (iOS)", () => {
     const s = setup();
@@ -176,6 +202,10 @@ describe("createNarrator", () => {
 
 import { effectiveSpeechRate } from "../narration";
 describe("effectiveSpeechRate", () => {
+  it("0.99 (the picker's literal 1x) is a chosen rate, not the follow-wpm sentinel", () => {
+    expect(effectiveSpeechRate(0.99, 900)).toBe(0.99);
+    expect(effectiveSpeechRate(1, 900)).toBe(2.5);
+  });
   it("follows wpm when speechRate is 1 (auto) and is clamped", () => {
     expect(effectiveSpeechRate(1, 360)).toBe(2);
     expect(effectiveSpeechRate(1, 100)).toBe(0.56);

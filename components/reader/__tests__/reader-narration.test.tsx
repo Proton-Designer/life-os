@@ -79,6 +79,7 @@ describe("ReaderApp narration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Listen" }));
     const n = spoken.length;
     fireEvent.change(screen.getByLabelText("Position in book"), { target: { value: "500" } });
+    act(() => void vi.advanceTimersByTime(60)); // the narrator waits ~50 ms between cancel() and speak()
     expect(spoken.length).toBeGreaterThan(n);
     expect(last().text.startsWith(dw.words[500])).toBe(true);
   });
@@ -90,6 +91,7 @@ describe("ReaderApp narration", () => {
     const rateBefore = last().rate;
     fireEvent.click(screen.getByRole("button", { name: "Reader settings" }));
     fireEvent.change(screen.getByLabelText("Speaking speed"), { target: { value: "2" } });
+    act(() => void vi.advanceTimersByTime(60));
     expect(last().rate).toBe(2);
     expect(rateBefore).not.toBe(2);
   });
