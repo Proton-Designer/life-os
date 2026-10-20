@@ -76,4 +76,35 @@ describe("importEpub", () => {
     expect(resolveZipPath("OEBPS/text/nav.xhtml", "../img%20a/x.xhtml")).toBe("OEBPS/img a/x.xhtml");
     expect(resolveZipPath("OEBPS/content.opf", "/abs/f.xhtml")).toBe("abs/f.xhtml");
   });
+
+  describe("size caps", () => {
+    const opf = (name: string) => ({ [name]: new Uint8Array(0) });
+    const zeros = (mb: number) => new Uint8Array(mb * 1024 * 1024);
+
+    it("rejects a single entry over 25 MB (even though it compresses to almost nothing)", () => {
+      const zip = zipSync({ ...opf("mimetype"), "OEBPS/huge.xhtml": zeros(26) });
+      expect(zip.length).toBeLessThan(1024 * 1024);
+      expect(() => importEpub(zip)).toThrowError(/file that is too large/);
+    });
+
+    it("rejects an EPUB whose text entries total over 120 MB when unpacked", () => {
+      const files: Record<string, Uint8Array> = {};
+      for (let i = 0; i < 6; i++) files[`OEBPS/part${i}.xhtml`] = zeros(21); // 126 MB, each under the per-entry cap
+      expect(() => importEpub(zipSync(files))).toThrowError(/too large once unpacked/);
+    });
+
+    // Positive control: the same shapes just under the caps are NOT reported as too large (they fail later, as non-EPUBs).
+    it("under both caps the failure is the ordinary 'not a valid EPUB', not a size error", () => {
+      const files: Record<string, Uint8Array> = {};
+      for (let i = 0; i < 4; i++) files[`OEBPS/part${i}.xhtml`] = zeros(20); // 80 MB total, 20 MB each
+      let message = "";
+      try {
+        importEpub(zipSync(files));
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).not.toMatch(/too large/);
+      expect(message).not.toBe("");
+    });
+  });
 });
