@@ -32,7 +32,10 @@ const FALLBACK_FOCUS = ['[data-testid="try-reader-empty"]', '[data-testid="try-r
  */
 function focusAfterRemoval(bookId: string, neighbourId: string | null) {
   const gone = () => !document.querySelector(`[data-testid="delete-book"][data-book-id="${CSS.escape(bookId)}"]`);
+  const startedAt = location.pathname + location.search;
   const place = () => {
+    const active = document.activeElement;
+    if (active && active !== document.body && !active.closest('[role="dialog"]')) return;
     const target =
       (neighbourId && document.querySelector<HTMLElement>(`[data-testid="delete-book"][data-book-id="${CSS.escape(neighbourId)}"]`)) ||
       FALLBACK_FOCUS.map((sel) => document.querySelector<HTMLElement>(sel)).find(Boolean);
@@ -42,6 +45,7 @@ function focusAfterRemoval(bookId: string, neighbourId: string | null) {
     }
   };
   const observer = new MutationObserver(() => {
+    if (location.pathname + location.search !== startedAt) return observer.disconnect();
     if (!gone()) return;
     observer.disconnect();
     place();

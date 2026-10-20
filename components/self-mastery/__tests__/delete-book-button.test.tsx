@@ -101,4 +101,47 @@ describe("DeleteBookButton", () => {
     await open(user);
     for (const kept of ["review history", "bookmark", "highlights", "reading history", "stored files"]) expect(screen.getByTestId("delete-consequences")).toHaveTextContent(kept);
   });
+  // R12-F4 (eng1 review of R12-F3): the observer must not steal focus from someone who has moved on.
+  it("does not steal focus when the user has already moved focus elsewhere before the list refreshes", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <input aria-label="elsewhere" />
+        <Library ids={["b-1", "b-2"]} />
+      </>
+    );
+    await user.click(screen.getByRole("button", { name: "Delete Book b-2" }));
+    await user.click(screen.getByTestId("confirm-delete-book"));
+    await waitFor(() => expect(del).toHaveBeenCalled());
+    act(() => screen.getByLabelText("elsewhere").focus()); // user clicks into another field while refresh is pending
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Delete Book b-2" })).toBeNull());
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByLabelText("elsewhere")).toHaveFocus();
+  });
+  it("does not grab focus on a different page when the card disappears because the user navigated away", async () => {
+    const user = userEvent.setup();
+    function Pages() {
+      const [page, setPage] = useState<"lib" | "other">("lib");
+      refresh.mockImplementation(() => undefined);
+      return page === "lib" ? (
+        <main>
+          <h1>Library</h1>
+          <DeleteBookButton bookId="b-2" title="Book b-2" readerOnly />
+          <button type="button" onClick={() => { window.history.pushState({}, "", "/somewhere-else"); setPage("other"); }}>go</button>
+        </main>
+      ) : (
+        <main>
+          <h1>Other page</h1>
+        </main>
+      );
+    }
+    render(<Pages />);
+    await user.click(screen.getByRole("button", { name: "Delete Book b-2" }));
+    await user.click(screen.getByTestId("confirm-delete-book"));
+    await waitFor(() => expect(del).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "go" }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveFocus();
+    window.history.pushState({}, "", "/");
+  });
 });
