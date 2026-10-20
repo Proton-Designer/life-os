@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
 import { untypedFrom } from "./untyped-from";
 import { looksStalled } from "./ingestion-stage";
-import { canOpenInReader, toReadProgress, type BookDetail, type BookDetailLesson, type BookStatus, type EvidenceStrength, type IngestStage, type LessonCardState, type ReaderStatus } from "./types";
+import { canOpenInReader, safeOriginalUrl, toReadProgress, type BookDetail, type BookDetailLesson, type BookStatus, type EvidenceStrength, type IngestStage, type LessonCardState, type ReaderStatus } from "./types";
 
 interface BookRow {
   id: string;
@@ -18,6 +18,7 @@ interface BookRow {
   ingestion_mode: string;
   reader_status: ReaderStatus;
   reader_word_count: number | null;
+  reader_source_url: string | null;
   file_path: string | null;
 }
 
@@ -69,7 +70,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
   const now = new Date();
 
   const { data: book, error: bookError } = await untypedFrom(supabase, "books")
-    .select("id, title, author, status, stage, progress_pct, error_message, created_at, ready_at, ingestion_mode, reader_status, reader_word_count, file_path")
+    .select("id, title, author, status, stage, progress_pct, error_message, created_at, ready_at, ingestion_mode, reader_status, reader_word_count, reader_source_url, file_path")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle()
@@ -235,6 +236,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     ingestionMode: book.ingestion_mode,
     readerStatus: book.reader_status,
     readerWordCount: book.reader_word_count,
+    sourceUrl: safeOriginalUrl(book.reader_source_url),
     canRead: canOpenInReader({ readerStatus: book.reader_status, status: book.status, hasFile: book.file_path != null }),
     readProgress: toReadProgress(position ?? undefined, book.reader_word_count),
     lessons: detailLessons,

@@ -4,6 +4,7 @@ import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { LessonCard } from "./lesson-card";
 import { Button } from "@/components/ui/button";
+import { OpenOriginalLink } from "./open-original-link";
 import { ReadButton } from "./read-button";
 import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet";
 import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
@@ -42,6 +43,7 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">{book.title}</h1>
           {book.author ? <p className="text-sm text-muted-foreground">{book.author}</p> : null}
+          <OpenOriginalLink url={book.sourceUrl} />
         </div>
         {book.canRead ? (
           <div className="ml-auto">

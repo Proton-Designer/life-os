@@ -50,6 +50,17 @@ export interface ReadProgress {
 }
 
 /** Whether the reader can open a book: its document exists, or it can be built lazily (original file or stored text). */
+/** The link behind a "link" import, only if it is a plain http(s) URL (never javascript:, data:, file: ...). */
+export function safeOriginalUrl(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 export function canOpenInReader(b: { readerStatus: string; status: BookStatus; hasFile: boolean }): boolean {
   if (b.readerStatus === "ready") return true;
   if (b.readerStatus !== "none") return false;
@@ -142,6 +153,8 @@ export interface BookDetail {
   ingestionMode: string;
   readerStatus: ReaderStatus;
   readerWordCount: number | null;
+  /** The page a link import came from (http/https only), for "Open original". */
+  sourceUrl: string | null;
   canRead: boolean;
   readProgress: ReadProgress | null;
   lessons: BookDetailLesson[];
