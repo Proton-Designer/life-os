@@ -170,6 +170,14 @@ test bad ids.
 ## 2026-10-07 — e2e strict-mode flakes ("resolved to 2 elements") are React's streaming container, not a duplicate render
 `page.goto()` resolves on `load`, which can fire BEFORE React moves a streamed Suspense boundary out of its hidden `<div hidden id="S:n">`; for that moment the panel exists twice and a strict locator fails at once. Seen on /work (pipeline panel) and Home ("Launch sequence"). `settleRoute` (e2e/helpers.ts) now also waits for no `div[hidden][id^="S:"]` to remain; call it after `goto` before any non-waiting read or strict text locator. (The user never sees two: one copy is `hidden`.) Also: `dismissCheckinToastIfPresent` must not try to click while a modal overlay is open (the overlay intercepts and the test sits out its whole timeout).
 
+## 2026-10-20 — Lessons from the Focus reader run
+
+- **Playwright cannot see keepalive requests sent during unload.** `waitForResponse`/`waitForRequest` on a pagehide beacon times out even when the server logged a 200. Assert the server-side effect instead (Home's "words today" rises after reload), and prove it with a positive control (stub the flush to a no-op; the count must stay flat).
+- **Read the count only after the list renders.** `locator.count()` returned 0 before the library rendered, making an expected "count - 1" equal -1. Wait for `first()` to be visible before counting.
+- **Bare `number.toLocaleString()` trips the 24-hour-time guard** (`lib/__tests__/no-24-hour-time-ui.test.ts`), and a new route needs its `loading.tsx` (NAV-01b). Per-commit `vitest related` misses both because they are repo-wide guards; only the full preflight caught them, at the final gate. Run one full preflight mid-run, not only at the end.
+- **About 350 Playwright tests against the public alias in one hour triggered Vercel's Security Checkpoint** ("Failed to verify your browser, Code 21", `x-vercel-mitigated: challenge`) for this machine's IP, with no firewall rule configured. The deployment's own `*.vercel.app` URL was not challenged. Run comparison baselines against a deployment URL, keep worker counts low, and verify a fresh deploy through its deployment URL.
+- **The whole-app e2e suite is not a deploy gate right now:** 15-30 failures per run that change between runs, and the old live site failed more than the new build on the same files. Compare the same spec files against the live deployment before calling anything a regression.
+
 <!--
 [ ] Under 200 lines
 -->
