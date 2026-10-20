@@ -8,7 +8,7 @@ export function ContinueReadingCard({ reading }: { reading: ContinueReading | nu
   if (!reading) return null;
   const parts = [
     reading.progressPct !== null ? `${reading.progressPct}% read` : null,
-    `${reading.todayWords.toLocaleString()}${reading.dailyWordGoal ? ` / ${reading.dailyWordGoal.toLocaleString()}` : ""} words today`,
+    `${reading.todayWords.toLocaleString("en-US")}${reading.dailyWordGoal ? ` / ${reading.dailyWordGoal.toLocaleString("en-US")}` : ""} words today`,
     reading.streak > 0 ? `${reading.streak}-day streak` : null,
   ].filter(Boolean);
   return (

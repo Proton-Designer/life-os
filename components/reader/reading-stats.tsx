@@ -36,8 +36,8 @@ function weekday(date: string): string {
 
 /** Spoken summary used for the ring button's accessible name. */
 export function statsLabel(s: ReadingStats): string {
-  const words = s.todayWords.toLocaleString();
-  return s.dailyWordGoal ? `Reading stats: ${words} of ${s.dailyWordGoal.toLocaleString()} words today` : `Reading stats: ${words} words today`;
+  const words = s.todayWords.toLocaleString("en-US");
+  return s.dailyWordGoal ? `Reading stats: ${words} of ${s.dailyWordGoal.toLocaleString("en-US")} words today` : `Reading stats: ${words} words today`;
 }
 
 export function ReadingStatsBody({ stats }: { stats: ReadingStats }) {
@@ -46,8 +46,8 @@ export function ReadingStatsBody({ stats }: { stats: ReadingStats }) {
     <div className="flex flex-col gap-4" data-testid="reading-stats">
       <div className="grid grid-cols-3 gap-2 text-center">
         <div className="rounded-lg border p-2">
-          <div className="text-lg font-semibold tabular-nums">{stats.todayWords.toLocaleString()}</div>
-          <div className="text-xs text-muted-foreground">{stats.dailyWordGoal ? `of ${stats.dailyWordGoal.toLocaleString()} today` : "words today"}</div>
+          <div className="text-lg font-semibold tabular-nums">{stats.todayWords.toLocaleString("en-US")}</div>
+          <div className="text-xs text-muted-foreground">{stats.dailyWordGoal ? `of ${stats.dailyWordGoal.toLocaleString("en-US")} today` : "words today"}</div>
         </div>
         <div className="rounded-lg border p-2">
           <div className="text-lg font-semibold tabular-nums">{stats.streak}</div>
@@ -62,7 +62,7 @@ export function ReadingStatsBody({ stats }: { stats: ReadingStats }) {
         {stats.last7.map((d) => (
           <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
             <div className="flex w-full flex-1 items-end">
-              <div className="w-full rounded-sm bg-foreground/70" style={{ height: `${Math.max(d.words > 0 ? 6 : 2, (d.words / max) * 100)}%` }} title={`${d.words.toLocaleString()} words`} />
+              <div className="w-full rounded-sm bg-foreground/70" style={{ height: `${Math.max(d.words > 0 ? 6 : 2, (d.words / max) * 100)}%` }} title={`${d.words.toLocaleString("en-US")} words`} />
             </div>
             <span className="text-[10px] text-muted-foreground">{weekday(d.date)}</span>
           </div>

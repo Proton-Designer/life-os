@@ -409,8 +409,8 @@ function ReaderSession({
             <button type="button" aria-label={statsLabel(stats)} onClick={() => setStatsOpen(true)} className="flex min-h-9 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]" data-testid="stats-bar">
               <GoalRing stats={stats} className="size-5" />
               <span className="tabular-nums">
-                {stats.todayWords.toLocaleString()}
-                {stats.dailyWordGoal ? ` / ${stats.dailyWordGoal.toLocaleString()}` : ""} words today
+                {stats.todayWords.toLocaleString("en-US")}
+                {stats.dailyWordGoal ? ` / ${stats.dailyWordGoal.toLocaleString("en-US")}` : ""} words today
                 {stats.streak > 0 ? ` · ${stats.streak}-day streak` : ""}
               </span>
             </button>

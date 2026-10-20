@@ -36,8 +36,8 @@ export function ReadingStatsChip() {
       >
         <GoalRing stats={stats} className="size-5" />
         <span className="tabular-nums">
-          {stats.todayWords.toLocaleString()}
-          {stats.dailyWordGoal ? ` / ${stats.dailyWordGoal.toLocaleString()}` : ""} words today
+          {stats.todayWords.toLocaleString("en-US")}
+          {stats.dailyWordGoal ? ` / ${stats.dailyWordGoal.toLocaleString("en-US")}` : ""} words today
           {stats.streak > 0 ? ` · ${stats.streak}-day streak` : ""}
         </span>
       </button>

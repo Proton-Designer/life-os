@@ -150,7 +150,7 @@ export function ReaderSettingsDialog({
                 .sort((a, b) => a - b)
                 .map((g) => (
                   <option key={g} value={g}>
-                    {g.toLocaleString()} words a day
+                    {g.toLocaleString("en-US")} words a day
                   </option>
                 ))}
             </select>

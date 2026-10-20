@@ -236,7 +236,7 @@ export async function SelfMasteryLibrary() {
               {book.ingestionMode === "reader" ? (
                 <span className="text-xs text-muted-foreground" data-testid="book-meta">
                   {contentTypeLabel(book.readerSource) ?? "Reader book"}
-                  {book.readerWordCount ? ` · ${book.readerWordCount.toLocaleString()} words` : ""}
+                  {book.readerWordCount ? ` · ${book.readerWordCount.toLocaleString("en-US")} words` : ""}
                   {percentReadSuffix(book.readProgress?.pct)}
                 </span>
               ) : book.status === "ready" ? (

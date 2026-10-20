@@ -229,7 +229,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
               <Input id="import-author" aria-describedby={error ? "import-error" : undefined} aria-invalid={error ? true : undefined} value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={200} />
             </div>
             <p className="text-sm text-muted-foreground" data-testid="import-stats">
-              {preview.wordCount.toLocaleString()} words · {readingTimeLabel(preview.wordCount, wpm)} at {wpm} words per minute
+              {preview.wordCount.toLocaleString("en-US")} words · {readingTimeLabel(preview.wordCount, wpm)} at {wpm} words per minute
               {preview.chapters.length > 1 ? ` · ${preview.chapters.length} chapters` : ""}
             </p>
             {initial?.notice ? (
