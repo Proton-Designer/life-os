@@ -21,8 +21,10 @@ describe("unload beacons", () => {
   it("sendSessionAttempt tells a refusal from a network failure", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
     expect(await sendSessionAttempt({})).toBe("ok");
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false })));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400 })));
     expect(await sendSessionAttempt({})).toBe("refused");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 401 })));
+    expect(await sendSessionAttempt({})).toBe("network"); // lapsed login: not the stretch's fault
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
     expect(await sendSessionAttempt({})).toBe("network");
   });
@@ -213,5 +215,36 @@ describe("createSessionSender (retry a failed stretch)", () => {
       expect(() => s.submit(stretch(1))).not.toThrow();
       expect(s.waiting()).toBe(1);
     });
+  });
+});
+
+describe("an expired login does not burn queued stretches (R7-F5)", () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  it("401 x5 keeps the stretch with no tries spent; a later 200 clears it", async () => {
+    let status = 401;
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: status === 200, status })));
+    const sender = createSessionSender(undefined, undefined, () => false);
+    sender.submit({ bookId: "b1", startedAt: "a", endedAt: "b" });
+    for (let i = 0; i < 5; i++) {
+      await tick();
+      sender.submit();
+    }
+    await tick();
+    expect(sender.waiting()).toBe(1);
+    status = 200;
+    sender.submit();
+    await tick();
+    expect(sender.waiting()).toBe(0);
+  });
+  it("400 still burns tries and drops at 3 (positive control)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400 })));
+    const sender = createSessionSender(undefined, undefined, () => false);
+    sender.submit({ bookId: "b1", startedAt: "a", endedAt: "b" });
+    for (let i = 0; i < 4; i++) {
+      await tick();
+      sender.submit();
+    }
+    await tick();
+    expect(sender.waiting()).toBe(0);
   });
 });

@@ -2,7 +2,10 @@
 // keepalive fetch is handed to the browser and finishes after it. text/plain keeps it a "simple" request (no CORS
 // preflight), like navigator.sendBeacon. Position has its own sender in position-sync.ts.
 
-/** "network": nothing came back (offline, blocked); "refused": the server answered with a non-2xx. */
+/**
+ * "network": nothing usable came back (offline, blocked, or 401 = the login lapsed, which signing in again fixes);
+ * "refused": the server answered no and meant it (400 bad/unowned book, 403 cross-site, 413 too large).
+ */
 export type SendOutcome = "ok" | "refused" | "network";
 
 async function postOutcome(path: string, payload: unknown): Promise<SendOutcome> {
@@ -14,7 +17,8 @@ async function postOutcome(path: string, payload: unknown): Promise<SendOutcome>
       keepalive: true,
       credentials: "same-origin",
     });
-    return res.ok ? "ok" : "refused";
+    if (res.ok) return "ok";
+    return res.status === 401 ? "network" : "refused"; // a signed-out answer says nothing about the stretch itself
   } catch {
     return "network"; // offline or blocked: the caller decides whether that matters
   }
