@@ -131,6 +131,20 @@ test("Paste: pasted text opens in the reader", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Rename E2E Reader Paste Renamed" }).first()).toBeVisible();
   await page.reload();
   await expect(page.getByRole("button", { name: "Rename E2E Reader Paste Renamed" }).first()).toBeVisible();
+  // The reader shows the new name too, not the one frozen in the stored document.
+  await page.goto(bookUrl);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("E2E Reader Paste Renamed", { timeout: 60_000 });
+
+  // Delete it from the library: confirm first, then it is gone after a reload (this also cleans up the test's book).
+  await page.goto("/self-mastery");
+  const renamed = page.getByRole("button", { name: "Delete E2E Reader Paste Renamed" });
+  await expect(renamed.first()).toBeVisible();
+  const count = await renamed.count();
+  await renamed.first().click();
+  await page.getByTestId("confirm-delete-book").click();
+  await expect(renamed).toHaveCount(count - 1, { timeout: 30_000 });
+  await page.reload();
+  await expect(renamed).toHaveCount(count - 1);
 });
 
 test("Library: Try the reader opens the sample book", async ({ page }) => {
