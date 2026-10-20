@@ -7,6 +7,7 @@ import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
 import { UploadBookDialog } from "./upload-book-dialog";
 import { ReadButton } from "./read-button";
+import { RenameBookButton } from "./rename-book-button";
 import { GlobalHighlightsDialog } from "./global-highlights-dialog";
 import { ReadingStatsChip } from "./reading-stats-chip";
 import { LibraryDropTarget } from "./library-drop-target";
@@ -32,7 +33,7 @@ import { WidgetManagerButton } from "@/components/page-layout/widget-manager-but
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { listMyReflectionCards } from "@/app/(app)/personal/reflection-cards-actions";
 import { CardsLibraryPanel } from "@/components/self-mastery/reflection-cards/cards-library-panel";
-import type { LibraryBook } from "@/lib/self-mastery/types";
+import { contentTypeLabel, type LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
   uploading: "Uploading…",
@@ -117,8 +118,11 @@ export async function SelfMasteryLibrary() {
         title="Self-Mastery"
         description="Reading, learning, spaced review."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <GlobalHighlightsDialog />
+            <Button asChild variant="outline" size="sm" data-testid="try-reader-link">
+              <Link href="/read/sample">Try the reader</Link>
+            </Button>
             <ImportReaderDialog />
             <Link href="/read/speed-test" className="hidden text-xs text-muted-foreground underline-offset-2 hover:underline sm:inline" data-testid="speed-test-link">
               Test my reading speed
@@ -184,7 +188,10 @@ export async function SelfMasteryLibrary() {
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <BookOpen className="size-8 text-muted-foreground/50" strokeWidth={1.5} />
           <p className="max-w-xs text-sm text-muted-foreground">Import a book, article or pasted text and read it in the focus reader.</p>
-          <ImportReaderDialog trigger={<Button size="sm">Import to read</Button>} />
+          <Button asChild size="sm" data-testid="try-reader-empty">
+            <Link href="/read/sample">Try the reader</Link>
+          </Button>
+          <ImportReaderDialog trigger={<Button size="sm" variant="outline">Import to read</Button>} />
           {canUpload ? (
             <>
               <p className="max-w-xs text-xs text-muted-foreground">Or upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.</p>
@@ -226,14 +233,16 @@ export async function SelfMasteryLibrary() {
               </div>
 
               {book.ingestionMode === "reader" ? (
-                <span className="text-xs text-muted-foreground">
-                  {book.readerWordCount ? `${book.readerWordCount.toLocaleString()} words` : "Reader book"}
+                <span className="text-xs text-muted-foreground" data-testid="book-meta">
+                  {contentTypeLabel(book.readerSource) ?? "Reader book"}
+                  {book.readerWordCount ? ` · ${book.readerWordCount.toLocaleString()} words` : ""}
                   {book.readProgress?.pct != null ? ` · ${book.readProgress.pct}% read` : ""}
                 </span>
               ) : book.status === "ready" ? (
                 <>
-                  <span className="text-xs text-muted-foreground">
-                    {book.lessonCount} lesson{book.lessonCount === 1 ? "" : "s"}
+                  <span className="text-xs text-muted-foreground" data-testid="book-meta">
+                    {contentTypeLabel(book.readerSource, true)} · {book.lessonCount} lesson{book.lessonCount === 1 ? "" : "s"}
+                    {book.readProgress?.pct != null ? ` · ${book.readProgress.pct}% read` : ""}
                   </span>
                   <MemoryStrengthBar value={book.memoryStrength} size="sm" />
                 </>
@@ -241,7 +250,12 @@ export async function SelfMasteryLibrary() {
                 <span className="text-xs text-muted-foreground">{statusLine(book, now)}</span>
               )}
             </Link>
-            {book.canRead ? <ReadButton bookId={book.id} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} /> : null}
+            {book.canRead || book.ingestionMode === "reader" ? (
+              <div className="flex items-center justify-between gap-2">
+                {book.canRead ? <ReadButton bookId={book.id} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} /> : <span />}
+                <RenameBookButton bookId={book.id} title={book.title} author={book.author} />
+              </div>
+            ) : null}
             </div>
           ))}
         </div>

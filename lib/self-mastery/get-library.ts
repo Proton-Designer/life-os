@@ -19,6 +19,7 @@ interface BookRow {
   ingestion_mode: string;
   reader_status: ReaderStatus;
   reader_word_count: number | null;
+  reader_source: string | null;
   file_path: string | null;
 }
 
@@ -44,7 +45,7 @@ export const getSelfMasteryLibrary = cache(async (): Promise<LibraryBook[]> => {
   const now = new Date();
 
   const { data: bookRows, error: booksError } = await untypedFrom(supabase, "books")
-    .select("id, title, author, status, stage, progress_pct, lesson_count, cover_hue, created_at, ready_at, error_message, ingestion_mode, reader_status, reader_word_count, file_path")
+    .select("id, title, author, status, stage, progress_pct, lesson_count, cover_hue, created_at, ready_at, error_message, ingestion_mode, reader_status, reader_word_count, reader_source, file_path")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .returns<BookRow[]>();
@@ -126,6 +127,7 @@ export const getSelfMasteryLibrary = cache(async (): Promise<LibraryBook[]> => {
       ingestionMode: b.ingestion_mode,
       readerStatus: b.reader_status,
       readerWordCount: b.reader_word_count,
+      readerSource: b.reader_source,
       canRead: canOpenInReader({ readerStatus: b.reader_status, status: b.status, hasFile: b.file_path != null }),
       readProgress: toReadProgress(positionByBook.get(b.id), b.reader_word_count),
     };

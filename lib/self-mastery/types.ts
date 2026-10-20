@@ -97,6 +97,8 @@ export interface LibraryBook {
   ingestionMode: string;
   readerStatus: ReaderStatus;
   readerWordCount: number | null;
+  /** books.reader_source, null for a book that was never imported into the reader. */
+  readerSource: string | null;
   /** True when the focus reader can open this book now (document built, or it can be built lazily). */
   canRead: boolean;
   /** Bookmark, null until the book has been opened in the reader. pct is null when the word count is unknown. */
@@ -165,4 +167,23 @@ export interface BookDetail {
    * never fabricated: false whenever there is no job row to check, or the
    * book is done/failed/ready. See get-book-detail.ts. */
   looksStalled: boolean;
+}
+
+/** What kind of thing a library item is ("EPUB", "PDF", "Article", "Pasted text"), or null when it is not known. */
+export function contentTypeLabel(readerSource: string | null | undefined, hasFile = false): string | null {
+  switch (readerSource) {
+    case "pdf":
+      return "PDF";
+    case "epub":
+      return "EPUB";
+    case "url":
+      return "Article";
+    case "paste":
+      return "Pasted text";
+    case "text":
+      return "Text file";
+    default:
+      // A book uploaded for lessons has no reader_source but is always a PDF file.
+      return hasFile ? "PDF" : null;
+  }
 }
