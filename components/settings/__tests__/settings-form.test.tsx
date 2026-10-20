@@ -40,6 +40,7 @@ describe("SettingsForm section order (matches the left tabs)", () => {
     afterCheckins: (
       <>
         <section id="notifications" />
+        <section id="reading" />
         <section id="ai" />
         <section id="canvas" />
         <section id="rescuetime" />

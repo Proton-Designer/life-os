@@ -6,6 +6,7 @@ import { NotificationSettings } from "@/components/settings/notification-setting
 import { WindDownPlanSettings } from "@/components/settings/wind-down-plan-settings";
 import { SleepReminderSettings } from "@/components/settings/sleep-reminder-settings";
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
+import { ReaderSettings } from "@/components/settings/reader-settings";
 import { FocusTargetSettings } from "@/components/settings/focus-target-settings";
 import { StreamedIntegrationPanels } from "@/components/settings/streamed-panels";
 import { ThemeSettings } from "@/components/settings/theme-settings";
@@ -13,6 +14,7 @@ import { FeatureVisibilitySettings } from "@/components/settings/feature-visibil
 import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-settings";
 import { DeenModeSettings } from "@/components/settings/deen-mode-settings";
 import { QuranReminderSettings } from "@/components/settings/quran-reminder-settings";
+import { DEFAULT_READER_SETTINGS } from "@/lib/reader/types";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
@@ -38,7 +40,7 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: settingsRow } = await supabase
     .from("user_settings")
-    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes, quran_reminder_start, quran_reminder_end")
+    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes, quran_reminder_start, quran_reminder_end, reader_wpm, reader_daily_word_goal, reader_focal_lines")
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
@@ -46,6 +48,13 @@ export default async function SettingsPage() {
   const focusTargets = {
     dailyMinutes: settingsRow?.daily_focus_target_minutes ?? null,
     weekendMinutes: settingsRow?.weekend_focus_target_minutes ?? null,
+  };
+
+  // Migration 268: the focus reader's defaults (Settings > Reading); NULL columns fall back to the reader's own defaults.
+  const readerDefaults = {
+    wpm: settingsRow?.reader_wpm ?? DEFAULT_READER_SETTINGS.wpm,
+    dailyWordGoal: settingsRow?.reader_daily_word_goal ?? null,
+    focalLines: settingsRow?.reader_focal_lines ?? DEFAULT_READER_SETTINGS.focalLines,
   };
 
   // L10: same defensive-cast reasoning as components/shell/app-shell.tsx —
@@ -137,6 +146,10 @@ export default async function SettingsPage() {
                       )}
                       {enabledFeatures.includes("sleep_plan") && <SleepReminderSettings initialEnabled={sleepReminderEnabled} />}
                     </div>
+                  </Panel>
+
+                  <Panel id="reading" className="scroll-mt-24" title="Reading">
+                    <ReaderSettings initial={readerDefaults} />
                   </Panel>
 
                   {/* NAV-01b: these panels read their own data and stream in, concurrently. */}
