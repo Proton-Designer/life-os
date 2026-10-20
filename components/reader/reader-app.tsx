@@ -154,6 +154,9 @@ function ReaderSession({
   const dw = useMemo(() => buildDocWords(doc), [doc]);
   const [settings, setSettings] = useState(boot.settings);
   const [mode, setMode] = useState<ReaderMode>(boot.mode);
+  // Bumped by every seek the person makes, so the controls can announce the new place while paused (not on scroll-follow).
+  const [announceSeq, setAnnounceSeq] = useState(0);
+  const bump = useCallback(() => setAnnounceSeq((n) => n + 1), []);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -320,13 +323,13 @@ function ReaderSession({
 
   // Keyboard: Space, arrows. Refs keep one stable listener while the handlers change every tick.
   const highlightSentence = useCallback(() => void saveHighlight(sentenceRange(dw, index)), [saveHighlight, dw, index]);
-  const live = useRef({ player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported, highlightSentence });
+  const live = useRef({ player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported, highlightSentence, bump });
   useEffect(() => {
-    live.current = { player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported, highlightSentence };
+    live.current = { player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported, highlightSentence, bump };
   });
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const { player: p, mode: m, updateSettings: update, togglePlay: toggle, toggleListenMode: listen, canListen, highlightSentence: hl } = live.current;
+      const { player: p, mode: m, updateSettings: update, togglePlay: toggle, toggleListenMode: listen, canListen, highlightSentence: hl, bump: announce } = live.current;
       const action = readerKeyAction(e, m);
       if (!action) return;
       e.preventDefault();
@@ -334,10 +337,10 @@ function ReaderSession({
         case "toggle": toggle(); break;
         case "listen": if (canListen) listen(); break;
         case "highlight": hl(); break;
-        case "back": p.backSentence(); break;
-        case "forward": p.forwardSentence(); break;
-        case "backParagraph": p.backParagraph(); break;
-        case "forwardParagraph": p.forwardParagraph(); break;
+        case "back": announce(); p.backSentence(); break;
+        case "forward": announce(); p.forwardSentence(); break;
+        case "backParagraph": announce(); p.backParagraph(); break;
+        case "forwardParagraph": announce(); p.forwardParagraph(); break;
         case "wpmUp": update({ wpm: p.wpm + WPM_STEP }); break;
         case "wpmDown": update({ wpm: p.wpm - WPM_STEP }); break;
       }
@@ -444,14 +447,27 @@ function ReaderSession({
         wpm={player.wpm}
         chapterTitle={chapterIdx >= 0 ? doc.chapters[chapterIdx].title : null}
         word={word}
+        announceSeq={announceSeq}
         onToggle={togglePlay}
-        onBack={player.backSentence}
-        onForward={player.forwardSentence}
-        onSeek={player.seek}
+        onBack={() => {
+          bump();
+          player.backSentence();
+        }}
+        onForward={() => {
+          bump();
+          player.forwardSentence();
+        }}
+        onSeek={(i) => {
+          bump();
+          player.seek(i);
+        }}
         onWpm={(w) => updateSettings({ wpm: w })}
       />
 
-      <ChapterDialog open={chaptersOpen} onOpenChange={setChaptersOpen} chapters={doc.chapters} currentChapter={chapterIdx} onPick={player.seek} />
+      <ChapterDialog open={chaptersOpen} onOpenChange={setChaptersOpen} chapters={doc.chapters} currentChapter={chapterIdx} onPick={(w) => {
+        bump();
+        player.seek(w);
+      }} />
       <HighlightsDialog
         open={highlightsOpen}
         onOpenChange={setHighlightsOpen}
@@ -459,6 +475,7 @@ function ReaderSession({
         chapters={doc.chapters}
         onJump={(w) => {
           changeMode("page");
+          bump();
           player.seek(w);
         }}
         onDelete={(id) => void removeHighlight(id)}
