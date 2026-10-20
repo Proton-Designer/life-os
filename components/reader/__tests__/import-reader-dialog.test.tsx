@@ -65,6 +65,23 @@ describe("ImportReaderDialog", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
+  it("the preview's reading time uses the person's saved speed (300 when none is saved)", async () => {
+    const user = userEvent.setup();
+    localStorage.clear();
+    await openWithFile(user);
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    expect(await screen.findByTestId("import-stats")).toHaveTextContent("about 3 h 24 min at 300 words per minute");
+  });
+
+  it("... and at 600 wpm when the reader saved 600", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("lifeos.reader.settings", JSON.stringify({ wpm: 600 }));
+    await openWithFile(user);
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    expect(await screen.findByTestId("import-stats")).toHaveTextContent("about 1 h 42 min at 600 words per minute");
+    localStorage.clear();
+  });
+
   it("cancel in the preview deletes the import and returns to the form", async () => {
     const user = userEvent.setup();
     await openWithFile(user);

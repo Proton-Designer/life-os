@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
+import { browserStorage, loadSettings } from "@/lib/reader/reader-storage";
 import type { ReaderImportPreview } from "@/lib/reader/types";
 import { cn } from "@/lib/utils";
 
@@ -52,6 +53,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
   const [preview, setPreview] = useState<ReaderImportPreview | null>(null);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [author, setAuthor] = useState("");
+  const [wpm, setWpm] = useState(300);
   const fileRef = useRef<HTMLInputElement>(null);
 
   function reset() {
@@ -123,6 +125,8 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
         setError(prepared.message);
         return;
       }
+      // The reader keeps the person's speed in this browser; the estimate should match what they will actually see.
+      setWpm(loadSettings(browserStorage()).wpm || 300);
       setPreview(prepared.preview);
       setTitle(prepared.preview.title);
       setAuthor(prepared.preview.author ?? "");
@@ -186,7 +190,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
               <Input id="import-author" value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={200} />
             </div>
             <p className="text-sm text-muted-foreground" data-testid="import-stats">
-              {preview.wordCount.toLocaleString()} words · {readingTimeLabel(preview.wordCount)} at 300 words per minute
+              {preview.wordCount.toLocaleString()} words · {readingTimeLabel(preview.wordCount, wpm)} at {wpm} words per minute
               {preview.chapters.length > 1 ? ` · ${preview.chapters.length} chapters` : ""}
             </p>
             {preview.warnings.length > 0 ? (
