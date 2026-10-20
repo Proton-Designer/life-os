@@ -113,3 +113,15 @@ test("Sample reader fits an iPad portrait screen", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(0);
   await expect(page.getByTestId("reader-controls")).toBeInViewport();
 });
+
+test("Speed test: read, answer, get a words-per-minute result", async ({ page }) => {
+  await page.goto("/read/speed-test");
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect(page.getByTestId("speed-test-passage")).toBeVisible();
+  await page.waitForTimeout(6_000);
+  await page.getByRole("button", { name: "Done" }).click();
+  for (const group of await page.locator("fieldset").all()) await group.getByRole("radio").first().check();
+  await page.getByRole("button", { name: "See my result" }).click();
+  await expect(page.getByTestId("speed-test-result")).toContainText("words per minute");
+  await expect(page.getByRole("button", { name: /^Use \d+ wpm in the reader$/ })).toBeVisible();
+});
