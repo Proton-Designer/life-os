@@ -10,6 +10,7 @@ import type { HighlightItem } from "@/lib/reader/highlights";
 import { createPositionSync, sendPositionBeacon } from "@/lib/reader/position-sync";
 import type { ReadingStats } from "@/lib/reader/server/stats";
 import type { ReadingStretch } from "@/lib/reader/session-tracker";
+import { browserStorage } from "@/lib/reader/reader-storage";
 import { createSessionSender, createSettingsSender } from "@/lib/reader/unload-beacon";
 import { readerThemeVars } from "@/lib/reader/themes";
 import { DEFAULT_READER_SETTINGS, type ReaderDoc, type ReaderSettings } from "@/lib/reader/types";
@@ -127,9 +128,10 @@ export function ReaderLoader(props: ReaderLoaderProps) {
 
   // A keepalive POST, not a Server Action: the last stretch is sent as the tab closes and an action would be cancelled.
   // A stretch that fails to send is kept and retried with the next one (or when the connection comes back).
-  const sessionSender = useMemo(() => createSessionSender(undefined, () => void refreshStats()), [refreshStats]);
+  const sessionSender = useMemo(() => createSessionSender(undefined, () => void refreshStats(), undefined, browserStorage()), [refreshStats]);
   useEffect(() => {
     const retry = () => sessionSender.submit();
+    retry(); // stretches a closed tab left in storage
     window.addEventListener("online", retry);
     return () => window.removeEventListener("online", retry);
   }, [sessionSender]);

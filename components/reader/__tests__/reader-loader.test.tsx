@@ -66,9 +66,10 @@ describe("ReaderLoader", () => {
     loadDoc.mockResolvedValue({ ok: true, doc: SAMPLE_DOC, fromCache: false });
     const { unmount } = render(<ReaderLoader {...base} />);
     await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
-    expect(sessionSubmit).not.toHaveBeenCalledWith(undefined); // positive control: nothing retried before the event
-    act(() => void window.dispatchEvent(new Event("online")));
+    expect(sessionSubmit).toHaveBeenCalledTimes(1); // the mount drain of stretches a closed tab left in storage
     expect(sessionSubmit).toHaveBeenCalledWith(undefined);
+    act(() => void window.dispatchEvent(new Event("online")));
+    expect(sessionSubmit).toHaveBeenCalledTimes(2); // positive control: the event adds one more drain
     const calls = sessionSubmit.mock.calls.length;
     unmount();
     window.dispatchEvent(new Event("online"));

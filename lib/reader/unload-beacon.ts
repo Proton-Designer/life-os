@@ -101,34 +101,83 @@ const MAX_QUEUED_SESSIONS = 10;
 const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
 const toOutcome = (r: SendOutcome | boolean): SendOutcome => (r === true ? "ok" : r === false ? "refused" : r);
 
+export const PENDING_SESSIONS_KEY = "lifeos.reader.pending-sessions";
+
+type PendingStorage = Pick<Storage, "getItem" | "setItem">;
+interface Pending {
+  payload: StretchPayload;
+  tries: number;
+}
+
+function loadPending(storage: PendingStorage | null): Pending[] {
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(PENDING_SESSIONS_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(v)) return [];
+    return v
+      .filter((x): x is Pending => !!x && typeof x === "object" && typeof (x as Pending).payload?.bookId === "string")
+      .map((x) => ({ payload: x.payload, tries: Number.isInteger(x.tries) && x.tries > 0 ? x.tries : 0 }))
+      .slice(-MAX_QUEUED_SESSIONS);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Sends finished reading stretches and keeps any whose send failed for the next call (bounded: at most 10 are kept, and a
  * stretch is given up on after 3 REFUSALS from the server). Having no connection is not a refusal: while offline nothing
  * is sent and no try is spent, and a network failure keeps the stretch queued for the next submit or the "online" event.
- * Safe to resend because the server stores a stretch with the same book and span once.
+ * Safe to resend because the server stores a stretch with the same user, book and span once.
+ *
+ * With `storage`, every unconfirmed stretch (also one in the air) is mirrored there, so a tab closed while offline does
+ * not lose it: the next sender built on the same storage starts with it, and `submit()` with no argument drains it. A
+ * stretch for a book the signed-in user does not own is refused by the server and dropped after 3 tries. Two tabs share
+ * the key last-write-wins; that can lose the other tab's queue (rare, bounded to 10 stretches).
  */
 export function createSessionSender(
   send: (p: StretchPayload) => Promise<SendOutcome | boolean> = sendSessionAttempt,
   onStored?: () => void,
-  offline: () => boolean = isOffline
+  offline: () => boolean = isOffline,
+  storage: PendingStorage | null = null
 ) {
-  let waiting: { payload: StretchPayload; tries: number }[] = [];
+  let items: Pending[] = loadPending(storage);
+  const inAir = new Set<Pending>();
+
+  function persist() {
+    if (!storage) return;
+    try {
+      storage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(items));
+    } catch {
+      // Quota / blocked: the in-memory queue still works.
+    }
+  }
+  function drop(item: Pending) {
+    items = items.filter((x) => x !== item);
+    persist();
+  }
+
   return {
     submit(payload?: StretchPayload) {
-      if (payload) waiting.push({ payload, tries: 0 });
-      waiting = waiting.slice(-MAX_QUEUED_SESSIONS);
+      if (payload) items.push({ payload, tries: 0 });
+      items = items.slice(-MAX_QUEUED_SESSIONS);
+      persist();
       if (offline()) return;
-      const batch = waiting;
-      waiting = [];
-      for (const item of batch) {
+      for (const item of items.filter((x) => !inAir.has(x))) {
+        inAir.add(item);
         void send(item.payload).then((r) => {
+          inAir.delete(item);
           const outcome = toOutcome(r);
-          if (outcome === "ok") return onStored?.();
+          if (outcome === "ok") {
+            drop(item);
+            return onStored?.();
+          }
           if (outcome === "refused") item.tries += 1;
-          if (item.tries < MAX_SESSION_TRIES) waiting = [...waiting, item].slice(-MAX_QUEUED_SESSIONS);
+          if (item.tries >= MAX_SESSION_TRIES) drop(item);
+          else persist();
         });
       }
     },
-    waiting: () => waiting.length,
+    waiting: () => items.filter((x) => !inAir.has(x)).length,
   };
 }

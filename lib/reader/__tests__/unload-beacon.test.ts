@@ -28,7 +28,7 @@ describe("unload beacons", () => {
   });
 });
 
-import { createSessionSender, createSettingsSender } from "../unload-beacon";
+import { PENDING_SESSIONS_KEY, createSessionSender, createSettingsSender } from "../unload-beacon";
 
 describe("createSettingsSender (last write wins)", () => {
   it("sends one at a time: the second patch waits for the first answer, newest value per key", async () => {
@@ -146,5 +146,72 @@ describe("createSessionSender (retry a failed stretch)", () => {
     const s = createSessionSender(async () => "ok" as const, undefined, () => true);
     for (let n = 1; n <= 15; n++) s.submit(stretch(n));
     expect(s.waiting()).toBe(10);
+  });
+
+  describe("persisted queue (closed tab)", () => {
+    const memStore = () => {
+      const m = new Map<string, string>();
+      return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), m };
+    };
+
+    it("stretches queued offline survive a closed tab: a new sender on the same storage drains them", async () => {
+      const store = memStore();
+      const a = createSessionSender(async () => "ok" as const, undefined, () => true, store);
+      for (const n of [1, 2, 3]) a.submit(stretch(n));
+      // tab closes here; `a` is gone
+      const got: string[] = [];
+      const b = createSessionSender(async (p) => (got.push(String(p.startedAt)), "ok" as const), undefined, () => false, store);
+      expect(b.waiting()).toBe(3);
+      b.submit(); // reader mount
+      await tick();
+      expect(got).toEqual(["1", "2", "3"]);
+      expect(JSON.parse(store.m.get(PENDING_SESSIONS_KEY) ?? "[]")).toEqual([]);
+    });
+
+    it("positive control: without storage the same sequence loses the stretches", async () => {
+      const a = createSessionSender(async () => "ok" as const, undefined, () => true);
+      a.submit(stretch(1));
+      const b = createSessionSender(async () => "ok" as const, undefined, () => false);
+      expect(b.waiting()).toBe(0);
+    });
+
+    it("a stretch in the air stays stored until the server confirms it", async () => {
+      const store = memStore();
+      let release: (v: "ok") => void = () => {};
+      const s = createSessionSender(() => new Promise<"ok">((r) => (release = r)), undefined, () => false, store);
+      s.submit(stretch(1));
+      expect(JSON.parse(store.m.get(PENDING_SESSIONS_KEY)!)).toHaveLength(1);
+      release("ok");
+      await tick();
+      expect(JSON.parse(store.m.get(PENDING_SESSIONS_KEY)!)).toHaveLength(0);
+    });
+
+    it("refusal counts persist across a reload and a stretch is dropped after 3 in total", async () => {
+      const store = memStore();
+      const send = vi.fn(async () => "refused" as const);
+      const a = createSessionSender(send, undefined, () => false, store);
+      a.submit(stretch(1));
+      await tick();
+      const b = createSessionSender(send, undefined, () => false, store);
+      b.submit();
+      await tick();
+      const c = createSessionSender(send, undefined, () => false, store);
+      c.submit();
+      await tick();
+      expect(send).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(store.m.get(PENDING_SESSIONS_KEY)!)).toEqual([]);
+    });
+
+    it("ignores corrupt storage, caps what it loads at 10, and survives a throwing setItem", async () => {
+      const bad = { getItem: () => "{not json", setItem: () => {} };
+      expect(createSessionSender(async () => "ok" as const, undefined, () => true, bad).waiting()).toBe(0);
+      const many = memStore();
+      many.m.set(PENDING_SESSIONS_KEY, JSON.stringify(Array.from({ length: 14 }, (_, n) => ({ payload: stretch(n), tries: 0 }))));
+      expect(createSessionSender(async () => "ok" as const, undefined, () => true, many).waiting()).toBe(10);
+      const full = { getItem: () => null, setItem: () => { throw new Error("quota"); } };
+      const s = createSessionSender(async () => "ok" as const, undefined, () => true, full);
+      expect(() => s.submit(stretch(1))).not.toThrow();
+      expect(s.waiting()).toBe(1);
+    });
   });
 });
