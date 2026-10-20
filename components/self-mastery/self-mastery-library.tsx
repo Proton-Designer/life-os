@@ -9,6 +9,7 @@ import { UploadBookDialog } from "./upload-book-dialog";
 import { ReadButton } from "./read-button";
 import { GlobalHighlightsDialog } from "./global-highlights-dialog";
 import { ReadingStatsChip } from "./reading-stats-chip";
+import { LibraryDropTarget } from "./library-drop-target";
 import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
@@ -110,6 +111,7 @@ export async function SelfMasteryLibrary() {
     .slice(0, 3);
 
   return (
+    <LibraryDropTarget>
     <PageContainer>
       <PageHeader
         title="Self-Mastery"
@@ -248,5 +250,6 @@ export async function SelfMasteryLibrary() {
 
       {cardsLibraryEnabled ? <CardsLibraryPanel initialCards={reflectionCards} /> : null}
     </PageContainer>
+    </LibraryDropTarget>
   );
 }

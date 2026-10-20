@@ -204,4 +204,18 @@ describe("readingTimeLabel", () => {
     render(<ImportReaderDialog defaultOpen initial={{ error: "That was too large to share." }} />);
     expect(screen.getByRole("alert")).toHaveTextContent("too large");
   });
+
+  it("shows a server notice (shortened share) on the preview, and none when there is none", async () => {
+    const { unmount } = render(<ImportReaderDialog defaultOpen initial={{ pendingBookId: "b-1", notice: "Shared text was shortened." }} />);
+    expect(await screen.findByTestId("import-notice")).toHaveTextContent("shortened");
+    unmount();
+    render(<ImportReaderDialog defaultOpen initial={{ pendingBookId: "b-1" }} />);
+    await screen.findByTestId("import-preview");
+    expect(screen.queryByTestId("import-notice")).toBeNull();
+  });
+
+  it("a file dropped on the library page arrives already chosen", () => {
+    render(<ImportReaderDialog defaultOpen initial={{ file: new File(["x"], "dropped.epub") }} />);
+    expect(screen.getByTestId("import-file-label")).toHaveTextContent("dropped.epub");
+  });
 });

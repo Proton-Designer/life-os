@@ -34,6 +34,13 @@ describe("POST /api/reader/share", () => {
     expect(loc(r).pathname + loc(r).search).toBe("/read/import?pending=book-1");
     expect(createShare).toHaveBeenCalledWith({}, "u1", expect.objectContaining({ title: "T", text: "hello there", file: null }));
   });
+  it("a truncated share carries the notice; an untruncated one does not", async () => {
+    getAuthedUser.mockResolvedValue({ id: "u1" });
+    createShare.mockResolvedValue({ ok: true, bookId: "book-1", truncated: true });
+    expect(loc(await POST(req(formOf({ text: "x" })))).searchParams.get("notice")).toBe("truncated");
+    createShare.mockResolvedValue({ ok: true, bookId: "book-1" });
+    expect(loc(await POST(req(formOf({ text: "x" })))).searchParams.get("notice")).toBeNull();
+  });
   it("a failed import redirects with a readable error, not JSON", async () => {
     getAuthedUser.mockResolvedValue({ id: "u1" });
     createShare.mockResolvedValue({ ok: false, message: "No text here." });

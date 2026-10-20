@@ -40,7 +40,7 @@ export function readingTimeLabel(words: number, wpm = 300): string {
  * Import something to read: a file (PDF, EPUB, text, Markdown, HTML), pasted text, or an article link. Never needs the
  * AI key or the ingestion worker. Shows what was found (title, length, chapters, a sample) before it joins the library.
  */
-export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { trigger?: React.ReactNode; initial?: { tab?: Tab; text?: string; url?: string; title?: string; pendingBookId?: string; error?: string }; defaultOpen?: boolean }) {
+export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { trigger?: React.ReactNode; initial?: { tab?: Tab; text?: string; url?: string; title?: string; pendingBookId?: string; error?: string; file?: File; notice?: string }; defaultOpen?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [tab, setTab] = useState<Tab>(initial?.tab ?? "file");
@@ -58,6 +58,13 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
   const [wpm, setWpm] = useState(300);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // A file dropped on the library page arrives already chosen.
+  const droppedFile = initial?.file ?? null;
+  useEffect(() => {
+    if (droppedFile) pickFile(droppedFile);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per dropped file; pickFile only sets state
+  }, [droppedFile]);
 
   useEffect(() => {
     if (!pending) return;
@@ -226,6 +233,11 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
               {preview.wordCount.toLocaleString()} words · {readingTimeLabel(preview.wordCount, wpm)} at {wpm} words per minute
               {preview.chapters.length > 1 ? ` · ${preview.chapters.length} chapters` : ""}
             </p>
+            {initial?.notice ? (
+              <p role="status" className="text-xs text-[var(--accent-warning)]" data-testid="import-notice">
+                {initial.notice}
+              </p>
+            ) : null}
             {preview.warnings.length > 0 ? (
               <ul className="list-disc pl-5 text-xs text-[var(--accent-warning)]">
                 {preview.warnings.map((w) => (

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FakeDb } from "./fake-db";
 import type { Db } from "../core";
-import { classifyShare, createShareImportCore, SHARE_MAX_BYTES } from "../share";
+import { classifyShare, createShareImportCore, SHARE_MAX_BYTES, SHARE_MAX_TEXT_CHARS } from "../share";
 
 vi.mock("server-only", () => ({}));
 
@@ -32,6 +32,14 @@ describe("createShareImportCore", () => {
     const book = db.tables.books.find((b) => b.id === r.bookId)!;
     expect(book).toMatchObject({ user_id: U, reader_status: "ready", reader_source: "paste" });
     expect(db.objects.has(`${U}/${r.bookId}/reader-v1.json`)).toBe(true);
+  });
+  it("shared text over the cap is cut and flagged; text at the cap is not (positive control)", async () => {
+    const sentence = "One more sentence goes right here. ";
+    const long = sentence.repeat(Math.ceil((SHARE_MAX_TEXT_CHARS + 10) / sentence.length));
+    expect(classifyShare({ ...none, text: long })).toMatchObject({ kind: "paste", truncated: true });
+    expect(classifyShare({ ...none, text: long.slice(0, SHARE_MAX_TEXT_CHARS) })).toMatchObject({ kind: "paste", truncated: false });
+    const r = await createShareImportCore(asDb(new FakeDb()), U, { ...none, text: long });
+    expect(r).toMatchObject({ ok: true, truncated: true });
   });
   it("a shared text file is uploaded and prepared", async () => {
     const db = new FakeDb();

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/shell/page-header";
 import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 
 const MAX_SHARED_TEXT = 200_000;
+const NOTICES: Record<string, string> = { truncated: `Shared text was shortened to the first ${MAX_SHARED_TEXT.toLocaleString("en-US")} characters.` };
 
 function first(v: string | string[] | undefined): string {
   return (Array.isArray(v) ? v[0] : v) ?? "";
@@ -23,7 +24,8 @@ export default async function ReadImportPage({ searchParams }: { searchParams: P
   const pendingRaw = first(sp.pending).trim();
   const pendingBookId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pendingRaw) ? pendingRaw : "";
   const error = first(sp.error).trim().slice(0, 300);
-  const initial = pendingBookId ? { tab: "file" as const, pendingBookId } : error ? { tab: "file" as const, title, error } : url ? { tab: "link" as const, url, title } : text.trim() ? { tab: "paste" as const, text, title } : { tab: "file" as const, title };
+  const notice = NOTICES[first(sp.notice)];
+  const initial = pendingBookId ? { tab: "file" as const, pendingBookId, notice } : error ? { tab: "file" as const, title, error } : url ? { tab: "link" as const, url, title } : text.trim() ? { tab: "paste" as const, text, title } : { tab: "file" as const, title };
   return (
     <PageContainer>
       <PageHeader title="Import to read" description="Check what you shared, then press Import." />

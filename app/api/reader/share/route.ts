@@ -42,5 +42,5 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createClient();
   const result = await createShareImportCore(supabase, user.id, { title: str("title"), text: str("text"), url: str("url"), file });
-  return result.ok ? back(`?pending=${result.bookId}`) : back(`?error=${encodeURIComponent(result.message)}`);
+  return result.ok ? back(`?pending=${result.bookId}${result.truncated ? "&notice=truncated" : ""}`) : back(`?error=${encodeURIComponent(result.message)}`);
 }

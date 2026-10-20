@@ -17,17 +17,17 @@ export interface ShareInput {
   file: { name: string; bytes: Uint8Array } | null;
 }
 
-export type ShareResult = { ok: true; bookId: string } | { ok: false; message: string };
+export type ShareResult = { ok: true; bookId: string; /** Shared text was longer than SHARE_MAX_TEXT_CHARS and was cut. */ truncated?: boolean } | { ok: false; message: string };
 
 const HTTP_URL = /^https?:\/\/\S+$/i;
 
 /** A shared page URL often arrives in `text`; a link wins over text, a file wins over both. */
-export function classifyShare(input: ShareInput): { kind: "file" } | { kind: "url"; url: string } | { kind: "paste"; text: string } | null {
+export function classifyShare(input: ShareInput): { kind: "file" } | { kind: "url"; url: string } | { kind: "paste"; text: string; truncated: boolean } | null {
   if (input.file && input.file.bytes.byteLength > 0) return { kind: "file" };
   const url = input.url.trim() || (HTTP_URL.test(input.text.trim()) ? input.text.trim() : "");
   if (url) return { kind: "url", url };
   const text = input.text.slice(0, SHARE_MAX_TEXT_CHARS);
-  return text.trim() ? { kind: "paste", text } : null;
+  return text.trim() ? { kind: "paste", text, truncated: input.text.length > SHARE_MAX_TEXT_CHARS } : null;
 }
 
 export async function createShareImportCore(db: Db, userId: string, input: ShareInput): Promise<ShareResult> {
@@ -67,5 +67,5 @@ export async function createShareImportCore(db: Db, userId: string, input: Share
   }
   const prepared = await prepareReaderDocCore(db, userId, bookId);
   if (!prepared.ok) return fail(prepared.message);
-  return { ok: true, bookId };
+  return plan.kind === "paste" && plan.truncated ? { ok: true, bookId, truncated: true } : { ok: true, bookId };
 }
