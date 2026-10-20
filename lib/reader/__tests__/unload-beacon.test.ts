@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendSessionBeacon, sendSettingsBeacon } from "../unload-beacon";
+import { sendSessionAttempt, sendSessionBeacon, sendSettingsBeacon } from "../unload-beacon";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -17,6 +17,14 @@ describe("unload beacons", () => {
     expect(await sendSessionBeacon({})).toBe(false);
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
     expect(await sendSettingsBeacon({})).toBe(false);
+  });
+  it("sendSessionAttempt tells a refusal from a network failure", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true })));
+    expect(await sendSessionAttempt({})).toBe("ok");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false })));
+    expect(await sendSessionAttempt({})).toBe("refused");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    expect(await sendSessionAttempt({})).toBe("network");
   });
 });
 
@@ -85,5 +93,58 @@ describe("createSessionSender (retry a failed stretch)", () => {
     expect(s.waiting()).toBe(0);
     await new Promise((r) => setTimeout(r, 0));
     expect(stored).toHaveBeenCalledTimes(2);
+  });
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("offline: nothing is sent and no try is spent, so every stretch is delivered once the connection is back", async () => {
+    let offline = true;
+    const got: string[] = [];
+    const s = createSessionSender(async (p) => (got.push(String(p.startedAt)), "ok" as const), undefined, () => offline);
+    for (const n of [1, 2, 3, 4, 5]) s.submit(stretch(n));
+    await tick();
+    expect(got).toEqual([]);
+    expect(s.waiting()).toBe(5);
+    offline = false;
+    s.submit(); // what the 'online' listener calls
+    await tick();
+    expect(got).toEqual(["1", "2", "3", "4", "5"]);
+    expect(s.waiting()).toBe(0);
+  });
+
+  it("a network failure while the browser thinks it is online keeps the stretch and is not counted as a try", async () => {
+    let result: "network" | "ok" = "network";
+    const got: string[] = [];
+    const s = createSessionSender(async (p) => (got.push(String(p.startedAt)), result), undefined, () => false);
+    s.submit(stretch(1));
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      s.submit();
+    }
+    await tick();
+    expect(s.waiting()).toBe(1); // still kept after 7 failed attempts (the old behaviour gave up after 3)
+    result = "ok";
+    s.submit();
+    await tick();
+    expect(s.waiting()).toBe(0);
+    expect(got.at(-1)).toBe("1");
+  });
+
+  it("server refusals still stop after 3 tries (positive control for the counting)", async () => {
+    const send = vi.fn(async () => "refused" as const);
+    const s = createSessionSender(send, undefined, () => false);
+    s.submit(stretch(1));
+    for (let i = 0; i < 6; i++) {
+      await tick();
+      s.submit();
+    }
+    await tick();
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(s.waiting()).toBe(0);
+  });
+
+  it("the offline queue is bounded: only the newest 10 are kept", () => {
+    const s = createSessionSender(async () => "ok" as const, undefined, () => true);
+    for (let n = 1; n <= 15; n++) s.submit(stretch(n));
+    expect(s.waiting()).toBe(10);
   });
 });

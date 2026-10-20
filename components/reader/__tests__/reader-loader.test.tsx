@@ -7,6 +7,7 @@ import { resetBodyPinForTests } from "@/lib/client/use-body-pin";
 const prepare = vi.fn();
 const updateSettings = vi.fn(async (_patch: unknown) => true);
 const refresh = vi.fn();
+const sessionSubmit = vi.fn();
 vi.mock("@/app/(app)/personal/reader-actions", () => ({
   prepareReaderDoc: (id: string) => prepare(id),
   getReadingStats: async () => ({ ok: false, message: "n/a" }),
@@ -18,7 +19,10 @@ vi.mock("@/lib/reader/unload-beacon", async (orig) => {
   return {
     ...actual,
     createSettingsSender: () => actual.createSettingsSender((p) => updateSettings(p)),
-    createSessionSender: (_send: unknown, onStored?: () => void) => actual.createSessionSender(async () => true, onStored),
+    createSessionSender: (_send: unknown, onStored?: () => void) => {
+      const real = actual.createSessionSender(async () => true, onStored);
+      return { ...real, submit: (p?: Parameters<typeof real.submit>[0]) => (sessionSubmit(p), real.submit(p)) };
+    },
   };
 });
 const router = { refresh };
@@ -44,6 +48,7 @@ describe("ReaderLoader", () => {
     prepare.mockReset();
     loadDoc.mockReset();
     refresh.mockReset();
+    sessionSubmit.mockReset();
     resetBodyPinForTests();
     localStorage.clear();
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
@@ -55,6 +60,19 @@ describe("ReaderLoader", () => {
     await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
     expect(loadDoc).toHaveBeenCalledWith(expect.objectContaining({ bookId: base.bookId, docUrl: base.docUrl }));
     expect(screen.getByTestId("reader-progress")).not.toHaveTextContent("0%");
+  });
+
+  it("retries unsent reading stretches when the connection comes back ('online'), and stops listening on unmount", async () => {
+    loadDoc.mockResolvedValue({ ok: true, doc: SAMPLE_DOC, fromCache: false });
+    const { unmount } = render(<ReaderLoader {...base} />);
+    await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
+    expect(sessionSubmit).not.toHaveBeenCalledWith(undefined); // positive control: nothing retried before the event
+    act(() => void window.dispatchEvent(new Event("online")));
+    expect(sessionSubmit).toHaveBeenCalledWith(undefined);
+    const calls = sessionSubmit.mock.calls.length;
+    unmount();
+    window.dispatchEvent(new Event("online"));
+    expect(sessionSubmit).toHaveBeenCalledTimes(calls);
   });
 
   it("builds a never-opened book first (\"Preparing for reading…\") and refreshes when ready", async () => {

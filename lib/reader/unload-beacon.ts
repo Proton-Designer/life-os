@@ -2,7 +2,10 @@
 // keepalive fetch is handed to the browser and finishes after it. text/plain keeps it a "simple" request (no CORS
 // preflight), like navigator.sendBeacon. Position has its own sender in position-sync.ts.
 
-async function post(path: string, payload: unknown): Promise<boolean> {
+/** "network": nothing came back (offline, blocked); "refused": the server answered with a non-2xx. */
+export type SendOutcome = "ok" | "refused" | "network";
+
+async function postOutcome(path: string, payload: unknown): Promise<SendOutcome> {
   try {
     const res = await fetch(path, {
       method: "POST",
@@ -11,15 +14,24 @@ async function post(path: string, payload: unknown): Promise<boolean> {
       keepalive: true,
       credentials: "same-origin",
     });
-    return res.ok;
+    return res.ok ? "ok" : "refused";
   } catch {
-    return false; // offline or blocked: the caller decides whether that matters
+    return "network"; // offline or blocked: the caller decides whether that matters
   }
+}
+
+async function post(path: string, payload: unknown): Promise<boolean> {
+  return (await postOutcome(path, payload)) === "ok";
 }
 
 /** Resolves true when the server stored the stretch. */
 export function sendSessionBeacon(stretch: unknown): Promise<boolean> {
   return post("/api/reader/session", stretch);
+}
+
+/** Like sendSessionBeacon but says why it failed, so a retry queue can tell "no connection" from "refused". */
+export function sendSessionAttempt(stretch: unknown): Promise<SendOutcome> {
+  return postOutcome("/api/reader/session", stretch);
 }
 
 /** Resolves true when the server stored the settings patch. */
@@ -32,8 +44,9 @@ type Patch = Record<string, unknown>;
 /**
  * Sends settings patches so the LAST change always wins. Two keepalive POSTs can land out of order, so ordinary sends go
  * one at a time (the next waits for the previous answer, patches meanwhile merge, newest value per key). On unload there
- * is no waiting: the body carries everything not yet acknowledged plus the newest changes, so whichever request lands
- * last still holds the latest value of every key.
+ * is no waiting: the body carries everything not yet acknowledged plus the newest changes. That makes the final request
+ * hold the newest value of every key; it does not by itself stop an OLDER request that is still in the air from landing
+ * after it (requests normally arrive in order, but the browser does not promise it).
  */
 export function createSettingsSender(send: (patch: Patch) => Promise<boolean> = sendSettingsBeacon) {
   let inFlight: Promise<void> | null = null;
@@ -85,21 +98,33 @@ export interface StretchPayload {
 const MAX_SESSION_TRIES = 3;
 const MAX_QUEUED_SESSIONS = 10;
 
+const isOffline = () => typeof navigator !== "undefined" && navigator.onLine === false;
+const toOutcome = (r: SendOutcome | boolean): SendOutcome => (r === true ? "ok" : r === false ? "refused" : r);
+
 /**
- * Sends finished reading stretches and keeps any whose send failed for the next call (bounded: a stretch is given up on
- * after 3 tries, and at most 10 are kept). Safe to resend because the server stores a stretch with the same book and span once.
+ * Sends finished reading stretches and keeps any whose send failed for the next call (bounded: at most 10 are kept, and a
+ * stretch is given up on after 3 REFUSALS from the server). Having no connection is not a refusal: while offline nothing
+ * is sent and no try is spent, and a network failure keeps the stretch queued for the next submit or the "online" event.
+ * Safe to resend because the server stores a stretch with the same book and span once.
  */
-export function createSessionSender(send: (p: StretchPayload) => Promise<boolean> = sendSessionBeacon, onStored?: () => void) {
+export function createSessionSender(
+  send: (p: StretchPayload) => Promise<SendOutcome | boolean> = sendSessionAttempt,
+  onStored?: () => void,
+  offline: () => boolean = isOffline
+) {
   let waiting: { payload: StretchPayload; tries: number }[] = [];
   return {
     submit(payload?: StretchPayload) {
       if (payload) waiting.push({ payload, tries: 0 });
+      waiting = waiting.slice(-MAX_QUEUED_SESSIONS);
+      if (offline()) return;
       const batch = waiting;
       waiting = [];
       for (const item of batch) {
-        void send(item.payload).then((ok) => {
-          if (ok) return onStored?.();
-          item.tries += 1;
+        void send(item.payload).then((r) => {
+          const outcome = toOutcome(r);
+          if (outcome === "ok") return onStored?.();
+          if (outcome === "refused") item.tries += 1;
           if (item.tries < MAX_SESSION_TRIES) waiting = [...waiting, item].slice(-MAX_QUEUED_SESSIONS);
         });
       }
