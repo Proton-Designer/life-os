@@ -41,7 +41,7 @@ export function SpeedTest({ backHref = "/self-mastery" }: { backHref?: string })
     setSaved(null);
     setPhase("intro");
   }
-  function useSpeed(wpm: number) {
+  function applySpeed(wpm: number) {
     setSaved(null);
     startTransition(async () => {
       const res = await updateReaderSettings({ wpm });
@@ -127,7 +127,7 @@ export function SpeedTest({ backHref = "/self-mastery" }: { backHref?: string })
                 {result.comprehensionPct < 67 ? (
                   <p className="text-sm text-[var(--reader-muted)]">You missed a lot, so the suggestion below is slower than your measured speed. Understanding comes first.</p>
                 ) : null}
-                <button type="button" disabled={pending} onClick={() => useSpeed(result.recommendedWpm)} className={button}>
+                <button type="button" disabled={pending} onClick={() => applySpeed(result.recommendedWpm)} className={button}>
                   Use {result.recommendedWpm} wpm in the reader
                 </button>
               </>
