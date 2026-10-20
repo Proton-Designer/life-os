@@ -48,12 +48,23 @@ export function ReaderApp({
   doc,
   backHref,
   serverPosition = null,
+  serverSettings = null,
+  onPositionWrite,
+  onLeave,
+  onSettingsChange,
 }: {
   bookId: string;
   doc: ReaderDoc;
   backHref: string;
   /** Position held by the server (R3); the newer of this and the local copy wins. */
   serverPosition?: StoredPosition | null;
+  /** Settings held by the server (they follow the person across devices); win over this browser's copy. */
+  serverSettings?: ReaderSettings | null;
+  /** Every local position write (throttled to ~2/s): the loader forwards the newest to the server. */
+  onPositionWrite?: (index: number, updatedAt: number, wpm: number) => void;
+  /** Reading paused / tab hidden / page closing: send anything unsent now. */
+  onLeave?: () => void;
+  onSettingsChange?: (patch: Partial<ReaderSettings>) => void;
 }) {
   const [boot, setBoot] = useState<Boot | null>(null);
   useEffect(() => {
@@ -61,7 +72,7 @@ export function ReaderApp({
     // Reading browser storage has to wait for mount: doing it during render would not match the server render.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBoot({
-      settings: loadSettings(storage),
+      settings: serverSettings ?? loadSettings(storage),
       position: pickNewestPosition(loadPosition(storage, bookId), serverPosition),
       mode: loadMode(storage, bookId) ?? "rsvp",
     });
@@ -72,23 +83,39 @@ export function ReaderApp({
   if (!boot) {
     return <div className="h-dvh w-full" style={{ ...readerThemeVars(DEFAULT_READER_SETTINGS.theme), background: "var(--reader-bg)" }} aria-busy="true" />;
   }
-  return <ReaderSession key={bookId} bookId={bookId} doc={doc} backHref={backHref} boot={boot} />;
+  return <ReaderSession key={bookId} bookId={bookId} doc={doc} backHref={backHref} boot={boot} hooks={{ onPositionWrite, onLeave, onSettingsChange }} />;
 }
 
-function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: ReaderDoc; backHref: string; boot: Boot }) {
+interface SessionHooks {
+  onPositionWrite?: (index: number, updatedAt: number, wpm: number) => void;
+  onLeave?: () => void;
+  onSettingsChange?: (patch: Partial<ReaderSettings>) => void;
+}
+
+function ReaderSession({ bookId, doc, backHref, boot, hooks }: { bookId: string; doc: ReaderDoc; backHref: string; boot: Boot; hooks: SessionHooks }) {
+  const hooksRef = useRef(hooks);
+  const wpmRef = useRef(boot.settings.wpm);
+  useEffect(() => {
+    hooksRef.current = hooks;
+  });
   const dw = useMemo(() => buildDocWords(doc), [doc]);
   const [settings, setSettings] = useState(boot.settings);
   const [mode, setMode] = useState<ReaderMode>(boot.mode);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const saver = useMemo(() => createPositionSaver({ storage: browserStorage(), bookId }), [bookId]);
+  const [onWrite] = useState(() => (pos: StoredPosition) => hooksRef.current.onPositionWrite?.(pos.index, pos.updatedAt, wpmRef.current));
+  const saver = useMemo(() => createPositionSaver({ storage: browserStorage(), bookId, onWrite }), [bookId, onWrite]);
+  const leave = useCallback(() => {
+    saver.flush();
+    hooksRef.current.onLeave?.();
+  }, [saver]);
   const player = useRsvpPlayer({
     words: dw,
     wpm: settings.wpm,
     initialIndex: boot.position?.index ?? 0,
     onIndexChange: (i) => saver.push(i),
-    onPause: () => saver.flush(),
+    onPause: () => leave(),
   });
   const { index, playing } = player;
 
@@ -107,7 +134,7 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
       lastAudioIndex.current = i;
       seekRef.current(i);
     },
-    onFinish: () => saver.flush(),
+    onFinish: () => leave(),
   });
   const narrating = narration.speaking;
 
@@ -129,7 +156,7 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
   const toggleListenMode = useCallback(() => {
     if (listenMode) {
       narration.pause();
-      saver.flush();
+      leave();
       setListenMode(false);
     } else {
       player.pause();
@@ -137,22 +164,22 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
       lastAudioIndex.current = index;
       narration.start(index);
     }
-  }, [listenMode, narration, player, saver, index]);
+  }, [listenMode, narration, player, leave, index]);
 
   const togglePlay = useCallback(() => {
     if (!listenMode) return player.toggle();
     if (narrating) {
       narration.pause();
-      saver.flush();
+      leave();
     } else {
       lastAudioIndex.current = index;
       narration.start(index);
     }
-  }, [listenMode, narrating, narration, player, saver, index]);
+  }, [listenMode, narrating, narration, player, leave, index]);
 
   // Never lose the place: write on hide/close as well as on pause.
   useEffect(() => {
-    const flush = () => saver.flush();
+    const flush = () => leave();
     const onVis = () => {
       if (document.visibilityState === "hidden") flush();
     };
@@ -163,7 +190,7 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
       window.removeEventListener("pagehide", flush);
       flush();
     };
-  }, [saver]);
+  }, [leave]);
 
   const updateSettings = useCallback(
     (patch: Partial<ReaderSettings>) => {
@@ -172,7 +199,11 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
         saveSettings(browserStorage(), next);
         return next;
       });
-      if (patch.wpm !== undefined) player.setWpm(patch.wpm);
+      if (patch.wpm !== undefined) {
+        player.setWpm(patch.wpm);
+        wpmRef.current = patch.wpm;
+      }
+      hooksRef.current.onSettingsChange?.(patch);
     },
     [player]
   );
