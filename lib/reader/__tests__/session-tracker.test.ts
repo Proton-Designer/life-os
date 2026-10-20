@@ -137,7 +137,20 @@ describe("session tracker", () => {
       }
       expect(s.tr.take()[0].wordsRead).toBe(90);
     });
-    it("the high-water mark survives take(): pause, jump back, read on credits only new ground", () => {
+    it("scrubbing ahead and then reading back from the earlier point credits those words (a high-water mark would not)", () => {
+      const s = setup();
+      s.tr.advance(100, "page");
+      s.tick(100);
+      s.tr.advance(220, "page"); // implausible scrub, credits nothing and marks nothing as read
+      s.tick(100);
+      s.tr.advance(100, "page"); // back to where the person was
+      for (let i = 101; i <= 150; i++) {
+        s.tick(300);
+        s.tr.advance(i, "page");
+      }
+      expect(s.tr.take()[0].wordsRead).toBe(50);
+    });
+    it("the credited ranges survive take(): pause, jump back, read on credits only new ground", () => {
       const s = setup();
       s.tr.advance(0, "page");
       for (let i = 1; i <= 20; i++) {

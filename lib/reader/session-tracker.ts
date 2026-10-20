@@ -41,8 +41,20 @@ export function createSessionTracker(now: () => number = Date.now): SessionTrack
   let lastAt = 0;
   let open: { startedAt: number; endedAt: number; words: number; mode: TrackedMode } | null = null;
   const done: ReadingStretch[] = [];
-  /** Furthest word reached this visit: going back and reading forward again re-reads, it is not new reading. */
-  let highWater = -1;
+  /** Word ranges already credited this visit (sorted, merged, inclusive): re-reading them, or going back over them, adds nothing. */
+  const credited: [number, number][] = [];
+  const coveredIn = (lo: number, hi: number) => credited.reduce((n, [a, b]) => n + Math.max(0, Math.min(b, hi) - Math.max(a, lo) + 1), 0);
+  const addCredited = (lo: number, hi: number) => {
+    const next: [number, number][] = [];
+    let [l, h] = [lo, hi];
+    for (const [a, b] of credited) {
+      if (b < l - 1 || a > h + 1) next.push([a, b]);
+      else [l, h] = [Math.min(l, a), Math.max(h, b)];
+    }
+    next.push([l, h]);
+    next.sort((x, y) => x[0] - y[0]);
+    credited.splice(0, credited.length, ...next);
+  };
 
   const finish = () => {
     if (!open) return;
@@ -61,13 +73,11 @@ export function createSessionTracker(now: () => number = Date.now): SessionTrack
       const gap = t - lastAt;
       prev = index;
       lastAt = t;
-      const covered = highWater;
-      if (index > highWater) highWater = index;
       if (before === null) return;
       if (open && (open.mode !== mode || gap > IDLE_GAP_MS)) finish();
       const delta = index - before;
       if (delta < 1 || delta > MAX_READING_JUMP) return;
-      const fresh = Math.min(delta, index - covered);
+      const fresh = delta - coveredIn(before + 1, index);
       if (fresh < 1) return;
       const stepGap = Math.min(gap, IDLE_GAP_MS);
       if (fresh > Math.max(STEP_SLACK_WORDS, (stepGap * MAX_CREDIT_WPM) / 60000)) return;
@@ -75,6 +85,7 @@ export function createSessionTracker(now: () => number = Date.now): SessionTrack
       // The whole stretch is held to the same ceiling, so many individually plausible steps cannot add up to more.
       if ((open ? open.words : 0) + fresh > STEP_SLACK_WORDS + ((t - startedAt) * MAX_CREDIT_WPM) / 60000) return;
       if (!open) open = { startedAt, endedAt: t, words: 0, mode };
+      addCredited(before + 1, index);
       open.words += fresh;
       open.endedAt = t;
     },

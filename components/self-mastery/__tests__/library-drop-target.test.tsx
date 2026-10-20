@@ -41,4 +41,17 @@ describe("LibraryDropTarget", () => {
     await act(async () => void window.dispatchEvent(handled));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+  it("a drop while a dialog is already open is swallowed and does not replace it", async () => {
+    render(
+      <LibraryDropTarget>
+        <div role="dialog" aria-label="Something open" />
+      </LibraryDropTarget>
+    );
+    const ev = new Event("drop", { cancelable: true }) as Event & { dataTransfer?: unknown };
+    Object.assign(ev, fileDrag(new File(["x"], "late.epub")));
+    await act(async () => void window.dispatchEvent(ev));
+    expect(ev.defaultPrevented).toBe(true); // the browser must not navigate to the file
+    expect(screen.getAllByRole("dialog")).toHaveLength(1); // still only the one that was already open
+    expect(screen.queryByTestId("import-file-label")).toBeNull();
+  });
 });

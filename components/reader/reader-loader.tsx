@@ -10,7 +10,7 @@ import type { HighlightItem } from "@/lib/reader/highlights";
 import { createPositionSync, sendPositionBeacon } from "@/lib/reader/position-sync";
 import type { ReadingStats } from "@/lib/reader/server/stats";
 import type { ReadingStretch } from "@/lib/reader/session-tracker";
-import { sendSessionBeacon, sendSettingsBeacon } from "@/lib/reader/unload-beacon";
+import { createSessionSender, createSettingsSender } from "@/lib/reader/unload-beacon";
 import { readerThemeVars } from "@/lib/reader/themes";
 import { DEFAULT_READER_SETTINGS, type ReaderDoc, type ReaderSettings } from "@/lib/reader/types";
 import { ReaderApp } from "./reader-app";
@@ -70,29 +70,34 @@ export function ReaderLoader(props: ReaderLoaderProps) {
 
   const pendingSettings = useRef<Partial<ReaderSettings>>({});
   const settingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Sends whatever settings are waiting out the debounce, once. */
-  const flushSettings = useCallback(() => {
-    if (settingsTimer.current) clearTimeout(settingsTimer.current);
-    settingsTimer.current = null;
-    const body = pendingSettings.current;
-    if (Object.keys(body).length === 0) return;
-    pendingSettings.current = {};
-    void sendSettingsBeacon(body);
-  }, []);
+  const settingsSender = useMemo(() => createSettingsSender(), []);
+  /** Sends whatever settings are waiting out the debounce, once. On unload also resends anything not yet confirmed. */
+  const flushSettings = useCallback(
+    (unloading = false) => {
+      if (settingsTimer.current) clearTimeout(settingsTimer.current);
+      settingsTimer.current = null;
+      const body = pendingSettings.current;
+      pendingSettings.current = {};
+      if (unloading) settingsSender.submitNow(body);
+      else if (Object.keys(body).length > 0) settingsSender.submit(body);
+    },
+    [settingsSender]
+  );
   const persistSettings = useCallback(
     (patch: Partial<ReaderSettings>) => {
       pendingSettings.current = { ...pendingSettings.current, ...patch };
       if (settingsTimer.current) clearTimeout(settingsTimer.current);
-      settingsTimer.current = setTimeout(flushSettings, 800);
+      settingsTimer.current = setTimeout(() => flushSettings(), 800);
     },
     [flushSettings]
   );
   // A setting changed in the last 800 ms must not be lost when the tab is hidden or the reader closes.
   useEffect(() => {
-    window.addEventListener("pagehide", flushSettings);
+    const onHide = () => flushSettings(true);
+    window.addEventListener("pagehide", onHide);
     return () => {
-      window.removeEventListener("pagehide", flushSettings);
-      flushSettings();
+      window.removeEventListener("pagehide", onHide);
+      flushSettings(true);
     };
   }, [flushSettings]);
 
@@ -120,21 +125,26 @@ export function ReaderLoader(props: ReaderLoaderProps) {
     };
   }, [isReady]);
 
+  // A keepalive POST, not a Server Action: the last stretch is sent as the tab closes and an action would be cancelled.
+  // A stretch that fails to send is kept and retried with the next one (or when the connection comes back).
+  const sessionSender = useMemo(() => createSessionSender(undefined, () => void refreshStats()), [refreshStats]);
+  useEffect(() => {
+    const retry = () => sessionSender.submit();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [sessionSender]);
   const onSession = useCallback(
     (s: ReadingStretch) => {
-      // A keepalive POST, not a Server Action: the last stretch is sent as the tab closes and an action would be cancelled.
-      void sendSessionBeacon({
+      sessionSender.submit({
         bookId,
         startedAt: new Date(s.startedAt).toISOString(),
         endedAt: new Date(s.endedAt).toISOString(),
         wordsRead: s.wordsRead,
         mode: s.mode,
         avgWpm: s.avgWpm,
-      }).then((ok) => {
-        if (ok) void refreshStats();
       });
     },
-    [bookId, refreshStats]
+    [bookId, sessionSender]
   );
   const onCreateHighlight = useCallback(
     async (range: { startWord: number; endWord: number; text: string }): Promise<HighlightItem | null> => {

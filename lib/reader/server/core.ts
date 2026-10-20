@@ -580,6 +580,16 @@ export async function recordReaderSessionCore(db: Db, userId: string, timezone: 
     if (s.wordsRead === 0) return { ok: true, recorded: false } as const; // nothing read: not a session
     const { data: owned } = await db.from("books").select("id").eq("id", s.bookId).eq("user_id", userId).maybeSingle();
     if (!owned) throw new ReaderInputError("That book wasn't found.");
+    // The client retries a stretch whose response it never saw: the same book and span is the same stretch.
+    const { data: seen } = await db
+      .from("reader_sessions")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("book_id", s.bookId)
+      .eq("started_at", s.startedAt.toISOString())
+      .eq("ended_at", s.endedAt.toISOString())
+      .limit(1);
+    if (seen?.length) return { ok: true, recorded: false } as const;
     const { error } = await db.from("reader_sessions").insert({
       user_id: userId,
       book_id: s.bookId,

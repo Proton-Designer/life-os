@@ -13,7 +13,14 @@ vi.mock("@/app/(app)/personal/reader-actions", () => ({
   createHighlight: async () => ({ ok: false, message: "n/a" }),
   deleteHighlight: async () => ({ ok: true }),
 }));
-vi.mock("@/lib/reader/unload-beacon", () => ({ sendSettingsBeacon: (p: unknown) => updateSettings(p), sendSessionBeacon: async () => true }));
+vi.mock("@/lib/reader/unload-beacon", async (orig) => {
+  const actual = await orig<typeof import("@/lib/reader/unload-beacon")>();
+  return {
+    ...actual,
+    createSettingsSender: () => actual.createSettingsSender((p) => updateSettings(p)),
+    createSessionSender: (_send: unknown, onStored?: () => void) => actual.createSessionSender(async () => true, onStored),
+  };
+});
 const router = { refresh };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const loadDoc = vi.fn();
@@ -103,6 +110,7 @@ describe("ReaderLoader", () => {
     act(() => void window.dispatchEvent(new Event("pagehide")));
     expect(updateSettings).toHaveBeenCalledTimes(1);
     expect(updateSettings).toHaveBeenCalledWith({ wpm: 325 });
+    await act(async () => void (await Promise.resolve()));
     act(() => void window.dispatchEvent(new Event("pagehide")));
     expect(updateSettings).toHaveBeenCalledTimes(1); // positive control: nothing pending, nothing re-sent
   });

@@ -355,8 +355,15 @@ describe("sessions + stats", () => {
   it("local_date is the USER's local day, not the UTC day (the evening-rollover bug class)", async () => {
     // 23:20 UTC on Oct 19 is 6:20 PM in Chicago (same day) but 7:20 AM Oct 20 in Auckland.
     await recordReaderSessionCore(db(), ME, "America/Chicago", session(), NOW);
-    await recordReaderSessionCore(db(), ME, "Pacific/Auckland", session({ endedAt: "2026-10-19T23:20:00Z" }), NOW);
+    await recordReaderSessionCore(db(), ME, "Pacific/Auckland", session({ startedAt: "2026-10-19T23:11:00Z" }), NOW);
     expect(fake.tables.reader_sessions.map((s) => s.local_date)).toEqual(["2026-10-19", "2026-10-20"]);
+  });
+
+  it("a retried stretch (same book and span) is stored once; a different span is a new session (positive control)", async () => {
+    expect(await recordReaderSessionCore(db(), ME, "UTC", session(), NOW)).toEqual({ ok: true, recorded: true });
+    expect(await recordReaderSessionCore(db(), ME, "UTC", session(), NOW)).toEqual({ ok: true, recorded: false });
+    expect(await recordReaderSessionCore(db(), ME, "UTC", session({ startedAt: "2026-10-19T23:12:00Z" }), NOW)).toEqual({ ok: true, recorded: true });
+    expect(fake.tables.reader_sessions).toHaveLength(2);
   });
 
   it("zero-word stretches are not sessions; a book you don't own is refused", async () => {
