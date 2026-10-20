@@ -601,6 +601,9 @@ export async function recordReaderSessionCore(db: Db, userId: string, timezone: 
       mode: s.mode,
       avg_wpm: s.avgWpm,
     });
+    // 23505: a concurrent send of the same stretch won the race (unique key reader_sessions_stretch_key, migration 270).
+    // Same outcome as the select above finding it, so the client clears its copy. Without the index this never fires.
+    if (error?.code === "23505") return { ok: true, recorded: false } as const;
     if (error) throw error;
     return { ok: true, recorded: true } as const;
   });

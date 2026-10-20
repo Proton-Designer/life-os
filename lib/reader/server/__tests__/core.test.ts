@@ -366,6 +366,35 @@ describe("sessions + stats", () => {
     expect(fake.tables.reader_sessions).toHaveLength(2);
   });
 
+  it("a concurrent duplicate that loses the race (insert fails 23505) is reported as already recorded, not thrown", async () => {
+    // Both sends miss the select, then the unique key rejects the second insert.
+    const racing = {
+      ...db(),
+      from: (table: string) =>
+        table === "reader_sessions"
+          ? {
+              select: () => ({ eq: function self() { return this; }, limit: async () => ({ data: [], error: null }) }),
+              insert: async () => ({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint" } }),
+            }
+          : fake.from(table),
+    } as unknown as ReturnType<typeof db>;
+    expect(await recordReaderSessionCore(racing, ME, "UTC", session(), NOW)).toEqual({ ok: true, recorded: false });
+  });
+
+  it("any other insert error still fails (positive control: only 23505 means duplicate)", async () => {
+    const broken = {
+      ...db(),
+      from: (table: string) =>
+        table === "reader_sessions"
+          ? {
+              select: () => ({ eq: function self() { return this; }, limit: async () => ({ data: [], error: null }) }),
+              insert: async () => ({ data: null, error: { code: "42501", message: "denied" } }),
+            }
+          : fake.from(table),
+    } as unknown as ReturnType<typeof db>;
+    expect((await recordReaderSessionCore(broken, ME, "UTC", session(), NOW)).ok).toBe(false);
+  });
+
   it("zero-word stretches are not sessions; a book you don't own is refused", async () => {
     expect(await recordReaderSessionCore(db(), ME, "UTC", session({ wordsRead: 0 }), NOW)).toEqual({ ok: true, recorded: false });
     expect((await recordReaderSessionCore(db(), OTHER, "UTC", session(), NOW)).ok).toBe(false);
