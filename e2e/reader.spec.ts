@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import fs from "fs";
 import path from "path";
 
 // Focus reader acceptance (overnight run-20261019-2250, DESIGN §9): import a
@@ -105,9 +106,21 @@ test("Paste: pasted text opens in the reader", async ({ page }) => {
   await page.goto("/");
   const card = page.getByTestId("continue-reading-card");
   await expect(card).toContainText("Continue reading: E2E Reader Paste", { timeout: 30_000 });
+  const wordsToday = async () => Number(/([\d,]+)(?: \/ [\d,]+)? words today/.exec(await card.innerText())?.[1].replace(/,/g, "") ?? NaN);
+  const before = await wordsToday();
   await card.click();
   await page.waitForURL(bookUrl);
   await expect(page.getByTestId("rsvp-view")).toBeVisible({ timeout: 60_000 });
+
+  // Leave mid-play: the open reading stretch goes out on pagehide as a keepalive beacon (R7-F1). Playwright doesn't
+  // surface requests sent during unload, so check the server's count instead.
+  await page.getByRole("button", { name: "Play" }).click();
+  await page.waitForTimeout(2_000);
+  await page.goto("/");
+  await expect.poll(async () => {
+    await page.reload();
+    return wordsToday();
+  }, { timeout: 20_000 }).toBeGreaterThan(before);
 });
 
 test("Scanned PDF: typed error, no book created", async ({ page }) => {
@@ -117,6 +130,26 @@ test("Scanned PDF: typed error, no book created", async ({ page }) => {
   await page.getByRole("dialog").getByRole("button", { name: "Import" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText("no selectable text", { timeout: 60_000 });
   await expect(page.getByTestId("import-preview")).toHaveCount(0);
+});
+
+test("Library: a file dropped anywhere on the page opens the import preview", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.goto("/self-mastery");
+  await expect(page.getByRole("button", { name: "Import to read" }).first()).toBeVisible();
+  const bytes = fs.readFileSync(path.join(FIXTURES, "sample.epub")).toString("base64");
+  const dt = await page.evaluateHandle((b64) => {
+    const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const dt = new DataTransfer();
+    dt.items.add(new File([raw], "sample.epub", { type: "application/epub+zip" }));
+    return dt;
+  }, bytes);
+  await page.dispatchEvent("main", "dragenter", { dataTransfer: dt });
+  await expect(page.getByTestId("library-drop-hint")).toBeVisible();
+  await page.dispatchEvent("main", "drop", { dataTransfer: dt });
+  await expect(page.getByTestId("library-drop-hint")).toHaveCount(0);
+  await expect(page.getByTestId("import-file-label")).toHaveText("sample.epub");
+  // Stop at the selected file: importing it is the EPUB test's job, and this keeps the run from adding a book.
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
 });
 
 test("Sample reader fits an iPad portrait screen", async ({ page }) => {
