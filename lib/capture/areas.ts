@@ -1,5 +1,4 @@
 import type { NavDomainState } from "@/lib/shell/nav-domain-state";
-import { hasBusinessKillList } from "@/lib/night-plan/kill-list-mirror";
 
 /**
  * Where a captured Task lands (IA-P1a). `tasks.domain` is CHECK-constrained to school/co_op,
@@ -13,10 +12,15 @@ export type CaptureAreaOption = { value: CaptureArea; label: string };
 /** Plain serializable data the shell hands to the "+" sheet (never a function). */
 export type CaptureAreaConfig = { options: CaptureAreaOption[]; workTabs: { key: string; kind: "job" | "business" | null }[] };
 
+/** Same rule as hasBusinessKillList (lib/night-plan/kill-list-mirror.ts), restated here because that module is server-only and this one ships to the browser. */
+function hasKillList(navMode: "legacy" | "domains", nav: NavDomainState | null): boolean {
+  return navMode === "legacy" || nav === null || nav.workSubdomains.some((s) => s.kind === "business");
+}
+
 export function buildCaptureAreaConfig(navMode: "legacy" | "domains", nav: NavDomainState | null): CaptureAreaConfig {
   const options = captureAreaOptions(navMode, nav);
   // Business: the Kill List is its task home, offered only when the account has one (same test the plan stage uses).
-  if (hasBusinessKillList(navMode, nav)) options.splice(options.length - 1, 0, { value: "business", label: "Business (Kill List)" });
+  if (hasKillList(navMode, nav)) options.splice(options.length - 1, 0, { value: "business", label: "Business (Kill List)" });
   return {
     options,
     workTabs: (nav?.workSubdomains ?? []).map((s) => ({ key: s.key, kind: s.kind })),
