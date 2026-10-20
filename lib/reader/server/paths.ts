@@ -41,3 +41,22 @@ export function sourceKindForExtension(ext: string): "pdf" | "epub" | "text" {
   if (ext === "epub") return "epub";
   return "text";
 }
+
+/**
+ * Content type the client must send when uploading a source of this stored extension. Browsers report "" for
+ * .md/.epub, and the `books` bucket only accepts the types listed in migration 269, so the server names the type.
+ */
+export function mimeForExtension(ext: string): string {
+  switch (ext) {
+    case "pdf":
+      return "application/pdf";
+    case "epub":
+      return "application/epub+zip";
+    case "md":
+      return "text/markdown";
+    case "html":
+      return "text/html";
+    default:
+      return "text/plain";
+  }
+}

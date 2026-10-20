@@ -38,7 +38,7 @@ import {
   parseUuid,
   asObject,
 } from "./validate";
-import { BOOKS_BUCKET, readerDocPath, readerFolder, readerSourcePath, sourceExtension, sourceKindForExtension } from "./paths";
+import { BOOKS_BUCKET, readerDocPath, readerFolder, mimeForExtension, readerSourcePath, sourceExtension, sourceKindForExtension } from "./paths";
 import { computeReadingStats, STATS_WINDOW_DAYS, type ReadingStats } from "./stats";
 
 // Testable cores for app/(app)/personal/reader-actions.ts and app/api/reader/position/route.ts.
@@ -84,7 +84,7 @@ export type CreateImportInput =
   | { kind: "url"; url: string; title?: string | null; author?: string | null };
 
 export type CreateImportResult =
-  | { ok: true; bookId: string; upload: { path: string; token: string } | null }
+  | { ok: true; bookId: string; upload: { path: string; token: string; contentType: string } | null }
   | Fail;
 
 export async function createReaderImportCore(db: Db, userId: string, raw: unknown, now = new Date()): Promise<CreateImportResult> {
@@ -158,7 +158,7 @@ export async function createReaderImportCore(db: Db, userId: string, raw: unknow
       await db.from("books").delete().eq("id", bookId).eq("user_id", userId);
       throw signError ?? new Error("no signed url");
     }
-    return { ok: true, bookId, upload: { path, token: signed.token } };
+    return { ok: true, bookId, upload: { path, token: signed.token, contentType: mimeForExtension(ext) } };
   });
 }
 

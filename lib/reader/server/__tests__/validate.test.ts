@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { addDaysToDateString } from "@/lib/date-utils";
 import { computeReadingStats } from "../stats";
-import { sourceExtension, readerDocPath, readerSourcePath } from "../paths";
+import { sourceExtension, readerDocPath, readerSourcePath, mimeForExtension } from "../paths";
 import { parseHighlightInput, parseSettingsPatch, parseTitle, parseUuid, parseWordIndex, ReaderInputError } from "../validate";
 
 describe("validate", () => {
@@ -34,6 +34,7 @@ describe("paths", () => {
     expect(sourceExtension("a.markdown")).toBe("md");
     expect(sourceExtension("a.exe")).toBeNull();
     expect(sourceExtension("noext")).toBeNull();
+    expect(["pdf", "epub", "txt", "md", "html"].map(mimeForExtension)).toEqual(["application/pdf", "application/epub+zip", "text/plain", "text/markdown", "text/html"]);
     expect(readerDocPath("u", "b")).toBe("u/b/reader-v1.json");
     expect(readerSourcePath("u", "b", "epub")).toBe("u/b/source.epub");
   });

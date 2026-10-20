@@ -45,7 +45,7 @@ describe("createReaderImportCore", () => {
     const r = await createReaderImportCore(db(), ME, { kind: "paste" }, NOW);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.upload?.path).toBe(`${ME}/${r.bookId}/source.txt`);
+    expect(r.upload).toMatchObject({ path: `${ME}/${r.bookId}/source.txt`, contentType: "text/plain" });
     const row = fake.tables.books[0];
     expect(row).toMatchObject({ user_id: ME, status: "ready", stage: "done", lesson_count: 0, ingestion_mode: "reader", reader_status: "preparing", reader_source: "paste" });
     expect(fake.tables.ingestion_jobs ?? []).toHaveLength(0);
@@ -59,6 +59,9 @@ describe("createReaderImportCore", () => {
     const ok = await createReaderImportCore(db(), ME, { kind: "file", filename: "My Book.EPUB", fileSizeBytes: 1000 }, NOW);
     expect(ok.ok && ok.upload?.path).toBe(`${ME}/${ok.ok ? ok.bookId : ""}/source.epub`);
     expect(fake.tables.books.at(-1)).toMatchObject({ reader_source: "epub" });
+    expect(ok.ok && ok.upload?.contentType).toBe("application/epub+zip");
+    const md = await createReaderImportCore(db(), ME, { kind: "file", filename: "notes.md", fileSizeBytes: 10 }, NOW);
+    expect(md.ok && md.upload?.contentType).toBe("text/markdown");
   });
 
   it("url: rejects private addresses before any row exists; accepts a public link without an upload", async () => {
