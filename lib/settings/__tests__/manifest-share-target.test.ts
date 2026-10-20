@@ -6,13 +6,23 @@ const manifest = JSON.parse(readFileSync(join(__dirname, "../../../public/manife
 
 // The reader's /read/import landing (app/(app)/read/import/page.tsx) reads exactly title, text and url.
 describe("PWA manifest share target", () => {
-  it("shares to the reader import landing over GET with the three params it reads", () => {
-    expect(manifest.share_target).toEqual({ action: "/read/import", method: "GET", params: { title: "title", text: "text", url: "url" } });
+  it("shares by multipart POST (long text stays out of the URL) to the route that creates the import", () => {
+    const st = manifest.share_target;
+    expect(st).toMatchObject({ action: "/api/reader/share", method: "POST", enctype: "multipart/form-data" });
+    expect(st.params).toMatchObject({ title: "title", text: "text", url: "url" });
+    expect(st.params.files[0].name).toBe("files");
   });
 
-  it("the landing page reads those same query params (positive control: the check is not vacuous)", () => {
+  it("the route reads exactly the fields the manifest declares (positive control: it would miss a renamed one)", () => {
+    const route = readFileSync(join(__dirname, "../../../app/api/reader/share/route.ts"), "utf8");
+    for (const key of ["title", "text", "url"]) expect(route).toContain(`str("${key}")`);
+    expect(route).toContain('getAll("files")');
+    expect(route).not.toContain('str("nonexistent")');
+  });
+
+  it("the landing page still reads the old GET params (installs that cached the old manifest keep working) and ?pending", () => {
     const page = readFileSync(join(__dirname, "../../../app/(app)/read/import/page.tsx"), "utf8");
-    for (const key of Object.keys(manifest.share_target.params)) expect(page).toContain(`sp.${key}`);
+    for (const key of ["title", "text", "url", "pending", "error"]) expect(page).toContain(`sp.${key}`);
     expect(page).not.toContain("sp.nonexistent");
   });
 

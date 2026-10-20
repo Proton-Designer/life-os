@@ -20,7 +20,10 @@ export default async function ReadImportPage({ searchParams }: { searchParams: P
   const urlParam = first(sp.url).trim();
   const textAsUrl = /^https?:\/\/\S+$/i.test(text.trim()) ? text.trim() : "";
   const url = urlParam || textAsUrl;
-  const initial = url ? { tab: "link" as const, url, title } : text.trim() ? { tab: "paste" as const, text, title } : { tab: "file" as const, title };
+  const pendingRaw = first(sp.pending).trim();
+  const pendingBookId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pendingRaw) ? pendingRaw : "";
+  const error = first(sp.error).trim().slice(0, 300);
+  const initial = pendingBookId ? { tab: "file" as const, pendingBookId } : error ? { tab: "file" as const, title, error } : url ? { tab: "link" as const, url, title } : text.trim() ? { tab: "paste" as const, text, title } : { tab: "file" as const, title };
   return (
     <PageContainer>
       <PageHeader title="Import to read" description="Check what you shared, then press Import." />

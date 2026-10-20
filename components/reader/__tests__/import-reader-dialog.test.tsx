@@ -177,4 +177,31 @@ describe("readingTimeLabel", () => {
     expect(readingTimeLabel(30000)).toBe("about 1 h 40 min");
     expect(readingTimeLabel(18000)).toBe("about 1 h");
   });
+
+  it("a share the server already stored opens on its preview, and Start confirms it without re-creating", async () => {
+    render(<ImportReaderDialog defaultOpen initial={{ pendingBookId: "b-1" }} />);
+    await screen.findByTestId("import-preview");
+    expect(prepare).toHaveBeenCalledWith("b-1");
+    expect(createImport).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /start reading/i }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith("b-1", expect.objectContaining({ title: "Deep Work" })));
+    expect(push).toHaveBeenCalledWith("/read/b-1");
+  });
+
+  it("closing the preview of a stored share cancels it; a prepare failure shows the message", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(<ImportReaderDialog defaultOpen initial={{ pendingBookId: "b-1" }} />);
+    await screen.findByTestId("import-preview");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("b-1"));
+    unmount();
+    prepare.mockResolvedValueOnce({ ok: false, message: "That page has no readable text." });
+    render(<ImportReaderDialog defaultOpen initial={{ pendingBookId: "b-2" }} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("no readable text");
+  });
+
+  it("shows a share error passed by the server", () => {
+    render(<ImportReaderDialog defaultOpen initial={{ error: "That was too large to share." }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("too large");
+  });
 });

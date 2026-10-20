@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpenText, FileText, Link2, Loader2, Upload } from "lucide-react";
 import { cancelReaderImport, confirmReaderImport, createReaderImport, prepareReaderDoc } from "@/app/(app)/personal/reader-actions";
@@ -40,22 +40,54 @@ export function readingTimeLabel(words: number, wpm = 300): string {
  * Import something to read: a file (PDF, EPUB, text, Markdown, HTML), pasted text, or an article link. Never needs the
  * AI key or the ingestion worker. Shows what was found (title, length, chapters, a sample) before it joins the library.
  */
-export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { trigger?: React.ReactNode; initial?: { tab?: Tab; text?: string; url?: string; title?: string }; defaultOpen?: boolean }) {
+export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { trigger?: React.ReactNode; initial?: { tab?: Tab; text?: string; url?: string; title?: string; pendingBookId?: string; error?: string }; defaultOpen?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(defaultOpen);
   const [tab, setTab] = useState<Tab>(initial?.tab ?? "file");
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState(initial?.text ?? "");
   const [url, setUrl] = useState(initial?.url ?? "");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [bookId, setBookId] = useState<string | null>(null);
+  // A share the server already stored (POST share target): start on its preview instead of the form.
+  const pending = initial?.pendingBookId ?? null;
+  const [busy, setBusy] = useState<string | null>(pending ? "Getting it ready to read…" : null);
+  const [error, setError] = useState<string | null>(initial?.error ?? null);
+  const [bookId, setBookId] = useState<string | null>(pending);
   const [preview, setPreview] = useState<ReaderImportPreview | null>(null);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [author, setAuthor] = useState("");
   const [wpm, setWpm] = useState(300);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!pending) return;
+    let cancelled = false;
+    prepareReaderDoc(pending)
+      .then((prepared) => {
+        if (cancelled) return;
+        if (prepared.ok) {
+          setWpm(loadSettings(browserStorage()).wpm || 300);
+          setPreview(prepared.preview);
+          setTitle(prepared.preview.title);
+          setAuthor(prepared.preview.author ?? "");
+        } else {
+          setBookId(null);
+          setError(prepared.message);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBookId(null);
+          setError("That share couldn't be opened. Try importing it again.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pending]);
 
   function reset() {
     setFile(null);

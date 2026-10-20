@@ -24,7 +24,7 @@
     {
       "name": "Capture",
       "short_name": "Capture",
-      "description": "Fast entry for a task, distraction, worry, or note \u2014 no dashboard to load first.",
+      "description": "Fast entry for a task, distraction, worry, or note — no dashboard to load first.",
       "url": "/capture",
       "icons": [
         {
@@ -49,12 +49,28 @@
     }
   ],
   "share_target": {
-    "action": "/read/import",
-    "method": "GET",
+    "action": "/api/reader/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
     "params": {
       "title": "title",
       "text": "text",
-      "url": "url"
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": [
+            "application/pdf",
+            "application/epub+zip",
+            "text/plain",
+            "text/markdown",
+            ".pdf",
+            ".epub",
+            ".txt",
+            ".md"
+          ]
+        }
+      ]
     }
   }
 }
