@@ -33,8 +33,16 @@ describe("getContinueReadingCore", () => {
   it("null when the person has never read in the reader", async () => {
     expect(await getContinueReadingCore(new FakeDb() as unknown as Db, U, "UTC", NOW)).toBeNull();
   });
-  it("null when the newest bookmark's book is still preparing", async () => {
+  it("falls back to the next bookmark when the newest book is still preparing or gone", async () => {
     const db = seed();
+    db.tables.books[1].reader_status = "preparing";
+    expect((await getContinueReadingCore(db as unknown as Db, U, "UTC", NOW))?.bookId).toBe(B1);
+    db.tables.books.splice(1, 1); // deleted: RLS hides the row
+    expect((await getContinueReadingCore(db as unknown as Db, U, "UTC", NOW))?.bookId).toBe(B1);
+  });
+  it("null when no bookmarked book is ready (positive control for the fallback)", async () => {
+    const db = seed();
+    db.tables.books[0].reader_status = "failed";
     db.tables.books[1].reader_status = "preparing";
     expect(await getContinueReadingCore(db as unknown as Db, U, "UTC", NOW)).toBeNull();
   });

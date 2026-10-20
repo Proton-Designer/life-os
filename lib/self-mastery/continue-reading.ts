@@ -2,6 +2,9 @@ import "server-only";
 import { getProfile, requireUser } from "@/lib/supabase/auth";
 import { getReadingStatsCore, type Db } from "@/lib/reader/server/core";
 
+/** How many recent bookmarks to look through for one whose book is still readable. */
+const RECENT_BOOKMARKS = 5;
+
 export interface ContinueReading {
   bookId: string;
   title: string;
@@ -14,25 +17,31 @@ export interface ContinueReading {
 
 /**
  * Home's "Continue reading" entry: the book the person last read (newest bookmark), how far they are, and today's words
- * against the daily goal. null when they have never read anything in the reader, or that book is gone / still being
- * prepared. Plain reads of tables the reader already owns - no new queries beyond the bookmark and the book row.
+ * against the daily goal. Falls back to the next most recent bookmark whose book is ready when the newest one's book is
+ * gone or still being prepared; null when none is. Plain reads of tables the reader already owns - no new queries beyond the bookmark and the book row.
  */
 export async function getContinueReadingCore(db: Db, userId: string, timezone: string, now = new Date()): Promise<ContinueReading | null> {
-  const { data: pos } = await db
+  // A few of the newest bookmarks: the newest book may be deleted or still preparing, and then the next one is shown.
+  const { data: positions } = await db
     .from("reader_positions")
     .select("book_id, word_index, updated_at")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!pos) return null;
-  const { data: book } = await db
+    .limit(RECENT_BOOKMARKS);
+  if (!positions?.length) return null;
+  const { data: books } = await db
     .from("books")
     .select("id, title, reader_status, reader_word_count")
     .eq("user_id", userId)
-    .eq("id", pos.book_id)
-    .maybeSingle();
-  if (!book || book.reader_status !== "ready") return null;
+    .eq("reader_status", "ready")
+    .in(
+      "id",
+      positions.map((p) => p.book_id)
+    );
+  const readable = new Map((books ?? []).map((b) => [b.id, b]));
+  const pos = positions.find((p) => readable.has(p.book_id));
+  const book = pos ? readable.get(pos.book_id) : undefined;
+  if (!pos || !book) return null;
   const total = book.reader_word_count ?? 0;
   const progressPct = total > 0 ? Math.min(100, Math.round((pos.word_index / total) * 100)) : null;
   const stats = await getReadingStatsCore(db, userId, timezone, now);
