@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { deleteBook } from "@/app/(app)/personal/reader-actions";
@@ -18,8 +18,36 @@ export function deleteConsequences(readerOnly: boolean): string[] {
     ? ["The book and its stored text and files", "Your bookmark and your highlights", "Its reading history: the words it added to today's goal and your streak are taken back"]
     : [
         "If none of its flashcards was ever reviewed: the book, its lessons and cards, your bookmark, highlights and reading history, and the stored file are removed for good",
-        "If you have reviewed its flashcards: the book is hidden from your library and your review history is kept",
+        "If you have reviewed its flashcards: the book is hidden from your library, and nothing else is removed. Your review history, bookmark, highlights, reading history and stored files are kept",
       ];
+}
+
+// In order of preference (a comma selector would return the first in document order, i.e. the heading).
+const FALLBACK_FOCUS = ['[data-testid="try-reader-empty"]', '[data-testid="try-reader-link"]', "h1"];
+
+/**
+ * The deleted card disappears when the page refreshes, and with it this component, so focus can't be placed from
+ * inside it (Radix would leave it on <body>). Watch the document instead: once this book's delete button is gone,
+ * focus the neighbouring card's, or a stable fallback when it was the last book. Gives up after 5 s.
+ */
+function focusAfterRemoval(bookId: string, neighbourId: string | null) {
+  const gone = () => !document.querySelector(`[data-testid="delete-book"][data-book-id="${CSS.escape(bookId)}"]`);
+  const place = () => {
+    const target =
+      (neighbourId && document.querySelector<HTMLElement>(`[data-testid="delete-book"][data-book-id="${CSS.escape(neighbourId)}"]`)) ||
+      FALLBACK_FOCUS.map((sel) => document.querySelector<HTMLElement>(sel)).find(Boolean);
+    if (target) {
+      if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.tabIndex = -1;
+      target.focus();
+    }
+  };
+  const observer = new MutationObserver(() => {
+    if (!gone()) return;
+    observer.disconnect();
+    place();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  setTimeout(() => observer.disconnect(), 5000);
 }
 
 /** Delete a library book behind a confirmation that lists what goes with it. Never a one-click delete. */
@@ -28,8 +56,7 @@ export function DeleteBookButton({ bookId, title, readerOnly }: { bookId: string
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** Where focus goes once the dialog closes after a successful delete (this card is about to disappear). */
-  const handoff = useRef<HTMLElement | null>(null);
+  const [deleted, setDeleted] = useState(false);
 
   function onOpenChange(next: boolean) {
     if (busy) return;
@@ -42,14 +69,15 @@ export function DeleteBookButton({ bookId, title, readerOnly }: { bookId: string
     setError(null);
     const all = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="delete-book"]'));
     const mine = all.findIndex((el) => el.getAttribute("data-book-id") === bookId);
-    const neighbour = all[mine + 1] ?? all[mine - 1] ?? document.querySelector<HTMLElement>('[data-testid="try-reader-link"], [data-testid="try-reader-empty"]');
+    const neighbourId = (all[mine + 1] ?? all[mine - 1])?.getAttribute("data-book-id") ?? null;
     try {
       const r = await deleteBook(bookId);
       if (!r.ok) {
         setError(r.message);
         return;
       }
-      handoff.current = neighbour;
+      focusAfterRemoval(bookId, neighbourId);
+      setDeleted(true);
       setOpen(false);
       router.refresh();
     } catch {
@@ -68,11 +96,8 @@ export function DeleteBookButton({ bookId, title, readerOnly }: { bookId: string
       </DialogTrigger>
       <DialogContent
         onCloseAutoFocus={(e) => {
-          // After a delete the trigger is gone with its card: Radix would drop focus on <body>, so place it ourselves.
-          if (!handoff.current) return;
-          e.preventDefault();
-          handoff.current.focus();
-          handoff.current = null;
+          // After a delete the trigger is gone with its card; focusAfterRemoval places focus, not Radix.
+          if (deleted) e.preventDefault();
         }}
       >
         <DialogHeader>
