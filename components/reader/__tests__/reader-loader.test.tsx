@@ -5,7 +5,7 @@ import { DEFAULT_READER_SETTINGS } from "@/lib/reader/types";
 import { resetBodyPinForTests } from "@/lib/client/use-body-pin";
 
 const prepare = vi.fn();
-const updateSettings = vi.fn(async () => ({ ok: true }));
+const updateSettings = vi.fn(async (_patch: unknown) => ({ ok: true }));
 const refresh = vi.fn();
 vi.mock("@/app/(app)/personal/reader-actions", () => ({ prepareReaderDoc: (id: string) => prepare(id), updateReaderSettings: (p: unknown) => updateSettings(p) }));
 const router = { refresh };
