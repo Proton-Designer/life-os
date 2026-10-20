@@ -50,7 +50,7 @@ export function HighlightsDialog({
                       onJump(h.startWord);
                       onOpenChange(false);
                     }}
-                    className="min-h-11 min-w-0 flex-1 px-3 py-2 text-left text-sm hover:bg-muted"
+                    className="min-h-11 min-w-0 flex-1 rounded-lg px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
                   >
                     <span className="block font-serif leading-snug">{h.text}</span>
                     <span className="mt-1 block text-xs text-muted-foreground">
@@ -59,11 +59,11 @@ export function HighlightsDialog({
                   </button>
                   <button
                     type="button"
-                    aria-label="Delete highlight"
+                    aria-label={`Delete highlight: ${h.text.length > 50 ? `${h.text.slice(0, 50)}…` : h.text}`}
                     onClick={() => onDelete(h.id)}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
                   >
-                    <Trash2 className="size-4" />
+                    <Trash2 aria-hidden className="size-4" />
                   </button>
                 </li>
               );

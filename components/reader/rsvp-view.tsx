@@ -44,6 +44,9 @@ export function RsvpView({
         ) : null}
         <p
           data-testid="rsvp-word"
+          // role=img gives the label a home; the split spans are hidden so a screen reader never spells the word out in pieces,
+          // and it is NOT a live region: announcing every word at 300+ wpm would be noise (the controls announce on pause).
+          role="img"
           aria-label={word}
           className="grid grid-cols-[1fr_auto_1fr] items-baseline whitespace-pre font-medium leading-tight tracking-tight"
         >

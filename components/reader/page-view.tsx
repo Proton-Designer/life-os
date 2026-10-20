@@ -220,7 +220,11 @@ export function PageView({
       onScroll={onScroll}
       onClick={onClick}
       data-testid="page-view"
-      className="h-full overflow-y-auto overscroll-contain px-5 pb-24 pt-2 [-webkit-overflow-scrolling:touch]"
+      // Focusable so the keyboard can scroll it (PageUp/PageDown/Space-less arrows); labelled so it is announced as the book text.
+      tabIndex={0}
+      role="region"
+      aria-label="Book text"
+      className="h-full overflow-y-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--reader-focal)] overscroll-contain px-5 pb-24 pt-2 [-webkit-overflow-scrolling:touch]"
     >
       <article
         className="mx-auto max-w-[40rem] font-serif leading-[1.75]"
@@ -252,7 +256,7 @@ export function PageView({
         }}
         className={cn(
           "absolute bottom-3 left-1/2 flex min-h-11 -translate-x-1/2 items-center gap-2 rounded-full border border-[var(--reader-border)]",
-          "bg-[var(--reader-surface)] px-5 text-sm font-medium text-[var(--reader-fg)] shadow-lg"
+          "bg-[var(--reader-surface)] px-5 text-sm font-medium text-[var(--reader-fg)] shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]"
         )}
       >
         <Highlighter className="size-4" aria-hidden />

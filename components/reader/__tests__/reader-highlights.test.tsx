@@ -31,7 +31,7 @@ describe("ReaderApp highlights + sessions", () => {
     expect(arg.startWord).toBe(0);
     expect(arg.endWord).toBeGreaterThan(0);
     expect(arg.text.split(" ")).toHaveLength(arg.endWord - arg.startWord + 1);
-    expect(screen.getByRole("status")).toHaveTextContent("Highlight saved");
+    expect(screen.getByText("Highlight saved")).toHaveAttribute("role", "status");
     fireEvent.click(screen.getByRole("button", { name: "Highlights (1)" }));
     expect(screen.getByTestId("highlight-list")).toHaveTextContent(arg.text);
   });
@@ -40,7 +40,7 @@ describe("ReaderApp highlights + sessions", () => {
     render(<ReaderApp bookId="b1" doc={SAMPLE_DOC} backHref="/x" onCreateHighlight={async () => null} />);
     fireEvent.click(screen.getByRole("button", { name: "Highlight this sentence" }));
     await act(async () => {});
-    expect(screen.getByRole("status")).toHaveTextContent("Couldn't save");
+    expect(screen.getByText(/Couldn.t save/)).toHaveAttribute("role", "status");
     expect(screen.queryByRole("button", { name: /Highlights \(/ })).toBeNull();
   });
 
@@ -52,7 +52,7 @@ describe("ReaderApp highlights + sessions", () => {
     expect(screen.getByTestId("page-view")).toBeInTheDocument();
     expect(screen.getByTestId("page-view").querySelector("[data-highlight]")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Highlights (1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete highlight" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete highlight/ }));
     await act(async () => {});
     expect(onDeleteHighlight).toHaveBeenCalledWith("h1");
     expect(screen.queryByRole("button", { name: /Highlights \(/ })).toBeNull();

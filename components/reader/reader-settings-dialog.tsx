@@ -43,6 +43,7 @@ export function ReaderSettingsDialog({
               max={MAX_WPM}
               step={WPM_STEP}
               value={settings.wpm}
+              aria-valuetext={`${settings.wpm} words per minute`}
               onChange={(e) => onChange({ wpm: Number(e.target.value) })}
               className="h-8 w-full cursor-pointer accent-primary"
             />
@@ -60,6 +61,7 @@ export function ReaderSettingsDialog({
               max={2}
               step={0.05}
               value={settings.fontScale}
+              aria-valuetext={`${Math.round(settings.fontScale * 100)}%`}
               onChange={(e) => onChange({ fontScale: Number(e.target.value) })}
               className="h-8 w-full cursor-pointer accent-primary"
             />
@@ -78,7 +80,7 @@ export function ReaderSettingsDialog({
                     aria-pressed={active}
                     onClick={() => onChange({ theme: t })}
                     style={{ background: p.bg, color: p.fg, borderColor: active ? p.focal : p.border }}
-                    className={cn("flex min-h-11 items-center justify-center gap-2 rounded-lg border-2 px-3 text-sm", active && "font-semibold")}
+                    className={cn("flex min-h-11 items-center justify-center gap-2 rounded-lg border-2 px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring", active && "font-semibold")}
                   >
                     <span aria-hidden style={{ background: p.focal }} className="size-2.5 rounded-full" />
                     {READER_THEME_LABEL[t]}

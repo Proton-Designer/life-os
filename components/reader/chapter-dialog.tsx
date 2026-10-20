@@ -34,7 +34,7 @@ export function ChapterDialog({
                   onOpenChange(false);
                 }}
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-muted",
+                  "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring",
                   i === currentChapter && "bg-muted font-medium"
                 )}
               >

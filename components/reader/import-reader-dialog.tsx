@@ -216,11 +216,11 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
           <div className="flex max-h-[65dvh] flex-col gap-4 overflow-y-auto pr-1" data-testid="import-preview">
             <div className="flex flex-col gap-1">
               <Label htmlFor="import-title">Title</Label>
-              <Input id="import-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+              <Input id="import-title" aria-describedby={error ? "import-error" : undefined} aria-invalid={error ? true : undefined} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="import-author">Author (optional)</Label>
-              <Input id="import-author" value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={200} />
+              <Input id="import-author" aria-describedby={error ? "import-error" : undefined} aria-invalid={error ? true : undefined} value={author} onChange={(e) => setAuthor(e.target.value)} maxLength={200} />
             </div>
             <p className="text-sm text-muted-foreground" data-testid="import-stats">
               {preview.wordCount.toLocaleString()} words · {readingTimeLabel(preview.wordCount, wpm)} at {wpm} words per minute
@@ -255,9 +255,9 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
                     setTab(id);
                     setError(null);
                   }}
-                  className={cn("flex min-h-10 items-center justify-center gap-1.5 rounded-md text-sm", tab === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
+                  className={cn("flex min-h-10 items-center justify-center gap-1.5 rounded-md text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring", tab === id ? "bg-background font-medium shadow-sm" : "text-muted-foreground")}
                 >
-                  <Icon className="size-4" />
+                  <Icon aria-hidden className="size-4" />
                   {label}
                 </button>
               ))}
@@ -280,11 +280,11 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
                 }}
                 className={cn("flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-8 text-center", dragging ? "border-ring bg-muted/40" : "border-border")}
               >
-                <Upload className="size-6 text-muted-foreground" />
+                <Upload aria-hidden className="size-6 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground" data-testid="import-file-label">
                   {file ? file.name : "Drop a file here, or choose one. PDF, EPUB, text, Markdown or HTML — up to 50 MB."}
                 </p>
-                <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy !== null}>
+                <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={busy !== null} aria-describedby={error ? "import-error" : "import-file-label"}>
                   {file ? "Choose a different file" : "Choose file"}
                 </Button>
                 <input
@@ -306,6 +306,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
                 <Label htmlFor="import-text">Text to read</Label>
                 <textarea
                   id="import-text"
+                  aria-describedby={error ? "import-error" : undefined} aria-invalid={error ? true : undefined}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   rows={8}
@@ -319,7 +320,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
             {tab === "link" ? (
               <div className="flex flex-col gap-1">
                 <Label htmlFor="import-url">Article link</Label>
-                <Input id="import-url" type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" disabled={busy !== null} />
+                <Input id="import-url" aria-describedby={error ? "import-error" : undefined} aria-invalid={error ? true : undefined} type="url" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" disabled={busy !== null} />
                 <p className="text-xs text-muted-foreground">The page is fetched once and saved as clean text. Pages that need a login can&apos;t be imported — paste the text instead.</p>
               </div>
             ) : null}
@@ -327,7 +328,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
         )}
 
         {error ? (
-          <p role="alert" className="text-xs text-destructive">
+          <p id="import-error" role="alert" className="text-xs text-destructive">
             {error}
           </p>
         ) : null}
@@ -335,7 +336,7 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
         <DialogFooter>
           {busy ? (
             <p role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />
               {busy}
             </p>
           ) : null}
