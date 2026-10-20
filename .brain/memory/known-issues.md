@@ -451,3 +451,12 @@ worth adding is a real judgment call, not done here.
 
 
 - **Plan details gaps (2026-10-06):** (1) leaving Work after entering it does NOT remove the Backlog task it created (nothing links them; the Kill List pair is the only linked one); (2) the plan list does not show "in session" on a row whose Deep Work/Study is running (pressing Start again reports "a session is already running"); (3) the MCP twin of `commitPlan`/Start/Complete is `pending: P4-cov-PLAN-DETAILS` in the parity manifest, and it must UN-PLAN rather than delete (the MCP path never hard-deletes); (4) a plan written before migration 260 has no details and shows as plain lines; (5) an unfinished inline timer is not stopped by changing the line's timer length.
+
+## 2026-10-20 — Open lows from the Focus reader run (none blocks reading; all known and accepted)
+- **Settings order on unload:** keepalive requests normally arrive in order but the browser does not promise it. `createSettingsSender` sends one at a time and the unload request carries the newest value of everything unconfirmed, yet an OLDER request still in the air could land after it (`lib/reader/unload-beacon.ts` comment).
+- **Reload within ~4 s of a seek:** the server position is debounced 4 s (`createPositionSync`, flushed on pagehide). A reload inside that window relies on the localStorage copy; with storage blocked, or on another device, the server still has the older word.
+- **Share-sheet size:** the share POST answers a readable `?error` up to 4 MB + 64 KB; between that and above Vercel's 4.5 MB body limit Vercel answers itself with a plain 413 the share sheet shows as-is (board R10 review).
+- **Signed-out share loses its body:** a share POST while signed out redirects to login; the form body (text/files) cannot survive that redirect, so the person has to share again after signing in (a signed-out GET share keeps its query string through login).
+- **Two-tab session queue:** the unsent-stretch queue is one `localStorage` key, last write wins, so a second tab can overwrite the first tab's offline queue (<= 10 stretches).
+- **Cross-user queue burn:** that queue is not tied to a user id; after sign-out/sign-in as someone else on the same browser, the old user's stretches are refused (book not theirs) and dropped after 3 tries - no wrong credit, a few lost stretches.
+

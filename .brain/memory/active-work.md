@@ -34,6 +34,9 @@ issue has self-cleared twice so far without this fix.
 in the repo should be built to "detect" this condition; per the source doc,
 the request never arrives when it triggers, so no code of ours can see it.
 
+### Focus reader in Self-Mastery (overnight run 2026-10-19/20)
+**Goal:** every Self-Mastery library book opens in a focus reader (RSVP / page view, narration, highlights, stats). **Status:** built and reviewed on `main`; migrations 268 and 269 are applied, **270 (unique `reader_sessions` stretch key) is applied by the lead AFTER the deploy** (code first, schema second; the code works without it). Open lows: see known-issues "Open lows from the Focus reader run". Decisions: `mem.decisions` 2026-10-20.
+
 ## Partially migrated
 
 ### T-0002 — per-subdomain data scoping for Work (coop_targets/coop_tasks) not shipped
