@@ -187,3 +187,8 @@ export function contentTypeLabel(readerSource: string | null | undefined, hasFil
       return hasFile ? "PDF" : null;
   }
 }
+
+/** " · 42% read" for a card line; nothing when there is no progress yet (a bookmark at word 0 is 0%, not "0% read"). */
+export function percentReadSuffix(pct: number | null | undefined): string {
+  return pct && pct > 0 ? ` · ${pct}% read` : "";
+}

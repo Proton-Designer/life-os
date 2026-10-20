@@ -8,7 +8,7 @@ export function ReadButton({ bookId, progressPct, started, size = "sm" }: { book
     <Button asChild size={size} variant="outline" className="gap-1.5" data-testid="read-book">
       <Link href={`/read/${bookId}`}>
         <BookOpenText className="size-4" />
-        {started ? (progressPct != null ? `Continue · ${progressPct}%` : "Continue") : "Read"}
+        {started ? (progressPct ? `Continue · ${progressPct}%` : "Continue") : "Read"}
       </Link>
     </Button>
   );

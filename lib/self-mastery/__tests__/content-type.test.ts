@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contentTypeLabel } from "../types";
+import { contentTypeLabel, percentReadSuffix } from "../types";
 
 describe("contentTypeLabel", () => {
   it("names each reader source", () => {
@@ -9,5 +9,12 @@ describe("contentTypeLabel", () => {
     expect(contentTypeLabel(null, true)).toBe("PDF");
     expect(contentTypeLabel(null, false)).toBeNull();
     expect(contentTypeLabel("epub", true)).toBe("EPUB");
+  });
+});
+
+describe("percentReadSuffix", () => {
+  it("is empty at 0% or unknown, and shows a real percentage (positive control)", () => {
+    expect([percentReadSuffix(0), percentReadSuffix(null), percentReadSuffix(undefined)]).toEqual(["", "", ""]);
+    expect(percentReadSuffix(42)).toBe(" · 42% read");
   });
 });

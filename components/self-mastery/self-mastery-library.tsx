@@ -8,6 +8,7 @@ import { MemoryStrengthBar } from "./memory-strength-bar";
 import { UploadBookDialog } from "./upload-book-dialog";
 import { ReadButton } from "./read-button";
 import { RenameBookButton } from "./rename-book-button";
+import { DeleteBookButton } from "./delete-book-button";
 import { GlobalHighlightsDialog } from "./global-highlights-dialog";
 import { ReadingStatsChip } from "./reading-stats-chip";
 import { LibraryDropTarget } from "./library-drop-target";
@@ -33,7 +34,7 @@ import { WidgetManagerButton } from "@/components/page-layout/widget-manager-but
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { listMyReflectionCards } from "@/app/(app)/personal/reflection-cards-actions";
 import { CardsLibraryPanel } from "@/components/self-mastery/reflection-cards/cards-library-panel";
-import { contentTypeLabel, type LibraryBook } from "@/lib/self-mastery/types";
+import { contentTypeLabel, percentReadSuffix, type LibraryBook } from "@/lib/self-mastery/types";
 
 const STATUS_LABEL: Record<LibraryBook["status"], string> = {
   uploading: "Uploading…",
@@ -236,13 +237,13 @@ export async function SelfMasteryLibrary() {
                 <span className="text-xs text-muted-foreground" data-testid="book-meta">
                   {contentTypeLabel(book.readerSource) ?? "Reader book"}
                   {book.readerWordCount ? ` · ${book.readerWordCount.toLocaleString()} words` : ""}
-                  {book.readProgress?.pct != null ? ` · ${book.readProgress.pct}% read` : ""}
+                  {percentReadSuffix(book.readProgress?.pct)}
                 </span>
               ) : book.status === "ready" ? (
                 <>
                   <span className="text-xs text-muted-foreground" data-testid="book-meta">
                     {contentTypeLabel(book.readerSource, true)} · {book.lessonCount} lesson{book.lessonCount === 1 ? "" : "s"}
-                    {book.readProgress?.pct != null ? ` · ${book.readProgress.pct}% read` : ""}
+                    {percentReadSuffix(book.readProgress?.pct)}
                   </span>
                   <MemoryStrengthBar value={book.memoryStrength} size="sm" />
                 </>
@@ -253,7 +254,10 @@ export async function SelfMasteryLibrary() {
             {book.canRead || book.ingestionMode === "reader" ? (
               <div className="flex items-center justify-between gap-2">
                 {book.canRead ? <ReadButton bookId={book.id} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} /> : <span />}
-                <RenameBookButton bookId={book.id} title={book.title} author={book.author} />
+                <div className="flex items-center">
+                  <RenameBookButton bookId={book.id} title={book.title} author={book.author} />
+                  <DeleteBookButton bookId={book.id} title={book.title} readerOnly={book.ingestionMode === "reader"} />
+                </div>
               </div>
             ) : null}
             </div>
