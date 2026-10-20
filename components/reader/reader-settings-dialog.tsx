@@ -3,6 +3,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import type { SpeechVoiceInfo } from "@/lib/reader/narration";
 import { MAX_WPM, MIN_WPM, WPM_STEP } from "@/lib/reader/rsvp";
 import { READER_PALETTES, READER_THEMES, READER_THEME_LABEL } from "@/lib/reader/themes";
 import type { ReaderSettings } from "@/lib/reader/types";
@@ -13,11 +14,13 @@ export function ReaderSettingsDialog({
   onOpenChange,
   settings,
   onChange,
+  speech,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   settings: ReaderSettings;
   onChange: (patch: Partial<ReaderSettings>) => void;
+  speech: { supported: boolean; voices: SpeechVoiceInfo[] };
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -91,7 +94,44 @@ export function ReaderSettingsDialog({
             <Switch id="reader-focal-lines" checked={settings.focalLines} onCheckedChange={(v) => onChange({ focalLines: v })} />
           </div>
 
-          {/* R6 slot: narration voice + speech rate. R7 slot: daily word goal. */}
+          <div className="flex flex-col gap-3" data-testid="reader-narration-settings">
+            <Label>Listening</Label>
+            {speech.supported ? (
+              <>
+                <select
+                  aria-label="Voice"
+                  value={settings.voiceUri ?? ""}
+                  onChange={(e) => onChange({ voiceUri: e.target.value || null })}
+                  className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                >
+                  <option value="">Default voice</option>
+                  {speech.voices.map((v) => (
+                    <option key={v.uri} value={v.uri}>
+                      {v.name} ({v.lang}){v.local ? "" : " - needs internet"}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Speaking speed"
+                  value={settings.speechRate}
+                  onChange={(e) => onChange({ speechRate: Number(e.target.value) })}
+                  className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
+                >
+                  <option value={1}>Match my reading speed</option>
+                  {[0.7, 0.85, 1.15, 1.3, 1.5, 1.75, 2].map((r) => (
+                    <option key={r} value={r}>
+                      {r}x
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-muted-foreground">Uses voices installed on this device, so it can work offline. Voices marked &quot;needs internet&quot; will not.</span>
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">This browser cannot read aloud, so the Listen button is hidden.</span>
+            )}
+          </div>
+
+          {/* R7 slot: daily word goal. */}
         </div>
       </DialogContent>
     </Dialog>

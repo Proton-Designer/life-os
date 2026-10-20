@@ -39,3 +39,12 @@ describe("readerKeyAction", () => {
     expect(readerKeyAction(ev("ArrowRight", { target: btn }), "rsvp")).toBe("forward");
   });
 });
+
+describe("readerKeyAction listen", () => {
+  it("l toggles listen mode, but not with a modifier or inside a field", () => {
+    expect(readerKeyAction(ev("l"), "rsvp")).toBe("listen");
+    expect(readerKeyAction(ev("l", { metaKey: true }), "rsvp")).toBeNull();
+    const input = document.createElement("input");
+    expect(readerKeyAction(ev("l", { target: input }), "page")).toBeNull();
+  });
+});

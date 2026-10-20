@@ -7,7 +7,8 @@ export type ReaderKeyAction =
   | "backParagraph"
   | "forwardParagraph"
   | "wpmUp"
-  | "wpmDown";
+  | "wpmDown"
+  | "listen";
 
 /** Same notion as week-close-button's: keys belong to the field, dialog or menu the user is in. */
 function isTypingTarget(el: EventTarget | null): boolean {
@@ -40,6 +41,9 @@ export function readerKeyAction(
       return mode === "rsvp" ? "wpmUp" : null;
     case "ArrowDown":
       return mode === "rsvp" ? "wpmDown" : null;
+    case "l":
+    case "L":
+      return "listen";
     default:
       return null;
   }

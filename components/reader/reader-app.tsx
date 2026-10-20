@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, List, Settings2 } from "lucide-react";
+import { ChevronLeft, Headphones, List, Settings2 } from "lucide-react";
 import { useBodyPin } from "@/lib/client/use-body-pin";
 import { buildDocWords, chapterIndexAt } from "@/lib/reader/doc-words";
+import { effectiveSpeechRate } from "@/lib/reader/narration";
 import { WPM_STEP } from "@/lib/reader/rsvp";
 import {
   browserStorage,
@@ -27,6 +28,7 @@ import { READER_BTN, ReaderControls } from "./reader-controls";
 import { readerKeyAction } from "./reader-keys";
 import { ReaderSettingsDialog } from "./reader-settings-dialog";
 import { RsvpView } from "./rsvp-view";
+import { useNarration } from "./use-narration";
 import { useRsvpPlayer } from "./use-rsvp-player";
 import { useWakeLock } from "./use-wake-lock";
 
@@ -90,8 +92,63 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
   });
   const { index, playing } = player;
 
+  // Listen mode: the narrator drives the position (via onWord) instead of the RSVP clock.
+  const [listenMode, setListenMode] = useState(false);
+  const lastAudioIndex = useRef(-1);
+  const seekRef = useRef(player.seek);
+  useEffect(() => {
+    seekRef.current = player.seek;
+  });
+  const narration = useNarration({
+    words: dw,
+    rate: effectiveSpeechRate(settings.speechRate, settings.wpm),
+    voiceUri: settings.voiceUri,
+    onWord: (i) => {
+      lastAudioIndex.current = i;
+      seekRef.current(i);
+    },
+    onFinish: () => saver.flush(),
+  });
+  const narrating = narration.speaking;
+
   useBodyPin(true);
-  useWakeLock(playing);
+  useWakeLock(playing || narrating);
+
+  // The reader moved the position themselves (scrubber, tap, sentence skip, chapter): speak from there.
+  useEffect(() => {
+    if (narrating && index !== lastAudioIndex.current) narration.start(index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index]);
+  // A voice or rate change re-speaks the current sentence with the new settings.
+  const speechRate = effectiveSpeechRate(settings.speechRate, settings.wpm);
+  useEffect(() => {
+    narration.restart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speechRate, settings.voiceUri]);
+
+  const toggleListenMode = useCallback(() => {
+    if (listenMode) {
+      narration.pause();
+      saver.flush();
+      setListenMode(false);
+    } else {
+      player.pause();
+      setListenMode(true);
+      lastAudioIndex.current = index;
+      narration.start(index);
+    }
+  }, [listenMode, narration, player, saver, index]);
+
+  const togglePlay = useCallback(() => {
+    if (!listenMode) return player.toggle();
+    if (narrating) {
+      narration.pause();
+      saver.flush();
+    } else {
+      lastAudioIndex.current = index;
+      narration.start(index);
+    }
+  }, [listenMode, narrating, narration, player, saver, index]);
 
   // Never lose the place: write on hide/close as well as on pause.
   useEffect(() => {
@@ -129,18 +186,19 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
   );
 
   // Keyboard: Space, arrows. Refs keep one stable listener while the handlers change every tick.
-  const live = useRef({ player, mode, updateSettings });
+  const live = useRef({ player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported });
   useEffect(() => {
-    live.current = { player, mode, updateSettings };
+    live.current = { player, mode, updateSettings, togglePlay, toggleListenMode, canListen: narration.supported };
   });
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const { player: p, mode: m, updateSettings: update } = live.current;
+      const { player: p, mode: m, updateSettings: update, togglePlay: toggle, toggleListenMode: listen, canListen } = live.current;
       const action = readerKeyAction(e, m);
       if (!action) return;
       e.preventDefault();
       switch (action) {
-        case "toggle": p.toggle(); break;
+        case "toggle": toggle(); break;
+        case "listen": if (canListen) listen(); break;
         case "back": p.backSentence(); break;
         case "forward": p.forwardSentence(); break;
         case "backParagraph": p.backParagraph(); break;
@@ -170,7 +228,18 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
           <ChevronLeft className="size-5" />
         </Link>
         <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-medium">{doc.title}</h1>
-        {/* R7 slot: today's words / daily goal ring. R6 slot: listen (narration) button. R7 slot: highlight button. */}
+        {/* R7 slot: today's words / daily goal ring and highlight button. */}
+        {narration.supported ? (
+          <button
+            type="button"
+            aria-label="Listen"
+            aria-pressed={listenMode}
+            onClick={toggleListenMode}
+            className={cn(READER_BTN, "size-11", listenMode && "border-[var(--reader-focal)] text-[var(--reader-focal)]")}
+          >
+            <Headphones className="size-5" />
+          </button>
+        ) : null}
         <div role="group" aria-label="View" className="flex rounded-full border border-[var(--reader-border)] bg-[var(--reader-surface)] p-0.5 text-sm">
           {(["rsvp", "page"] as const).map((m) => (
             <button
@@ -207,10 +276,10 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
       <ReaderControls
         totalWords={dw.words.length}
         index={index}
-        playing={playing}
+        playing={listenMode ? narrating : playing}
         wpm={player.wpm}
         chapterTitle={chapterIdx >= 0 ? doc.chapters[chapterIdx].title : null}
-        onToggle={player.toggle}
+        onToggle={togglePlay}
         onBack={player.backSentence}
         onForward={player.forwardSentence}
         onSeek={player.seek}
@@ -218,7 +287,7 @@ function ReaderSession({ bookId, doc, backHref, boot }: { bookId: string; doc: R
       />
 
       <ChapterDialog open={chaptersOpen} onOpenChange={setChaptersOpen} chapters={doc.chapters} currentChapter={chapterIdx} onPick={player.seek} />
-      <ReaderSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} settings={settings} onChange={updateSettings} />
+      <ReaderSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} settings={settings} onChange={updateSettings} speech={{ supported: narration.supported, voices: narration.voices }} />
     </div>
   );
 }
