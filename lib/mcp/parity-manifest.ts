@@ -284,6 +284,23 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/self-mastery-actions.ts#prepareBookUpload": { excluded: "file_upload: mints a signed upload URL for a book PDF" },
   "app/(app)/personal/self-mastery-actions.ts#finalizeBookUpload": { excluded: "file_upload: finalizes a book PDF upload and enqueues ingestion LLM spend" },
   "app/(app)/personal/self-mastery-actions.ts#cancelBookUpload": { excluded: "file_upload: cleanup for a failed/orphaned book PDF upload" },
+  // Focus reader (2026-10-19, R3). Imports move file bytes / fetch arbitrary URLs and delete is a real DELETE;
+  // position + session writes are reader-UI bookkeeping. Settings, rename and highlight create are the
+  // agent-reachable ones and are tracked under one coverage id.
+  "app/(app)/personal/reader-actions.ts#createReaderImport": { excluded: "file_upload: creates a reader import and mints a signed upload URL for the source file" },
+  "app/(app)/personal/reader-actions.ts#prepareReaderDoc": { excluded: "file_upload: parses an uploaded file (or fetches a URL) into the reader document" },
+  "app/(app)/personal/reader-actions.ts#confirmReaderImport": { excluded: "file_upload: accepts the preview of a file import" },
+  "app/(app)/personal/reader-actions.ts#cancelReaderImport": { excluded: "hard_delete: removes an abandoned import row and its stored files" },
+  "app/(app)/personal/reader-actions.ts#renameBook": { pending: "P4-cov-READER" },
+  "app/(app)/personal/reader-actions.ts#deleteBook": { excluded: "hard_delete: delete_book RPC hard-deletes a book with no review history" },
+  "app/(app)/personal/reader-actions.ts#getReaderBootstrap": { read_only: true },
+  "app/(app)/personal/reader-actions.ts#saveReaderPosition": { excluded: "ui_scaffold: reader bookmark bookkeeping written on every few words" },
+  "app/(app)/personal/reader-actions.ts#createHighlight": { pending: "P4-cov-READER" },
+  "app/(app)/personal/reader-actions.ts#deleteHighlight": { excluded: "hard_delete: removes a saved highlight" },
+  "app/(app)/personal/reader-actions.ts#listHighlights": { read_only: true },
+  "app/(app)/personal/reader-actions.ts#recordReaderSession": { excluded: "ui_scaffold: reading-session log written by the reader on pause/close" },
+  "app/(app)/personal/reader-actions.ts#getReadingStats": { read_only: true },
+  "app/(app)/personal/reader-actions.ts#updateReaderSettings": { pending: "P4-cov-READER" },
   "app/(app)/personal/self-mastery-session-actions.ts#loadTodaysSession": { excluded: "ui_scaffold: get-or-create of today's review session via start_session RPC; self_mastery.review.grade works without it" },
   "app/(app)/personal/self-mastery-session-actions.ts#revealCardAnswer": { read_only: true },
   "app/(app)/personal/self-mastery-session-actions.ts#revealLessonContext": { read_only: true },
