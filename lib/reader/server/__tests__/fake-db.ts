@@ -67,6 +67,7 @@ class Query implements PromiseLike<{ data: unknown; error: unknown }> {
   private max = Infinity;
   private wantRows = false;
   private onConflict: string | undefined;
+  private rangeFrom = 0;
 
   constructor(private db: FakeDb, private table: string) {}
 
@@ -110,6 +111,11 @@ class Query implements PromiseLike<{ data: unknown; error: unknown }> {
   }
   gte(col: string, v: string) {
     return this.f(col, "gte", (r) => String(r[col]) >= v);
+  }
+  range(from: number, to: number) {
+    this.rangeFrom = from;
+    this.max = to - from + 1;
+    return this;
   }
   order(col: string, o?: { ascending?: boolean }) {
     this.orderBy.push({ col, asc: o?.ascending !== false });
@@ -155,7 +161,7 @@ class Query implements PromiseLike<{ data: unknown; error: unknown }> {
     for (const { col, asc } of [...this.orderBy].reverse()) {
       out = [...out].sort((a, b) => (String(a[col]) < String(b[col]) ? -1 : String(a[col]) > String(b[col]) ? 1 : 0) * (asc ? 1 : -1));
     }
-    out = out.slice(0, this.max);
+    out = out.slice(this.rangeFrom, this.rangeFrom + this.max);
     if (one) {
       if (strict && out.length !== 1) return { data: null, error: { message: "expected one row" } };
       return { data: out[0] ?? null, error: null };

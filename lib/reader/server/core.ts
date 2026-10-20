@@ -4,12 +4,15 @@ import type { Database } from "@/lib/supabase/database.types";
 import { localDateString } from "@/lib/date-utils";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
 import {
+  importChunks,
   importFile,
   importPaste,
   importUrl,
   makePreview,
   ReaderImportError,
+  type ChunkInput,
   type ImportResult,
+  type SectionInput,
 } from "@/lib/reader/import";
 import { isIP } from "node:net";
 import { isBlockedAddress } from "@/lib/reader/import";
@@ -269,10 +272,39 @@ async function buildImport(db: Db, userId: string, book: BookForPrepare): Promis
     return importFile({ bytes, filename: src.name, ...names });
   }
 
-  // Existing ingested book: the original PDF is the only source we kept.
-  if (!book.file_path) throw new ReaderImportError("empty", "This book has no file to read.");
-  const bytes = await download(db, book.file_path);
-  return importFile({ bytes, filename: book.file_path, ...names });
+  // Existing ingested book. Prefer the original PDF (best paragraphs + outline), but the ingestion pipeline
+  // DELETES it once a book is "ready" (book-pdf-gc.ts), so fall back to the text it kept: source_chunks.
+  let fileError: unknown = null;
+  if (book.file_path) {
+    try {
+      return await importFile({ bytes: await download(db, book.file_path), filename: book.file_path, ...names });
+    } catch (err) {
+      fileError = err;
+    }
+  }
+  const stored = await loadStoredChunks(db, userId, book.id);
+  if (stored.chunks.length > 0) return importChunks(stored.chunks, stored.sections, names);
+  throw toReaderImportError(fileError ?? new ReaderImportError("empty", "This book has no text to read."), "empty");
+}
+
+const CHUNK_PAGE = 1000;
+
+async function loadStoredChunks(db: Db, userId: string, bookId: string): Promise<{ chunks: ChunkInput[]; sections: SectionInput[] }> {
+  const chunks: ChunkInput[] = [];
+  for (let from = 0; ; from += CHUNK_PAGE) {
+    const { data, error } = await db
+      .from("source_chunks")
+      .select("text, sort_order, section_id")
+      .eq("user_id", userId)
+      .eq("book_id", bookId)
+      .order("sort_order", { ascending: true })
+      .range(from, from + CHUNK_PAGE - 1);
+    if (error) throw error;
+    chunks.push(...(data ?? []));
+    if ((data ?? []).length < CHUNK_PAGE) break;
+  }
+  const { data: sections } = await db.from("book_sections").select("id, title, sort_order").eq("user_id", userId).eq("book_id", bookId);
+  return { chunks, sections: sections ?? [] };
 }
 
 async function download(db: Db, path: string): Promise<Uint8Array> {

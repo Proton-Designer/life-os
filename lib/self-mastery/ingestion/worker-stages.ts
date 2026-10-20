@@ -63,6 +63,7 @@ import { buildSectionInsertPlan } from "./persist-sections";
 import { repairExtractedPages } from "./text-repair";
 import { notifyBookReady } from "@/lib/notifications/book-ready-notification";
 import { gcBookPdfAfterIngestion } from "./book-pdf-gc";
+import { buildReaderDocBeforeGc } from "@/lib/reader/server/best-effort";
 
 type IngestStage = Database["public"]["Enums"]["ingest_stage"];
 type IngestionJobRow = Database["public"]["Tables"]["ingestion_jobs"]["Row"];
@@ -1070,6 +1071,14 @@ async function finalizingStage(ctx: StageContext): Promise<StageWorkResult> {
   // own retry window (see book-pdf-gc.ts's header for the full argument).
   // Never fatal to this stage -- see that file's own header.
   if (readyBook.file_path) {
+    // Reader: build the focus-reader document from the PDF while it still exists. Best-effort and bounded
+    // (best-effort.ts never throws and has a time budget); the try/catch is belt-and-braces so nothing here can
+    // ever fail the ready transition or skip the GC below.
+    try {
+      await buildReaderDocBeforeGc(ctx.supabase, ctx.job.user_id, ctx.job.book_id);
+    } catch (readerError) {
+      console.error(`reader pre-GC build failed for book ${ctx.job.book_id}:`, readerError);
+    }
     await gcBookPdfAfterIngestion(ctx.supabase, {
       bookId: ctx.job.book_id,
       userId: ctx.job.user_id,

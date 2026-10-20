@@ -313,7 +313,9 @@ export async function getDueSummary(): Promise<DueSummary | null> {
     countNewCards(supabase, user.id),
   ]);
   if (dueCount === 0 && newCount === 0) {
-    const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id);
+    // Reader-only books (ingestion_mode 'reader') have no lessons or cards, so they don't make this a "caught up"
+    // review account: only ingested books count.
+    const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id).neq("ingestion_mode", "reader");
     return { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
   }
   const { data } = await supabase

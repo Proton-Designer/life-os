@@ -2,7 +2,7 @@ import { cache } from "react";
 import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
 import { untypedFrom } from "./untyped-from";
-import type { LibraryBook, BookStatus, IngestStage } from "./types";
+import { canOpenInReader, toReadProgress, type LibraryBook, type BookStatus, type IngestStage, type ReaderStatus } from "./types";
 
 interface BookRow {
   id: string;
@@ -16,6 +16,10 @@ interface BookRow {
   created_at: string;
   ready_at: string | null;
   error_message: string | null;
+  ingestion_mode: string;
+  reader_status: ReaderStatus;
+  reader_word_count: number | null;
+  file_path: string | null;
 }
 
 interface CardRow {
@@ -40,13 +44,15 @@ export const getSelfMasteryLibrary = cache(async (): Promise<LibraryBook[]> => {
   const now = new Date();
 
   const { data: bookRows, error: booksError } = await untypedFrom(supabase, "books")
-    .select("id, title, author, status, stage, progress_pct, lesson_count, cover_hue, created_at, ready_at, error_message")
+    .select("id, title, author, status, stage, progress_pct, lesson_count, cover_hue, created_at, ready_at, error_message, ingestion_mode, reader_status, reader_word_count, file_path")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .returns<BookRow[]>();
   if (booksError) throw booksError;
 
-  const books = bookRows ?? [];
+  // A reader import that is still being prepared, or failed, isn't a book yet (the import flow owns it and
+  // sweeps it): it must not show up as an empty card.
+  const books = (bookRows ?? []).filter((b) => !(b.ingestion_mode === "reader" && (b.reader_status === "preparing" || b.reader_status === "failed")));
   if (books.length === 0) return [];
 
   // One query for every card across every book, one for every card_state —
@@ -71,6 +77,13 @@ export const getSelfMasteryLibrary = cache(async (): Promise<LibraryBook[]> => {
           .returns<CardStateRow[]>()
       : { data: [] as CardStateRow[], error: null };
   if (statesError) throw statesError;
+
+  const { data: positionRows } = await supabase
+    .from("reader_positions")
+    .select("book_id, word_index, client_updated_at")
+    .eq("user_id", userId)
+    .in("book_id", bookIds);
+  const positionByBook = new Map((positionRows ?? []).map((p) => [p.book_id, p]));
 
   const stateByCardId = new Map((stateRows ?? []).map((s) => [s.card_id, s]));
   const cardsByBookId = new Map<string, CardRow[]>();
@@ -110,6 +123,11 @@ export const getSelfMasteryLibrary = cache(async (): Promise<LibraryBook[]> => {
       readyAt: b.ready_at,
       errorMessage: b.error_message,
       memoryStrength: averageRetrievability(cardStates, now),
+      ingestionMode: b.ingestion_mode,
+      readerStatus: b.reader_status,
+      readerWordCount: b.reader_word_count,
+      canRead: canOpenInReader({ readerStatus: b.reader_status, status: b.status, hasFile: b.file_path != null }),
+      readProgress: toReadProgress(positionByBook.get(b.id), b.reader_word_count),
     };
   });
 });

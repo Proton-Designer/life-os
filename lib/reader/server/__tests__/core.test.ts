@@ -144,6 +144,26 @@ describe("prepareReaderDocCore", () => {
     expect(fake.tables.books[0].reader_status).toBe("none");
   });
 
+  it("gone-PDF path: an ingested book whose file was deleted is rebuilt from its stored chunks (other users' chunks ignored)", async () => {
+    fake.seed("books", [{ id: BOOK, user_id: ME, title: "Old Book", status: "ready", ingestion_mode: "standard", reader_status: "none", file_path: null }]);
+    fake.seed("book_sections", [{ id: "sec1", user_id: ME, book_id: BOOK, title: "Chapter A", sort_order: 0 }]);
+    const words = (tag: string) => Array.from({ length: 40 }, (_, i) => `${tag}${i}`).join(" ") + ".";
+    fake.seed("source_chunks", [
+      { user_id: ME, book_id: BOOK, section_id: "sec1", sort_order: 1, text: words("two") },
+      { user_id: ME, book_id: BOOK, section_id: "sec1", sort_order: 0, text: words("one") },
+      { user_id: OTHER, book_id: BOOK, section_id: null, sort_order: 0, text: words("leak") },
+    ]);
+    const r = await prepareReaderDocCore(db(), ME, BOOK);
+    if (!r.ok) throw new Error(r.message);
+    const stored = JSON.parse(new TextDecoder().decode(fake.objects.get(`${ME}/${BOOK}/reader-v1.json`)));
+    const text = stored.blocks.map((b: { text: string }) => b.text).join(" ");
+    expect(text).toContain("one0");
+    expect(text.indexOf("one0")).toBeLessThan(text.indexOf("two0"));
+    expect(text).not.toContain("leak");
+    expect(r.preview.chapters.map((c) => c.title)).toEqual(["Chapter A"]);
+    expect(r.preview.warnings.join(" ")).toMatch(/Rebuilt/);
+  });
+
   it("cannot prepare someone else's book (explicit user_id filter, no RLS in the fake)", async () => {
     fake.seed("books", [{ id: BOOK, user_id: OTHER, title: "Theirs", ingestion_mode: "standard", reader_status: "none", file_path: `${OTHER}/${BOOK}.pdf` }]);
     const r = await prepareReaderDocCore(db(), ME, BOOK);

@@ -41,6 +41,33 @@ export type EvidenceStrength = "author_anecdote" | "single_study" | "strong_rese
 
 export type FsrsCardState = "new" | "learning" | "review" | "relearning";
 
+export type ReaderStatus = "none" | "preparing" | "ready" | "failed";
+
+export interface ReadProgress {
+  wordIndex: number;
+  pct: number | null;
+  updatedAt: string;
+}
+
+/** Whether the reader can open a book: its document exists, or it can be built lazily (original file or stored text). */
+export function canOpenInReader(b: { readerStatus: string; status: BookStatus; hasFile: boolean }): boolean {
+  if (b.readerStatus === "ready") return true;
+  if (b.readerStatus !== "none") return false;
+  return b.status === "ready" || b.hasFile;
+}
+
+export function toReadProgress(
+  pos: { word_index: number; client_updated_at: string } | undefined,
+  wordCount: number | null
+): ReadProgress | null {
+  if (!pos) return null;
+  return {
+    wordIndex: pos.word_index,
+    pct: wordCount && wordCount > 0 ? Math.min(100, Math.round((pos.word_index / wordCount) * 100)) : null,
+    updatedAt: pos.client_updated_at,
+  };
+}
+
 export interface LibraryBook {
   id: string;
   title: string;
@@ -55,6 +82,14 @@ export interface LibraryBook {
   errorMessage: string | null;
   /** Mean FSRS retrievability across every card in the book, 0 if none reviewed yet. Never fabricated. */
   memoryStrength: number;
+  /** READER. 'reader' = a reader-only book (imported to read; no lessons/cards, never ingested). */
+  ingestionMode: string;
+  readerStatus: ReaderStatus;
+  readerWordCount: number | null;
+  /** True when the focus reader can open this book now (document built, or it can be built lazily). */
+  canRead: boolean;
+  /** Bookmark, null until the book has been opened in the reader. pct is null when the word count is unknown. */
+  readProgress: ReadProgress | null;
 }
 
 export interface LessonCardState {
@@ -104,6 +139,11 @@ export interface BookDetail {
   createdAt: string;
   readyAt: string | null;
   memoryStrength: number;
+  ingestionMode: string;
+  readerStatus: ReaderStatus;
+  readerWordCount: number | null;
+  canRead: boolean;
+  readProgress: ReadProgress | null;
   lessons: BookDetailLesson[];
   /** True when the pipeline has been claimed (not `looksUnclaimed`) but
    * hasn't advanced in over STALLED_THRESHOLD_MS -- "claimed but stopped

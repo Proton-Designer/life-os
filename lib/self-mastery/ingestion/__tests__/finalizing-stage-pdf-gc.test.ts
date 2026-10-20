@@ -25,6 +25,11 @@ vi.mock("../book-pdf-gc", () => ({
   gcBookPdfAfterIngestion: (supabase: unknown, target: { bookId: string; userId: string; filePath: string }) => gcMock(supabase, target),
 }));
 
+const readerBuildMock = vi.fn(async (_s: unknown, _u: string, _b: string) => {});
+vi.mock("@/lib/reader/server/best-effort", () => ({
+  buildReaderDocBeforeGc: (s: unknown, u: string, b: string) => readerBuildMock(s, u, b),
+}));
+
 vi.mock("../pdf", () => ({
   loadPdf: vi.fn(async () => ({})),
   extractPages: vi.fn(async () => [{ page: 1, text: "Chapter One. This is a short sample page of book text for the chunker to work with. ".repeat(6) }]),
@@ -62,6 +67,34 @@ function makeFinalizingSupabase(opts: { activeLessonCount: number; filePath: str
 describe("finalizingStage — book PDF GC call site", () => {
   beforeEach(() => {
     gcMock.mockClear();
+    readerBuildMock.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("reader: builds the reader document BEFORE the PDF is deleted", async () => {
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const order: string[] = [];
+    readerBuildMock.mockImplementation(async () => void order.push("reader"));
+    gcMock.mockImplementationOnce(async () => void order.push("gc"));
+    const supabase = makeFinalizingSupabase({ activeLessonCount: 5, filePath: "user-1/book-1.pdf" });
+    await STAGE_HANDLERS.finalizing!({ job: { id: "j", book_id: "book-1", user_id: "user-1", cursor_chunk_index: null } as never, supabase: supabase as never });
+    expect(readerBuildMock).toHaveBeenCalledExactlyOnceWith(supabase, "user-1", "book-1");
+    expect(order).toEqual(["reader", "gc"]);
+  });
+
+  it("reader build THROWING still lets ingestion finish: stage is done and the PDF is still collected", async () => {
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    readerBuildMock.mockRejectedValue(new Error("boom"));
+    const supabase = makeFinalizingSupabase({ activeLessonCount: 5, filePath: "user-1/book-1.pdf" });
+    const result = await STAGE_HANDLERS.finalizing!({ job: { id: "j", book_id: "book-1", user_id: "user-1", cursor_chunk_index: null } as never, supabase: supabase as never });
+    expect(result.nextStage).toBe("done");
+    expect(gcMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("no reader build on the failed path or when the PDF is already gone", async () => {
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    await STAGE_HANDLERS.finalizing!({ job: { id: "j", book_id: "b", user_id: "u", cursor_chunk_index: null } as never, supabase: makeFinalizingSupabase({ activeLessonCount: 0, filePath: "x.pdf" }) as never });
+    await STAGE_HANDLERS.finalizing!({ job: { id: "j", book_id: "b", user_id: "u", cursor_chunk_index: null } as never, supabase: makeFinalizingSupabase({ activeLessonCount: 5, filePath: null }) as never });
+    expect(readerBuildMock).not.toHaveBeenCalled();
   });
 
   it("ready path: calls gcBookPdfAfterIngestion with the book/user/file_path, once", async () => {

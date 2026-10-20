@@ -3,6 +3,7 @@ import { BOOK_MAX_BYTES } from "@/lib/self-mastery/book-upload-limits";
 import { tokenizeBlock } from "../tokenize";
 import type { ReaderDoc, ReaderImportPreview, ReaderSource } from "../types";
 import { buildReaderDoc } from "./build-doc";
+import { chunksToBlocks, type ChunkInput, type SectionInput } from "./chunks";
 import { markdownToBlocks, normalizeInline, textToBlocks, type RawBlock } from "./cleanup";
 import { importEpub } from "./epub";
 import { ReaderImportError, toReaderImportError } from "./errors";
@@ -12,6 +13,7 @@ import { fetchUrl, URL_MAX_BYTES } from "./url";
 
 export { ReaderImportError } from "./errors";
 export { isBlockedAddress, fetchUrl } from "./url";
+export type { ChunkInput, SectionInput } from "./chunks";
 
 export interface ImportResult {
   doc: ReaderDoc;
@@ -116,6 +118,23 @@ export async function importFile(input: FileInput): Promise<ImportResult> {
       return finish({ title: input.title, metaTitle: r.title, fallbackTitle, author: input.author ?? r.author, source: "text", blocks: r.blocks });
     }
     return finish({ title: input.title, fallbackTitle, author: input.author, source: "text", blocks: textToBlocks(text) });
+  } catch (err) {
+    throw toReaderImportError(err);
+  }
+}
+
+/** Rebuild from an ingested book's stored chunks + sections (its original file has been deleted). */
+export function importChunks(
+  chunks: ChunkInput[],
+  sections: SectionInput[],
+  opts: { title?: string | null; author?: string | null } = {}
+): ImportResult {
+  try {
+    const { blocks, chapterStarts } = chunksToBlocks(chunks, sections);
+    if (blocks.length === 0) throw new ReaderImportError("empty", "This book has no stored text to read.");
+    const r = finish({ title: opts.title, fallbackTitle: "Untitled", author: opts.author, source: "pdf", blocks, chapterStarts });
+    r.warnings.push("Rebuilt from the text extracted for study (the original file is no longer stored), so paragraphs may differ from the original.");
+    return r;
   } catch (err) {
     throw toReaderImportError(err);
   }

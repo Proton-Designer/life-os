@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
 import { untypedFrom } from "./untyped-from";
 import { looksStalled } from "./ingestion-stage";
-import type { BookDetail, BookDetailLesson, BookStatus, EvidenceStrength, IngestStage, LessonCardState } from "./types";
+import { canOpenInReader, toReadProgress, type BookDetail, type BookDetailLesson, type BookStatus, type EvidenceStrength, type IngestStage, type LessonCardState, type ReaderStatus } from "./types";
 
 interface BookRow {
   id: string;
@@ -15,6 +15,10 @@ interface BookRow {
   error_message: string | null;
   created_at: string;
   ready_at: string | null;
+  ingestion_mode: string;
+  reader_status: ReaderStatus;
+  reader_word_count: number | null;
+  file_path: string | null;
 }
 
 interface LessonRow {
@@ -65,7 +69,7 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
   const now = new Date();
 
   const { data: book, error: bookError } = await untypedFrom(supabase, "books")
-    .select("id, title, author, status, stage, progress_pct, error_message, created_at, ready_at")
+    .select("id, title, author, status, stage, progress_pct, error_message, created_at, ready_at, ingestion_mode, reader_status, reader_word_count, file_path")
     .eq("id", bookId)
     .eq("user_id", userId)
     .maybeSingle()
@@ -93,6 +97,13 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     if (jobError) throw jobError;
     jobUpdatedAt = jobRow ? new Date(jobRow.updated_at) : null;
   }
+
+  const { data: position } = await supabase
+    .from("reader_positions")
+    .select("word_index, client_updated_at")
+    .eq("user_id", userId)
+    .eq("book_id", bookId)
+    .maybeSingle();
 
   // Only status='active' lessons — provisional (mid-ingestion, pre-merge)
   // and archived/rejected rows exist but aren't shown, matching ULM's own
@@ -221,6 +232,11 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     createdAt: book.created_at,
     readyAt: book.ready_at,
     memoryStrength: bookMemoryStrength,
+    ingestionMode: book.ingestion_mode,
+    readerStatus: book.reader_status,
+    readerWordCount: book.reader_word_count,
+    canRead: canOpenInReader({ readerStatus: book.reader_status, status: book.status, hasFile: book.file_path != null }),
+    readProgress: toReadProgress(position ?? undefined, book.reader_word_count),
     lessons: detailLessons,
     looksStalled: looksStalled(book.stage, jobUpdatedAt, now),
   };
