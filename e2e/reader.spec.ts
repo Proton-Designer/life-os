@@ -94,6 +94,20 @@ test("Paste: pasted text opens in the reader", async ({ page }) => {
   await page.getByRole("button", { name: "Start reading" }).click();
   await waitForReader(page);
   await expect(page.getByTestId("rsvp-word")).toContainText(/\S/);
+
+  // Read a little so the server has a bookmark, then Home offers this book back.
+  const bookUrl = page.url();
+  const bookmarked = page.waitForResponse((r) => r.url().includes("/api/reader/position") && r.ok(), { timeout: 15_000 });
+  await page.getByRole("button", { name: "Play" }).click();
+  await page.waitForTimeout(2_000);
+  await page.getByRole("button", { name: "Pause" }).click();
+  await bookmarked;
+  await page.goto("/");
+  const card = page.getByTestId("continue-reading-card");
+  await expect(card).toContainText("Continue reading: E2E Reader Paste", { timeout: 30_000 });
+  await card.click();
+  await page.waitForURL(bookUrl);
+  await expect(page.getByTestId("rsvp-view")).toBeVisible({ timeout: 60_000 });
 });
 
 test("Scanned PDF: typed error, no book created", async ({ page }) => {
