@@ -28,13 +28,38 @@ describe("reader controls a11y", () => {
     expect(screen.getByRole("slider", { name: "Position in book" })).toHaveAttribute("aria-valuetext", "41%");
   });
 
-  it("announces the place on pause and says nothing while playing (positive control: the paused text is non-empty)", () => {
-    const { rerender } = controls({ playing: false });
-    expect(screen.getByTestId("reader-status")).toHaveTextContent("Paused. Chapter 2, 41% read, word 411 of 1000.");
-    const noop = () => {};
-    rerender(<ReaderControls totalWords={1000} index={420} playing wpm={300} chapterTitle="Chapter 2" onToggle={noop} onBack={noop} onForward={noop} onSeek={noop} onWpm={noop} />);
-    expect(screen.getByTestId("reader-status")).toBeEmptyDOMElement();
-    expect(screen.getByTestId("reader-status")).toHaveAttribute("role", "status");
+  const noop = () => {};
+  const ui = (over: Partial<React.ComponentProps<typeof ReaderControls>> = {}) => (
+    <ReaderControls totalWords={1000} index={410} playing={false} wpm={300} chapterTitle="Chapter 2" word="harbor" onToggle={noop} onBack={noop} onForward={noop} onSeek={noop} onWpm={noop} {...over} />
+  );
+  const status = () => screen.getByTestId("reader-status");
+
+  it("names the word and place on play -> pause, and is silent while playing", () => {
+    const { rerender } = render(ui({ playing: true }));
+    expect(status()).toBeEmptyDOMElement();
+    expect(status()).toHaveAttribute("role", "status");
+    rerender(ui({ playing: false }));
+    expect(status()).toHaveTextContent('Paused on "harbor". Chapter 2, 41% read, word 411 of 1000.');
+    rerender(ui({ playing: true, index: 420, word: "next" }));
+    expect(status()).toBeEmptyDOMElement();
+  });
+
+  it("does not re-announce when the position moves by itself while paused (scroll-follow); positive control: a pause does", () => {
+    const { rerender } = render(ui({ playing: true }));
+    rerender(ui({ playing: false }));
+    const first = status().textContent;
+    expect(first).toContain("harbor");
+    rerender(ui({ playing: false, index: 600, word: "moved" }));
+    expect(status().textContent).toBe(first);
+  });
+
+  it("announces again after a seek made with the controls", () => {
+    const { rerender } = render(ui({ playing: true }));
+    rerender(ui({ playing: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Forward one sentence" }));
+    rerender(ui({ playing: false, index: 415, word: "after" }));
+    expect(status()).toHaveTextContent('Paused on "after".');
+    expect(status()).toHaveTextContent("word 416 of 1000");
   });
 
   it("keeps the names the e2e flow clicks", () => {

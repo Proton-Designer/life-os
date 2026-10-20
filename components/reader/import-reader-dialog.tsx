@@ -63,7 +63,6 @@ export function ImportReaderDialog({ trigger, initial, defaultOpen = false }: { 
   const droppedFile = initial?.file ?? null;
   useEffect(() => {
     if (droppedFile) pickFile(droppedFile);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per dropped file; pickFile only sets state
   }, [droppedFile]);
 
   useEffect(() => {

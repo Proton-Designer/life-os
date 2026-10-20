@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Minus, Pause, Play, Plus, SkipBack, SkipForward } from "lucide-react";
 import { MAX_WPM, MIN_WPM, WPM_STEP, minutesLeft, percentRead } from "@/lib/reader/rsvp";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ export function ReaderControls({
   playing,
   wpm,
   chapterTitle,
+  word = "",
   onToggle,
   onBack,
   onForward,
@@ -24,6 +26,8 @@ export function ReaderControls({
   playing: boolean;
   wpm: number;
   chapterTitle: string | null;
+  /** The word at the current position; named when the reader stops. */
+  word?: string;
   onToggle: () => void;
   onBack: () => void;
   onForward: () => void;
@@ -34,6 +38,23 @@ export function ReaderControls({
   const left = minutesLeft(totalWords, index, wpm);
   const last = Math.max(0, totalWords - 1);
   const position = `${chapterTitle ? `${chapterTitle}, ` : ""}${pct}%`;
+
+  // What the status region says is frozen at the moment of announcement: on play -> pause, or after a seek made with these
+  // controls. Page view moves the index by itself while you scroll (scroll-follow); that must not re-announce.
+  const place = `Paused on "${word}". ${position} read, word ${Math.min(index, last) + 1} of ${totalWords}.`;
+  const [said, setSaid] = useState("");
+  const [armed, setArmed] = useState(false);
+  const [seen, setSeen] = useState({ playing, index });
+  if (seen.playing !== playing || seen.index !== index) {
+    setSeen({ playing, index });
+    if (playing) {
+      setSaid("");
+      setArmed(false);
+    } else if (seen.playing || armed) {
+      setSaid(place);
+      setArmed(false);
+    }
+  }
   return (
     <div
       data-testid="reader-controls"
@@ -48,14 +69,17 @@ export function ReaderControls({
           value={Math.min(index, last)}
           aria-label="Position in book"
           aria-valuetext={position}
-          onChange={(e) => onSeek(Number(e.target.value))}
+          onChange={(e) => {
+            setArmed(true);
+            onSeek(Number(e.target.value));
+          }}
           className="h-8 w-full cursor-pointer accent-[var(--reader-focal)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]"
         />
         <div className="flex items-center justify-between gap-3 text-xs text-[var(--reader-muted)]">
           {/* Polite status that is silent while reading and speaks the place when the reader stops or jumps: a live region
               that changed with every word would drown the narrator. */}
           <span role="status" className="sr-only" data-testid="reader-status">
-            {playing ? "" : `Paused. ${position} read, word ${Math.min(index, last) + 1} of ${totalWords}.`}
+            {said}
           </span>
           <span data-testid="reader-progress">
             {pct}% · {left === 0 ? "finished" : `~${left} min left`}
@@ -66,7 +90,11 @@ export function ReaderControls({
 
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <button type="button" aria-label="Back one sentence" onClick={onBack} className={cn(READER_BTN, "size-12")}>
+          <button type="button" aria-label="Back one sentence" onClick={() => {
+              setArmed(true);
+              onBack();
+            }}
+            className={cn(READER_BTN, "size-12")}>
             <SkipBack aria-hidden className="size-5" />
           </button>
           <button
@@ -77,7 +105,11 @@ export function ReaderControls({
           >
             {playing ? <Pause aria-hidden className="size-7" /> : <Play aria-hidden className="size-7" />}
           </button>
-          <button type="button" aria-label="Forward one sentence" onClick={onForward} className={cn(READER_BTN, "size-12")}>
+          <button type="button" aria-label="Forward one sentence" onClick={() => {
+              setArmed(true);
+              onForward();
+            }}
+            className={cn(READER_BTN, "size-12")}>
             <SkipForward aria-hidden className="size-5" />
           </button>
         </div>

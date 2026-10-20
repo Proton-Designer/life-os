@@ -443,6 +443,7 @@ function ReaderSession({
         playing={listenMode ? narrating : playing}
         wpm={player.wpm}
         chapterTitle={chapterIdx >= 0 ? doc.chapters[chapterIdx].title : null}
+        word={word}
         onToggle={togglePlay}
         onBack={player.backSentence}
         onForward={player.forwardSentence}
