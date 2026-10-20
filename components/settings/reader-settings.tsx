@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { updateReaderSettings } from "@/app/(app)/personal/reader-actions";
 import { MAX_WPM, MIN_WPM } from "@/lib/reader/rsvp";
@@ -61,6 +62,13 @@ export function ReaderSettings({ initial }: { initial: ReaderSettingsValues }) {
           <input type="text" inputMode="numeric" value={goal} onChange={(e) => setGoal(e.target.value)} aria-label="Daily reading goal in words" className="h-9 w-32 rounded-md border bg-background px-2" />
         </label>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Not sure what speed suits you?{" "}
+        <Link href="/read/speed-test" className="underline underline-offset-2" data-testid="settings-speed-test-link">
+          Take the two-minute reading speed test
+        </Link>
+        . It checks understanding too, because speed without it isn&apos;t the goal.
+      </p>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={focal} onChange={(e) => setFocal(e.target.checked)} aria-label="Highlight the focal letter" />
         Highlight the focal letter in speed-reading mode

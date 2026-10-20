@@ -118,6 +118,9 @@ export async function SelfMasteryLibrary() {
           <div className="flex items-center gap-2">
             <GlobalHighlightsDialog />
             <ImportReaderDialog />
+            <Link href="/read/speed-test" className="hidden text-xs text-muted-foreground underline-offset-2 hover:underline sm:inline" data-testid="speed-test-link">
+              Test my reading speed
+            </Link>
             {books.length > 0 && canUpload ? <UploadBookDialog /> : null}
             <WidgetManagerButton domainKey="self_mastery" />
           </div>

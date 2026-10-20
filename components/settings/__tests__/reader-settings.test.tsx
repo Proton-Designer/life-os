@@ -22,6 +22,11 @@ describe("parseWholeNumber", () => {
 });
 
 describe("ReaderSettings", () => {
+  it("links to the reading speed test", () => {
+    render(<ReaderSettings initial={initial} />);
+    expect(screen.getByTestId("settings-speed-test-link")).toHaveAttribute("href", "/read/speed-test");
+  });
+
   it("saves the three values in one patch, blank goal as null", async () => {
     render(<ReaderSettings initial={initial} />);
     fireEvent.change(screen.getByLabelText("Reading speed in words per minute"), { target: { value: "450" } });
