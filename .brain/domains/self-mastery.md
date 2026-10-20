@@ -71,6 +71,16 @@ Library reads `books`/`cards`/`card_states`, joined in memory for per-book progr
 - Migration 115's `personal_growth` flatten **silently broke** Self-Mastery nav in production (200-with-redirect, nothing errored) until `lib/shell/nav-domain-state.ts` synthesized the three personal areas from flat keys — that fallback is live code, not dead code.
 - `lib/self-mastery/untyped-from.ts`'s header comment is confirmed stale (books/lessons/cards ARE now in the generated DB type) — tracked in `docs/ai-connector/KNOWN-STALE-COMMENTS.md`, left as low-priority cleanup.
 
+## Focus reader (2026-10-19)
+
+Every library book is readable in a focus reader (RSVP / page / listen) **independent of LLM ingestion** — reader imports never go through `prepareBookUpload`'s driver-heartbeat + AI-key gate. Design: `.claude/overnight/run-20261019-2250/DESIGN.md`.
+
+- **Data (migration 268):** `books.reader_*` columns (status none/preparing/ready/failed, word count, source, source url, error, doc version) and `ingestion_mode='reader'` (reader-only book: status `ready`, no lessons, no `ingestion_jobs`); `reader_positions` (one bookmark per user+book, written only through the `reader_save_position()` RPC — newest `client_updated_at` wins), `reader_highlights`, `reader_sessions`; `user_settings.reader_*` prefs. All composite-tenancy-FK'd to `books(user_id,id)`, RLS own-row.
+- **Document:** one `ReaderDoc` JSON (`lib/reader/types.ts`) in the private `books` bucket at `<uid>/<bookId>/reader-v1.json`. Position = global word index from the ONE tokenizer `lib/reader/tokenize.ts`; changing it invalidates every stored position, so bump `READER_DOC_VERSION`. `source_chunks.text` is NOT reading text (3000-token overlapping LLM chunks) — never reuse it.
+- **Import pipeline (`lib/reader/import/`, pure, no DB):** `importFile` (pdf via `lib/self-mastery/ingestion/pdf.ts`/unpdf, epub via fflate + OPF/nav/NCX + linkedom, txt, md, html via Readability), `importPaste`, `importUrl`. `cleanup.ts` strips running headers/footers (a line repeated modulo digits at the top/bottom 2 lines of >=30% of pages) and bare page numbers, de-hyphenates, joins wrapped lines. Failures are always `ReaderImportError(code)` with a human message (`no_text` = scanned PDF, OCR unsupported).
+- **URL import SSRF guard (`url.ts`):** the address check runs inside the socket's DNS `lookup` (the checked IP is the connected IP — no DNS-rebinding gap) and on literal IPs; redirects re-checked, max 3; 15 s; 5 MB. `isBlockedAddress` covers loopback/private/link-local/metadata/CGNAT/multicast/v4-mapped v6.
+- **Gotchas:** Server Actions cap bodies at 1 MB (no `bodySizeLimit`) — raw source files go via signed upload to Storage, never through an action. `getDocumentProxy` transfers its buffer, so `importPdf` hands pdf.js a copy.
+
 ## Not covered here
 
 - School's tracker (unconnected) → `domain.school`
