@@ -121,6 +121,23 @@ test("Paste: pasted text opens in the reader", async ({ page }) => {
     await page.reload();
     return wordsToday();
   }, { timeout: 20_000 }).toBeGreaterThan(before);
+
+  // Library: rename it (title keeps the "E2E Reader" prefix so cleanup still finds it).
+  await page.goto("/self-mastery");
+  await page.getByRole("button", { name: "Rename E2E Reader Paste" }).first().click();
+  await page.getByLabel("Title").fill("E2E Reader Paste Renamed");
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Rename E2E Reader Paste Renamed" }).first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Rename E2E Reader Paste Renamed" }).first()).toBeVisible();
+});
+
+test("Library: Try the reader opens the sample book", async ({ page }) => {
+  await page.goto("/self-mastery");
+  await page.getByRole("link", { name: "Try the reader" }).first().click();
+  await page.waitForURL(/\/read\/sample$/);
+  await expect(page.getByTestId("rsvp-view")).toBeVisible();
 });
 
 test("Scanned PDF: typed error, no book created", async ({ page }) => {
