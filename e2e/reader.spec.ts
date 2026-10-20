@@ -60,6 +60,12 @@ test("EPUB: import, read in RSVP, change speed, step back, position survives rel
   await expect.poll(() => wordIndex(page)).toBeLessThan(played);
   const target = await wordIndex(page);
 
+  // Highlight the current sentence; it must come back after the reload.
+  const saved = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/read/") && r.ok());
+  await page.getByRole("button", { name: "Highlight this sentence" }).click();
+  await saved;
+  await expect(page.getByRole("button", { name: "Highlights (1)" })).toBeVisible();
+
   // Server copy: wait for the debounced beacon, then drop local storage so the
   // reload has to come back from the server's bookmark.
   await page.waitForResponse(
@@ -71,6 +77,9 @@ test("EPUB: import, read in RSVP, change speed, step back, position survives rel
   await expect(page.getByTestId("rsvp-view")).toBeVisible({ timeout: 60_000 });
   await expect.poll(() => wordIndex(page)).toBe(target);
   await expect(page.getByTestId("reader-wpm")).toHaveText(wpmAfter);
+  await page.getByRole("button", { name: "Highlights (1)" }).click();
+  await expect(page.getByTestId("highlight-list").locator("li")).toHaveCount(1);
+  await expect(page.getByTestId("highlight-list")).toContainText("The First Habit");
 });
 
 test("Paste: pasted text opens in the reader", async ({ page }) => {
