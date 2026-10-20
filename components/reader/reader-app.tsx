@@ -360,11 +360,11 @@ function ReaderSession({
     >
       <header className="flex items-center gap-2 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
         <Link href={backHref} aria-label="Back to library" className={cn(READER_BTN, "size-11")}>
-          <ChevronLeft className="size-5" />
+          <ChevronLeft aria-hidden className="size-5" />
         </Link>
         <h1 className="min-w-0 flex-1 truncate px-1 text-sm font-medium">{doc.title}</h1>
         <button type="button" aria-label="Highlight this sentence" onClick={highlightSentence} className={cn(READER_BTN, "size-11")}>
-          <Highlighter className="size-5" />
+          <Highlighter aria-hidden className="size-5" />
         </button>
         {narration.supported ? (
           <button
@@ -374,7 +374,7 @@ function ReaderSession({
             onClick={toggleListenMode}
             className={cn(READER_BTN, "size-11", listenMode && "border-[var(--reader-focal)] text-[var(--reader-focal)]")}
           >
-            <Headphones className="size-5" />
+            <Headphones aria-hidden className="size-5" />
           </button>
         ) : null}
         <div role="group" aria-label="View" className="flex rounded-full border border-[var(--reader-border)] bg-[var(--reader-surface)] p-0.5 text-sm">
@@ -384,7 +384,7 @@ function ReaderSession({
               type="button"
               aria-pressed={mode === m}
               onClick={() => changeMode(m)}
-              className={cn("min-h-10 rounded-full px-3", mode === m ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]" : "text-[var(--reader-muted)]")}
+              className={cn("min-h-10 rounded-full px-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]", mode === m ? "bg-[var(--reader-fg)] text-[var(--reader-bg)]" : "text-[var(--reader-muted)]")}
             >
               {m === "rsvp" ? "Fast" : "Page"}
             </button>
@@ -392,18 +392,18 @@ function ReaderSession({
         </div>
         {doc.chapters.length > 1 ? (
           <button type="button" aria-label="Chapters" onClick={() => setChaptersOpen(true)} className={cn(READER_BTN, "size-11")}>
-            <List className="size-5" />
+            <List aria-hidden className="size-5" />
           </button>
         ) : null}
         <button type="button" aria-label="Reader settings" onClick={() => setSettingsOpen(true)} className={cn(READER_BTN, "size-11")}>
-          <Settings2 className="size-5" />
+          <Settings2 aria-hidden className="size-5" />
         </button>
       </header>
 
       {stats || highlights.length > 0 ? (
         <div className="flex items-center justify-between gap-3 px-4 pb-1 text-xs text-[var(--reader-muted)]">
           {stats ? (
-            <button type="button" aria-label={statsLabel(stats)} onClick={() => setStatsOpen(true)} className="flex min-h-9 items-center gap-2" data-testid="stats-bar">
+            <button type="button" aria-label={statsLabel(stats)} onClick={() => setStatsOpen(true)} className="flex min-h-9 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]" data-testid="stats-bar">
               <GoalRing stats={stats} className="size-5" />
               <span className="tabular-nums">
                 {stats.todayWords.toLocaleString()}
@@ -415,7 +415,7 @@ function ReaderSession({
             <span />
           )}
           {highlights.length > 0 ? (
-            <button type="button" onClick={() => setHighlightsOpen(true)} className="min-h-9">
+            <button type="button" onClick={() => setHighlightsOpen(true)} className="min-h-9 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--reader-focal)]">
               Highlights ({highlights.length})
             </button>
           ) : null}
