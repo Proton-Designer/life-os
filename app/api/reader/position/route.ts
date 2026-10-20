@@ -23,11 +23,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, message: "Cross-site request refused." }, { status: 403 });
   }
 
+  // Fetch metadata is set by the browser and can't be forged by page script: refuse anything that isn't ours.
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") {
+    return NextResponse.json({ ok: false, message: "Cross-site request refused." }, { status: 403 });
+  }
+  // Refuse on the declared length before reading anything; the byte count after the read still decides.
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return NextResponse.json({ ok: false, message: "Request too large." }, { status: 413 });
+  }
+
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ ok: false, message: "Not signed in." }, { status: 401 });
 
   const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return NextResponse.json({ ok: false, message: "Request too large." }, { status: 413 });
+  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) return NextResponse.json({ ok: false, message: "Request too large." }, { status: 413 });
   let body: unknown;
   try {
     body = JSON.parse(text);

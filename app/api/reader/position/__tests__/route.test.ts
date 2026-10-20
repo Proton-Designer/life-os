@@ -39,4 +39,21 @@ describe("POST /api/reader/position", () => {
     saveCore.mockResolvedValue({ ok: false, message: "bad" });
     expect((await POST(req(JSON.stringify(BODY)))).status).toBe(400);
   });
+  it("403 when Sec-Fetch-Site says cross-site or same-site; same-origin and none (typed URL, PWA launch) pass", async () => {
+    for (const site of ["cross-site", "same-site"]) {
+      expect((await POST(req(JSON.stringify(BODY), { "sec-fetch-site": site }))).status, site).toBe(403);
+    }
+    expect(saveCore).not.toHaveBeenCalled();
+    for (const site of ["same-origin", "none"]) {
+      expect((await POST(req(JSON.stringify(BODY), { "sec-fetch-site": site }))).status, site).toBe(200);
+    }
+  });
+  it("413 on a declared Content-Length over the cap, before the body is read or the user looked up", async () => {
+    const res = await POST(req(JSON.stringify(BODY), { "content-length": "999999" }));
+    expect(res.status).toBe(413);
+    expect(authed).not.toHaveBeenCalled();
+  });
+  it("counts bytes, not characters: 1100 two-byte characters is over the 2048-byte cap", async () => {
+    expect((await POST(req("\u00e9".repeat(1100)))).status).toBe(413);
+  });
 });

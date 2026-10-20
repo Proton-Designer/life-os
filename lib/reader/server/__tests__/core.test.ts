@@ -321,6 +321,14 @@ describe("highlights", () => {
     expect(list.ok && list.highlights.map((h) => h.bookTitle)).toEqual(["Book A"]);
   });
 
+  it("an existing duplicate pair does not break a later save: the oldest is returned, nothing new is inserted", async () => {
+    const row = (id: string, created_at: string) => ({ id, user_id: ME, book_id: BOOK, start_word: 5, end_word: 9, text: "five whole words right here", note: null, created_at });
+    fake.seed("reader_highlights", [row("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "2026-10-19T10:00:00Z"), row("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "2026-10-19T11:00:00Z")]);
+    const r = await createHighlightCore(db(), ME, hl());
+    expect(r.ok && r.highlight.id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(fake.tables.reader_highlights).toHaveLength(2);
+  });
+
   it("global list spans books, newest first, with titles", async () => {
     await createHighlightCore(db(), ME, hl());
     await createHighlightCore(db(), ME, hl({ bookId: "44444444-4444-4444-8444-444444444444", startWord: 1, endWord: 2 }));

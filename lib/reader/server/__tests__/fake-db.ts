@@ -163,6 +163,8 @@ class Query implements PromiseLike<{ data: unknown; error: unknown }> {
     }
     out = out.slice(this.rangeFrom, this.rangeFrom + this.max);
     if (one) {
+      // PostgREST: maybeSingle() with 2+ rows is an error too (only 0 rows is allowed to be null).
+      if (out.length > 1) return { data: null, error: { message: "multiple rows returned" } };
       if (strict && out.length !== 1) return { data: null, error: { message: "expected one row" } };
       return { data: out[0] ?? null, error: null };
     }

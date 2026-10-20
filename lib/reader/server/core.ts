@@ -515,14 +515,17 @@ export async function createHighlightCore(db: Db, userId: string, raw: unknown):
       throw new ReaderInputError("That highlight is outside the book.");
     }
     // The same passage highlighted twice (double-tap, retry) returns the existing one instead of stacking.
-    const { data: dupe } = await db
+    // .limit(1), not .maybeSingle(): if a duplicate pair ever exists (no unique index), maybeSingle would error on it.
+    const { data: dupes } = await db
       .from("reader_highlights")
       .select("id, book_id, start_word, end_word, text, note, created_at")
       .eq("user_id", userId)
       .eq("book_id", h.bookId)
       .eq("start_word", h.startWord)
       .eq("end_word", h.endWord)
-      .maybeSingle();
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const dupe = dupes?.[0];
     if (dupe) return { ok: true, highlight: toHighlight(dupe) } as const;
     const { data, error } = await db
       .from("reader_highlights")
