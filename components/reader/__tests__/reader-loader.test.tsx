@@ -75,6 +75,16 @@ describe("ReaderLoader", () => {
     expect(sessionSubmit).toHaveBeenCalledTimes(calls);
   });
 
+  it("shows the book's current name, not the title frozen in the stored document (a renamed book)", async () => {
+    loadDoc.mockResolvedValue({ ok: true, doc: { ...SAMPLE_DOC, title: "Old frozen title" }, fromCache: true });
+    const { rerender } = render(<ReaderLoader {...base} title="Renamed" />);
+    await waitFor(() => expect(screen.getByTestId("reader-root")).toBeInTheDocument());
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Renamed");
+    expect(screen.queryByText("Old frozen title")).toBeNull(); // positive control: the frozen title really was different
+    rerender(<ReaderLoader {...base} title="Renamed again" />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Renamed again");
+  });
+
   it("builds a never-opened book first (\"Preparing for reading…\") and refreshes when ready", async () => {
     let finish!: (v: unknown) => void;
     prepare.mockReturnValue(new Promise((r) => (finish = r)));

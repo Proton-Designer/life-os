@@ -165,11 +165,15 @@ export function ReaderLoader(props: ReaderLoaderProps) {
     }
   }, []);
 
-  if (phase.kind === "ready") {
+  // The stored document carries the title it was built with; a rename changes books.title only, so the database name wins.
+  const readyDoc = phase.kind === "ready" ? phase.doc : null;
+  const shownDoc = useMemo(() => (readyDoc && readyDoc.title !== props.title ? { ...readyDoc, title: props.title } : readyDoc), [readyDoc, props.title]);
+
+  if (phase.kind === "ready" && shownDoc) {
     return (
       <ReaderApp
         bookId={bookId}
-        doc={phase.doc}
+        doc={shownDoc}
         backHref={props.backHref}
         serverPosition={props.position ? { index: props.position.wordIndex, updatedAt: Date.parse(props.position.clientUpdatedAt) || 0 } : null}
         serverSettings={props.settings}
