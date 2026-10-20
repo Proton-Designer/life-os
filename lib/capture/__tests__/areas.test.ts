@@ -31,9 +31,9 @@ describe("captureAreaOptions", () => {
     }
   });
 
-  it("isCaptureArea accepts exactly the three values", () => {
-    expect(["school", "co_op", "none"].every(isCaptureArea)).toBe(true);
-    for (const bad of ["business", "faith", "", undefined, null, 1]) expect(isCaptureArea(bad)).toBe(false);
+  it("isCaptureArea accepts exactly the four values", () => {
+    expect(["school", "co_op", "business", "none"].every(isCaptureArea)).toBe(true);
+    for (const bad of ["faith", "", undefined, null, 1]) expect(isCaptureArea(bad)).toBe(false);
   });
 });
 
@@ -53,8 +53,8 @@ describe("defaultCaptureArea", () => {
     ["/school/classes", "school"],
     ["/work/job", "co_op"],
     ["/work", "co_op"],
-    ["/work/my%20shop", "none"], // a Business tab (URL-encoded key): no task home, so it asks via the Inbox default
-    ["/business", "none"],
+    ["/work/my%20shop", "business"], // a Business tab (URL-encoded key): its home is the Kill List
+    ["/business", "business"],
     ["/", "none"],
     ["/fitness", "none"],
     ["/personal/faith", "none"],
@@ -69,5 +69,17 @@ describe("defaultCaptureArea", () => {
 
   it("a malformed % escape in the path does not throw", () => {
     expect(defaultCaptureArea("/work/%E0%A4%A", cfg)).toBe("co_op");
+  });
+});
+
+describe("buildCaptureAreaConfig offers Business only with a Kill List", () => {
+  it("legacy accounts and accounts with a Business Work tab get it, just before 'No area'", () => {
+    expect(values(buildCaptureAreaConfig("legacy", null).options)).toEqual(["school", "co_op", "business", "none"]);
+    const withShop = nav({ hasSchool: true, hasWork: true, workSubdomains: [{ key: "shop", label: "Shop", kind: "business" }] });
+    expect(values(buildCaptureAreaConfig("domains", withShop).options)).toEqual(["school", "business", "none"]);
+  });
+  it("an account with no Business tab is not offered it (positive control: captureAreaOptions never lists it)", () => {
+    expect(values(buildCaptureAreaConfig("domains", nav({ hasSchool: true })).options)).toEqual(["school", "none"]);
+    expect(values(captureAreaOptions("legacy", null))).not.toContain("business");
   });
 });

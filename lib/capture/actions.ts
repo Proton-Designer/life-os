@@ -3,10 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
-import { addTaskCore } from "@/lib/tasks/actions-core";
 import { createTriggerAndLog } from "@/app/(app)/distractions/actions";
 import type { DistractionDomain } from "@/lib/distractions/types";
 import { isCaptureArea, type CaptureArea } from "@/lib/capture/areas";
+import { captureAreaTaskCore } from "@/lib/capture/capture-task-core";
+import { getTaskDay } from "@/lib/day-structure/task-day";
+import { loadHasKillList } from "@/lib/inbox/close-inbox";
 
 // Global capture (BOSS-VISION §5) persists through EXISTING actions/tables only — no new
 // table, no new domain value invented here. Each function below is a thin router to one of
@@ -19,8 +21,10 @@ async function todayForCapture(): Promise<string> {
 }
 
 /**
- * Task capture (IA-P1a): the caller picks the AREA — "school" / "co_op" go to `addTaskCore`
- * (`tasks.domain` is CHECK-constrained to those two); "none" is the Inbox: a `domain: null`,
+ * Task capture (IA-P1a): the caller picks the AREA — "school" / "co_op" / "business" become a line on today's plan
+ * that also lands where the area keeps its tasks (capture-task-core.ts: School list, Work Backlog, Kill List), unless the
+ * task carries another date (then School/Work stay plain dated tasks and Business goes to the Inbox with its date);
+ * "none" is the Inbox: a `domain: null`,
  * `dump_source: 'capture'` row via `captureDump`, triaged in the evening close. `area` is
  * validated here (a Server Action input is untrusted) and never defaulted: a missing or
  * unknown area throws rather than quietly filing the task under School again. Deliberately
@@ -46,13 +50,21 @@ export async function captureTask(input: {
     return;
   }
   const { supabase, userId } = await requireUser();
-  await addTaskCore(supabase, userId, {
-    domain: input.area,
-    title: input.title,
-    ...(input.dueDate ? { dueDate: input.dueDate } : {}),
-    ...(input.dueTime ? { dueTime: input.dueTime } : {}),
-  });
+  const profile = await getProfile();
+  const planDay = await getTaskDay(supabase, userId, new Date(), profile?.timezone ?? "UTC");
+  const killListAvailable = input.area === "business" ? await loadHasKillList() : false;
+  if (input.area === "business" && !killListAvailable) throw new Error("This account has no Business Kill List");
+  const res = await captureAreaTaskCore(supabase, userId, planDay, { title: input.title, area: input.area, dueDate: input.dueDate, dueTime: input.dueTime }, { killListAvailable });
+  if (res.kind === "inbox-dated") {
+    await captureDump({ title: input.title, source: "capture", dueDate: input.dueDate ?? null, dueTime: input.dueTime ?? null });
+    return;
+  }
   revalidatePath("/");
+  if (res.kind === "planned") {
+    if (input.area === "business") revalidatePath("/business");
+    if (input.area === "school") revalidatePath("/school", "layout");
+    if (input.area === "co_op") revalidatePath("/work", "layout");
+  }
 }
 
 /**

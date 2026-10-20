@@ -135,6 +135,19 @@ describe("ClosePlanStage — Add (PERF-4)", () => {
     expect(screen.getByLabelText("Dump a line")).toHaveValue("Call the bank");
   });
 
+  it("a new line goes on TOP of the list (its domain/time/timer are set next, so it must not sit below the fold), and is first in the saved order", async () => {
+    dumpLineMock.mockResolvedValue({ id: "new-id" });
+    const user = userEvent.setup();
+    render(<ClosePlanStage initialLines={[{ id: "a", title: "Old one" }, { id: "b", title: "Old two" }]} mode="today" />);
+    await user.type(screen.getByLabelText("Dump a line"), "Fresh task{Enter}");
+    await screen.findByText("Fresh task");
+    const removeOrder = screen.getAllByRole("button", { name: /^Remove / }).map((b) => b.getAttribute("aria-label"));
+    expect(removeOrder).toEqual(["Remove Fresh task", "Remove Old one", "Remove Old two"]);
+    await user.click(screen.getByRole("button", { name: /Save plan/ }));
+    const call = commitPlanMock.mock.calls[0]![0] as { lines: { id: string; order: number }[] };
+    expect(call.lines.map((l) => [l.id, l.order])).toEqual([["new-id", 0], ["a", 1], ["b", 2]]);
+  });
+
   it("three quick lines run in order and schedule ONE deferred refresh", async () => {
     dumpLineMock.mockImplementation(async (title) => ({ id: `id-${title}` }));
     const user = userEvent.setup();

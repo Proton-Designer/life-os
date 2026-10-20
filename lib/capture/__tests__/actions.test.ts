@@ -57,11 +57,6 @@ describe("capture actions", () => {
       expect(call).not.toHaveProperty("taskType");
     });
 
-    it("omits dueDate entirely when nothing resolved, rather than fabricating today as a deadline", async () => {
-      await captureTask({ area: "school", title: "Buy notebook", dueDate: null });
-      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "school", title: "Buy notebook" });
-    });
-
     // #30/#31: a spoken time ("...at 5pm") reached this action's `dueTime` param but was
     // never forwarded to addTaskCore — the task landed with due_time null, so
     // get-day-shape's timeline, calendar's timed-block bucket, and get-priority-items'
@@ -76,18 +71,12 @@ describe("capture actions", () => {
         dueTime: "17:00",
       });
     });
-
-    it("omits dueTime entirely when nothing resolved, rather than fabricating midnight", async () => {
-      await captureTask({ area: "school", title: "Buy notebook", dueDate: null, dueTime: null });
-      const call = addTaskCoreMock.mock.calls[0]![2] as Record<string, unknown>;
-      expect(call).not.toHaveProperty("dueTime");
-    });
   });
 
   describe("captureTask area (IA-P1a)", () => {
-    it("co_op reaches addTaskCore as domain co_op", async () => {
-      await captureTask({ title: "Ship the report", area: "co_op" });
-      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "co_op", title: "Ship the report" });
+    it("co_op a dated task reaches addTaskCore as domain co_op", async () => {
+      await captureTask({ title: "Ship the report", area: "co_op", dueDate: "2026-09-05" });
+      expect(addTaskCoreMock).toHaveBeenCalledWith(expect.anything(), "user-1", { domain: "co_op", title: "Ship the report", dueDate: "2026-09-05" });
     });
 
     it("'none' is the Inbox: a domain-null dump_source 'capture' row carrying the parsed date/time, never addTaskCore", async () => {
@@ -100,7 +89,7 @@ describe("capture actions", () => {
 
     it("rejects a missing or unknown area instead of quietly filing under School", async () => {
       await expect(captureTask({ title: "x", area: undefined as never })).rejects.toThrow(/area/i);
-      await expect(captureTask({ title: "x", area: "business" as never })).rejects.toThrow(/area/i);
+      await expect(captureTask({ title: "x", area: "faith" as never })).rejects.toThrow(/area/i);
       expect(addTaskCoreMock).not.toHaveBeenCalled();
     });
   });

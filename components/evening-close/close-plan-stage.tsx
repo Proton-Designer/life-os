@@ -205,7 +205,8 @@ export function ClosePlanStage({
           return;
         }
         markDirty();
-        setLines((prev) => [...prev, { id: res.id, title, draft: EMPTY_PLAN_DRAFT }]);
+        // A new line goes on TOP: it is the one whose domain / time / timer still need setting, so it must not sit below the fold.
+        setLines((prev) => [{ id: res.id, title, draft: EMPTY_PLAN_DRAFT }, ...prev]);
       })
       .catch(() => {
         setError("Couldn't add that line. Try again.");
