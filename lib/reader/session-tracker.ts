@@ -2,7 +2,8 @@ import type { ReaderMode } from "./reader-storage";
 
 // Turns position changes into reading sessions (DESIGN §6). Pure: the clock is injected. A "stretch" is a run of forward
 // progress in one mode; it closes on a mode change, an idle gap, or when the caller takes it (pause / hide / close).
-// Big jumps (scrubber, chapter, tap far away) and going backwards are navigation, not reading, so they add no words.
+// Big jumps (scrubber, chapter, tap far away), going backwards, re-reading ground already covered, and moves faster than
+// anyone can read (key mashing, fast scrubbing) are navigation, not reading, so they add no words.
 
 export interface ReadingStretch {
   startedAt: number;
@@ -20,6 +21,10 @@ export const MAX_READING_JUMP = 120;
 export const IDLE_GAP_MS = 2 * 60 * 1000;
 /** A stretch this old is handed over so a hard close loses at most about a minute. */
 export const FLUSH_AFTER_MS = 60 * 1000;
+/** No one reads faster than this; anything quicker is skimming a scrubber or holding a key. */
+export const MAX_CREDIT_WPM = 1500;
+/** Words always allowed per step so a single quick tap after a short gap is not rejected. */
+const STEP_SLACK_WORDS = 3;
 const MIN_STRETCH_MS_FOR_WPM = 5000;
 
 export interface SessionTracker {
@@ -36,6 +41,8 @@ export function createSessionTracker(now: () => number = Date.now): SessionTrack
   let lastAt = 0;
   let open: { startedAt: number; endedAt: number; words: number; mode: TrackedMode } | null = null;
   const done: ReadingStretch[] = [];
+  /** Furthest word reached this visit: going back and reading forward again re-reads, it is not new reading. */
+  let highWater = -1;
 
   const finish = () => {
     if (!open) return;
@@ -54,12 +61,21 @@ export function createSessionTracker(now: () => number = Date.now): SessionTrack
       const gap = t - lastAt;
       prev = index;
       lastAt = t;
+      const covered = highWater;
+      if (index > highWater) highWater = index;
       if (before === null) return;
       if (open && (open.mode !== mode || gap > IDLE_GAP_MS)) finish();
       const delta = index - before;
       if (delta < 1 || delta > MAX_READING_JUMP) return;
-      if (!open) open = { startedAt: gap <= IDLE_GAP_MS ? t - gap : t, endedAt: t, words: 0, mode };
-      open.words += delta;
+      const fresh = Math.min(delta, index - covered);
+      if (fresh < 1) return;
+      const stepGap = Math.min(gap, IDLE_GAP_MS);
+      if (fresh > Math.max(STEP_SLACK_WORDS, (stepGap * MAX_CREDIT_WPM) / 60000)) return;
+      const startedAt = open ? open.startedAt : gap <= IDLE_GAP_MS ? t - gap : t;
+      // The whole stretch is held to the same ceiling, so many individually plausible steps cannot add up to more.
+      if ((open ? open.words : 0) + fresh > STEP_SLACK_WORDS + ((t - startedAt) * MAX_CREDIT_WPM) / 60000) return;
+      if (!open) open = { startedAt, endedAt: t, words: 0, mode };
+      open.words += fresh;
       open.endedAt = t;
     },
     due() {

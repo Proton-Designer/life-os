@@ -5,16 +5,15 @@ import { DEFAULT_READER_SETTINGS } from "@/lib/reader/types";
 import { resetBodyPinForTests } from "@/lib/client/use-body-pin";
 
 const prepare = vi.fn();
-const updateSettings = vi.fn(async (_patch: unknown) => ({ ok: true }));
+const updateSettings = vi.fn(async (_patch: unknown) => true);
 const refresh = vi.fn();
 vi.mock("@/app/(app)/personal/reader-actions", () => ({
   prepareReaderDoc: (id: string) => prepare(id),
-  updateReaderSettings: (p: unknown) => updateSettings(p),
   getReadingStats: async () => ({ ok: false, message: "n/a" }),
-  recordReaderSession: async () => ({ ok: true }),
   createHighlight: async () => ({ ok: false, message: "n/a" }),
   deleteHighlight: async () => ({ ok: true }),
 }));
+vi.mock("@/lib/reader/unload-beacon", () => ({ sendSettingsBeacon: (p: unknown) => updateSettings(p), sendSessionBeacon: async () => true }));
 const router = { refresh };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const loadDoc = vi.fn();

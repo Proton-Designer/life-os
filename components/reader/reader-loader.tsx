@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { createHighlight, deleteHighlight, getReadingStats, prepareReaderDoc, recordReaderSession, updateReaderSettings } from "@/app/(app)/personal/reader-actions";
+import { createHighlight, deleteHighlight, getReadingStats, prepareReaderDoc } from "@/app/(app)/personal/reader-actions";
 import { indexedDbDocCache, loadReaderDoc } from "@/lib/reader/doc-cache";
 import type { HighlightItem } from "@/lib/reader/highlights";
 import { createPositionSync, sendPositionBeacon } from "@/lib/reader/position-sync";
 import type { ReadingStats } from "@/lib/reader/server/stats";
 import type { ReadingStretch } from "@/lib/reader/session-tracker";
+import { sendSessionBeacon, sendSettingsBeacon } from "@/lib/reader/unload-beacon";
 import { readerThemeVars } from "@/lib/reader/themes";
 import { DEFAULT_READER_SETTINGS, type ReaderDoc, type ReaderSettings } from "@/lib/reader/types";
 import { ReaderApp } from "./reader-app";
@@ -76,7 +77,7 @@ export function ReaderLoader(props: ReaderLoaderProps) {
     const body = pendingSettings.current;
     if (Object.keys(body).length === 0) return;
     pendingSettings.current = {};
-    void updateReaderSettings(body).catch(() => {});
+    void sendSettingsBeacon(body);
   }, []);
   const persistSettings = useCallback(
     (patch: Partial<ReaderSettings>) => {
@@ -121,18 +122,17 @@ export function ReaderLoader(props: ReaderLoaderProps) {
 
   const onSession = useCallback(
     (s: ReadingStretch) => {
-      void recordReaderSession({
+      // A keepalive POST, not a Server Action: the last stretch is sent as the tab closes and an action would be cancelled.
+      void sendSessionBeacon({
         bookId,
         startedAt: new Date(s.startedAt).toISOString(),
         endedAt: new Date(s.endedAt).toISOString(),
         wordsRead: s.wordsRead,
         mode: s.mode,
         avgWpm: s.avgWpm,
-      })
-        .then((r) => {
-          if (r.ok) void refreshStats();
-        })
-        .catch(() => {});
+      }).then((ok) => {
+        if (ok) void refreshStats();
+      });
     },
     [bookId, refreshStats]
   );

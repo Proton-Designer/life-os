@@ -1,3 +1,4 @@
+import { parseStartAt } from "@/lib/reader/start-at";
 import { notFound } from "next/navigation";
 import { ReaderApp } from "@/components/reader/reader-app";
 import { ReaderLoader } from "@/components/reader/reader-loader";
@@ -27,8 +28,7 @@ async function loadReaderPageData(bookId: string): Promise<ReaderPageData | null
 export default async function ReaderPage({ params, searchParams }: { params: Promise<{ bookId: string }>; searchParams: Promise<{ at?: string | string[] }> }) {
   const { bookId } = await params;
   const atParam = (await searchParams).at;
-  const at = Number(Array.isArray(atParam) ? atParam[0] : atParam);
-  const startAt = atParam !== undefined && Number.isInteger(at) && at >= 0 ? at : null;
+  const startAt = parseStartAt(atParam);
   // Same guard as the book pages: a non-uuid reaching the database is a 500, not a 404.
   if (bookId !== SAMPLE_BOOK_ID && !UUID_RE.test(bookId)) notFound();
 

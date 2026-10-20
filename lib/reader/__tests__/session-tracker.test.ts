@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSessionTracker, FLUSH_AFTER_MS, IDLE_GAP_MS, MAX_READING_JUMP } from "../session-tracker";
+import { createSessionTracker, FLUSH_AFTER_MS, IDLE_GAP_MS, MAX_CREDIT_WPM, MAX_READING_JUMP } from "../session-tracker";
 
 function setup() {
   let t = 1_000_000;
@@ -44,11 +44,11 @@ describe("session tracker", () => {
   it("an idle gap closes the stretch and is not counted as reading time", () => {
     const s = setup();
     s.tr.advance(0, "page");
-    s.tick(1000);
+    s.tick(5000);
     s.tr.advance(30, "page");
     s.tick(IDLE_GAP_MS + 1);
     s.tr.advance(60, "page");
-    s.tick(1000);
+    s.tick(5000);
     s.tr.advance(90, "page");
     const out = s.tr.take();
     expect(out).toHaveLength(2);
@@ -77,5 +77,80 @@ describe("session tracker", () => {
     s.tick(FLUSH_AFTER_MS);
     s.tr.advance(2, "rsvp");
     expect(s.tr.due()).toBe(true);
+  });
+  describe("accuracy (R7-F1)", () => {
+    it("a one-second scrub of 1000 words in 100-word steps credits nothing", () => {
+      const s = setup();
+      s.tr.advance(0, "page");
+      for (let i = 1; i <= 10; i++) {
+        s.tick(100);
+        s.tr.advance(i * 100, "page");
+      }
+      expect(s.tr.take()).toEqual([]);
+    });
+    it("50 Left/Right cycles credit at most the one new word", () => {
+      const s = setup();
+      s.tr.advance(10, "rsvp");
+      for (let i = 0; i < 50; i++) {
+        s.tick(150);
+        s.tr.advance(11, "rsvp");
+        s.tick(150);
+        s.tr.advance(10, "rsvp");
+      }
+      const words = s.tr.take().reduce((n, x) => n + x.wordsRead, 0);
+      expect(words).toBeLessThanOrEqual(1);
+    });
+    it("re-reading after Back does not count the same words twice", () => {
+      const s = setup();
+      s.tr.advance(0, "rsvp");
+      for (let i = 1; i <= 40; i++) {
+        s.tick(200);
+        s.tr.advance(i, "rsvp");
+      }
+      for (let i = 39; i >= 20; i--) {
+        s.tick(200);
+        s.tr.advance(i, "rsvp");
+      }
+      for (let i = 21; i <= 50; i++) {
+        s.tick(200);
+        s.tr.advance(i, "rsvp");
+      }
+      expect(s.tr.take().reduce((n, x) => n + x.wordsRead, 0)).toBe(50);
+    });
+    it("holding a key faster than anyone reads is capped by the stretch budget", () => {
+      const s = setup();
+      s.tr.advance(0, "rsvp");
+      for (let i = 1; i <= 300; i++) {
+        s.tick(20); // 3000 wpm
+        s.tr.advance(i, "rsvp");
+      }
+      const [x] = s.tr.take();
+      const seconds = 300 * 0.02;
+      expect(x.wordsRead).toBeLessThanOrEqual(3 + (seconds * MAX_CREDIT_WPM) / 60);
+    });
+    it("normal play at 900 wpm still counts every word", () => {
+      const s = setup();
+      s.tr.advance(0, "rsvp");
+      for (let i = 1; i <= 90; i++) {
+        s.tick(Math.round(60000 / 900));
+        s.tr.advance(i, "rsvp");
+      }
+      expect(s.tr.take()[0].wordsRead).toBe(90);
+    });
+    it("the high-water mark survives take(): pause, jump back, read on credits only new ground", () => {
+      const s = setup();
+      s.tr.advance(0, "page");
+      for (let i = 1; i <= 20; i++) {
+        s.tick(300);
+        s.tr.advance(i, "page");
+      }
+      s.tr.take();
+      s.tr.advance(5, "page"); // anchor after a pause, behind the furthest point
+      for (let i = 6; i <= 25; i++) {
+        s.tick(300);
+        s.tr.advance(i, "page");
+      }
+      expect(s.tr.take()[0].wordsRead).toBe(5); // only 21..25 are new
+    });
   });
 });
