@@ -11,6 +11,11 @@ import { parseUtterance, type ParsedUtterance } from "@/lib/capture/parse-uttera
 import { captureTask, captureDistraction, captureDump } from "@/lib/capture/actions";
 import { defaultCaptureArea, type CaptureArea, type CaptureAreaConfig } from "@/lib/capture/areas";
 import type { DistractionDomain } from "@/lib/distractions/types";
+import { DurationField } from "@/components/plan/duration-field";
+import { QuickTimeField } from "@/components/plan/quick-time-field";
+import { MAX_CRITERIA_LENGTH } from "@/lib/night-plan/plan-details";
+import { formatHHMM12 } from "@/lib/date-utils";
+import { formatDuration } from "@/lib/plan/plan-behavior";
 import { useDictation } from "@/components/shared/use-dictation";
 import { formatHourMinute12, localClockHHMM } from "@/lib/date-utils";
 
@@ -130,6 +135,11 @@ export function CaptureForm({
   const areaConfig = areas ?? LEGACY_AREAS;
   const [area, setArea] = useState<CaptureArea>(() => defaultCaptureArea(pathname, areaConfig));
   const [domain, setDomain] = useState<DistractionDomain>(() => inferDefaultDomain(pathname, deenMode));
+  // The same per-line details Edit Plan has (start time, timer, criteria); all optional, for a Task on today's plan.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [startTime, setStartTime] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
+  const [criteria, setCriteria] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // P2-16 extracted this into a shared hook (components/shared/use-dictation.ts)
@@ -143,6 +153,13 @@ export function CaptureForm({
   );
   const ambiguous = text.trim().length === 0 || parsed.title.trim().length === 0;
   const whenLabel = formatParsedWhen(parsed, todayStr);
+  // Time, timer and criteria belong to a line on today's plan; a Task dated for another day keeps its own date instead.
+  const detailsApply = parsed.date == null || parsed.date === todayStr;
+  const detailsSummary = [
+    startTime ? formatHHMM12(startTime) : null,
+    durationMinutes !== null ? formatDuration(durationMinutes) : null,
+    criteria.trim() ? "Criteria" : null,
+  ].filter(Boolean) as string[];
 
   async function handleConfirm() {
     if (ambiguous || submitting) return;
@@ -155,6 +172,9 @@ export function CaptureForm({
           area,
           dueDate: parsed.date,
           dueTime: parsed.time ? formatParsedTime(parsed.time) : null,
+          ...(detailsApply && (startTime || durationMinutes !== null || criteria.trim())
+            ? { details: { startTime: startTime || null, durationMinutes, criteria: criteria.trim() || null } }
+            : {}),
         });
       } else if (captureType === "distraction") {
         await captureDistraction({ title: parsed.title, domain });
@@ -253,6 +273,47 @@ export function CaptureForm({
                 {o.label}
               </button>
             ))}
+          </div>
+        )}
+        {captureType === "task" && detailsApply && (
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((o) => !o)}
+              aria-expanded={detailsOpen}
+              data-testid="capture-details-toggle"
+              className="min-h-8 self-start rounded-md border border-dashed px-2.5 text-xs text-muted-foreground aria-expanded:border-primary aria-expanded:text-primary"
+            >
+              {detailsSummary.length > 0 ? detailsSummary.join(" · ") : "Add start time, timer or criteria"}
+            </button>
+            {detailsOpen && (
+              <div className="space-y-3 rounded-md bg-muted/40 p-3" data-testid="capture-details" role="group" aria-label="Task details">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Start time (optional)</p>
+                  <QuickTimeField value={startTime} onChange={setStartTime} timezone={timezone} relativeToNow />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">Timer (optional)</p>
+                  <DurationField value={durationMinutes} onChange={setDurationMinutes} />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="capture-criteria" className="text-xs font-medium text-muted-foreground">
+                    Criteria (optional)
+                  </label>
+                  <textarea
+                    id="capture-criteria"
+                    value={criteria}
+                    onChange={(e) => setCriteria(e.target.value)}
+                    maxLength={MAX_CRITERIA_LENGTH}
+                    rows={3}
+                    placeholder="What has to be true for this to count as done?"
+                    data-testid="capture-criteria"
+                    className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm"
+                  />
+                </div>
+                {area === "none" && <p className="text-xs text-muted-foreground">With no area, this goes on today&apos;s plan instead of the Inbox.</p>}
+              </div>
+            )}
           </div>
         )}
         {captureType === "distraction" && (

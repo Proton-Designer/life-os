@@ -192,6 +192,18 @@ describe("GlobalCaptureSheet", () => {
       expect(captureTaskMock).toHaveBeenCalledWith({ title: "Send invoice", area: "co_op", dueDate: null, dueTime: null });
     });
 
+    it("start time, timer and criteria set on the sheet reach captureTask as details", async () => {
+      pathname = "/school";
+      const user = await addTask(domainsAreas);
+      await user.type(screen.getByLabelText("Capture input"), "Lab report");
+      await user.click(screen.getByTestId("capture-details-toggle"));
+      await user.type(screen.getByTestId("capture-criteria"), "Methods done");
+      await user.click(screen.getByRole("button", { name: "Confirm" }));
+      expect(captureTaskMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Lab report", area: "school", details: { startTime: null, durationMinutes: null, criteria: "Methods done" } }),
+      );
+    });
+
     it("never offers a faith/Faith area (tasks have no such home)", async () => {
       await addTask(domainsAreas);
       expect(screen.queryByRole("radio", { name: /faith|deen/i })).toBeNull();

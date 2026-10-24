@@ -93,3 +93,30 @@ describe("captureAreaTaskCore: failures leave nothing half-made", () => {
     expect(deleted).toEqual([]);
   });
 });
+
+describe("captureAreaTaskCore: start time, timer and criteria from the + sheet", () => {
+  it("carry onto the plan line like Edit Plan's; an explicit start time wins over one parsed from the title", async () => {
+    await run({ title: "Lab report", area: "school", dueTime: "17:00", details: { startTime: "09:30", durationMinutes: 90, criteria: "  Intro + methods done  " } });
+    expect(appliedLine()).toMatchObject({ area: "school", startTime: "09:30", durationMinutes: 90, criteria: "Intro + methods done" });
+  });
+
+  it("a parsed time still applies when no start time was set", async () => {
+    await run({ title: "Lab report", area: "school", dueTime: "17:00", details: { durationMinutes: 30 } });
+    expect(appliedLine()).toMatchObject({ startTime: "17:00", durationMinutes: 30, criteria: null });
+  });
+
+  it("Business keeps its Kill List mirror with details", async () => {
+    await run({ title: "Ship offer", area: "business", details: { durationMinutes: 45 } });
+    expect(appliedLine()).toMatchObject({ area: "business", addToKillList: true, durationMinutes: 45 });
+  });
+
+  it("no area: a plan line with no domain", async () => {
+    const res = await run({ title: "Call mum", area: null, details: { startTime: "18:00" } });
+    expect(res.kind).toBe("planned");
+    expect(appliedLine()).toMatchObject({ area: null, addToKillList: false, startTime: "18:00" });
+  });
+
+  it("no area for another day goes to the Inbox with its date", async () => {
+    expect((await run({ title: "Call mum", area: null, dueDate: "2026-10-25", details: { startTime: "18:00" } })).kind).toBe("inbox-dated");
+  });
+});

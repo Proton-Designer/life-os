@@ -43,18 +43,24 @@ export async function captureTask(input: {
    * bucket, get-priority-items' urgency ranking) only sees a task at all once this is
    * passed, so silently dropping it here is the bug, not a simplification. */
   dueTime?: string | null;
+  /** Start time ("HH:MM"), timer (minutes) and criteria set on the sheet, as in Edit Plan. Any of them makes the task a line on today's plan. */
+  details?: { startTime?: string | null; durationMinutes?: number | null; criteria?: string | null };
 }): Promise<void> {
   if (!isCaptureArea(input.area)) throw new Error("Pick an area for this task");
-  if (input.area === "none") {
-    await captureDump({ title: input.title, source: "capture", dueDate: input.dueDate ?? null, dueTime: input.dueTime ?? null });
-    return;
-  }
+  const hasDetails = !!(input.details?.startTime || input.details?.durationMinutes || input.details?.criteria?.trim());
+  // A "No area" Task stays in the Inbox unless it was given a time, timer or criteria for the plan day: those only
+  // exist on a plan line, so it becomes a plan line with no domain, exactly as in Edit Plan.
   const { supabase, userId } = await requireUser();
   const profile = await getProfile();
   const planDay = await getTaskDay(supabase, userId, new Date(), profile?.timezone ?? "UTC");
+  if (input.area === "none" && !(hasDetails && (!input.dueDate || input.dueDate === planDay))) {
+    await captureDump({ title: input.title, source: "capture", dueDate: input.dueDate ?? null, dueTime: input.dueTime ?? null });
+    return;
+  }
+  const planArea = input.area === "none" ? null : input.area;
   const killListAvailable = input.area === "business" ? await loadHasKillList() : false;
   if (input.area === "business" && !killListAvailable) throw new Error("This account has no Business Kill List");
-  const res = await captureAreaTaskCore(supabase, userId, planDay, { title: input.title, area: input.area, dueDate: input.dueDate, dueTime: input.dueTime }, { killListAvailable });
+  const res = await captureAreaTaskCore(supabase, userId, planDay, { title: input.title, area: planArea, dueDate: input.dueDate, dueTime: input.dueTime, details: input.details }, { killListAvailable });
   if (res.kind === "inbox-dated") {
     await captureDump({ title: input.title, source: "capture", dueDate: input.dueDate ?? null, dueTime: input.dueTime ?? null });
     return;

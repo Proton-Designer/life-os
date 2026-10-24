@@ -30,12 +30,20 @@ export async function captureAreaTaskCore(
   supabase: SupabaseClient,
   userId: string,
   planDay: string,
-  input: { title: string; area: PlannedCaptureArea; dueDate?: string | null; dueTime?: string | null },
+  input: {
+    title: string;
+    /** null = a plan line with no domain (the "+" sheet's "No area" Task that was given a time, timer or criteria). */
+    area: PlannedCaptureArea | null;
+    dueDate?: string | null;
+    dueTime?: string | null;
+    /** What Edit Plan lets you attach to a line, set on the "+" sheet. A start time given here wins over one parsed from the title. */
+    details?: { startTime?: string | null; durationMinutes?: number | null; criteria?: string | null };
+  },
   opts: { killListAvailable: boolean },
 ): Promise<CaptureTaskResult> {
   const forPlanDay = !input.dueDate || input.dueDate === planDay;
   if (!forPlanDay) {
-    if (input.area === "business") return { kind: "inbox-dated" };
+    if (input.area === null || input.area === "business") return { kind: "inbox-dated" };
     await addTaskCore(supabase, userId, {
       domain: input.area,
       title: input.title,
@@ -49,12 +57,12 @@ export async function captureAreaTaskCore(
   if ("error" in dumped) throw new Error(dumped.error);
   const line: PlanLineInput = {
     id: dumped.id,
-    area: PLAN_AREA_FOR[input.area],
+    area: input.area === null ? null : PLAN_AREA_FOR[input.area],
     addToKillList: input.area === "business",
-    startTime: input.dueTime ?? null,
-    durationMinutes: null,
+    startTime: input.details?.startTime || input.dueTime || null,
+    durationMinutes: input.details?.durationMinutes ?? null,
     order: 999, // after the lines the person already ordered; Edit Plan renumbers on its next save
-    criteria: null,
+    criteria: input.details?.criteria?.trim() ? input.details.criteria.trim() : null,
   };
   const applied = await applyPlanDetailsCore(supabase, userId, planDay, [line], { killListAvailable: opts.killListAvailable });
   if ("error" in applied) {
