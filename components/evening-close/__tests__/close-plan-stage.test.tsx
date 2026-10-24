@@ -369,6 +369,53 @@ describe("ClosePlanStage — line details", () => {
     expect(call.lines.map((l) => [l.id, l.order])).toEqual([["t2", 0], ["t1", 1]]);
   });
 
+  describe("drag to reorder", () => {
+    // jsdom has no layout: give each row a 100px slot in its current DOM order so the drag can find its target.
+    function layoutRows() {
+      screen.getAllByTestId("plan-line").forEach((el, i) => {
+        el.getBoundingClientRect = () => ({ top: i * 100, bottom: i * 100 + 100, height: 100, left: 0, right: 300, width: 300, x: 0, y: i * 100, toJSON: () => ({}) }) as DOMRect;
+      });
+    }
+    const three = [{ id: "t1", title: "Send" }, { id: "t2", title: "Gym" }, { id: "t3", title: "Read" }];
+    const order = () => screen.getAllByTestId("plan-line").map((li) => li.textContent?.match(/Send|Gym|Read/)?.[0]);
+
+    it("dragging the grip of the last line to the top puts it first, and the order is what gets saved", async () => {
+      const user = userEvent.setup();
+      render(<ClosePlanStage initialLines={three} mode="today" registerFlush={vi.fn()} />);
+      layoutRows();
+      const grip = screen.getByRole("button", { name: "Drag Read to reorder" });
+      await act(async () => {
+        grip.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 250 }));
+        window.dispatchEvent(new MouseEvent("pointermove", { clientY: 10 }));
+        window.dispatchEvent(new MouseEvent("pointerup"));
+      });
+      expect(order()).toEqual(["Read", "Send", "Gym"]);
+      void user;
+    });
+
+    it("a row only drags from its body after a double-click arms it", async () => {
+      const user = userEvent.setup();
+      render(<ClosePlanStage initialLines={three} mode="today" registerFlush={vi.fn()} />);
+      layoutRows();
+      const row = screen.getAllByTestId("plan-line")[2]!;
+      const body = row.querySelector("span.flex-1") as HTMLElement;
+      await act(async () => {
+        body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 250 }));
+        window.dispatchEvent(new MouseEvent("pointermove", { clientY: 10 }));
+        window.dispatchEvent(new MouseEvent("pointerup"));
+      });
+      expect(order()).toEqual(["Send", "Gym", "Read"]); // not armed: nothing moved
+      await user.dblClick(body);
+      expect(row).toHaveAttribute("data-armed", "true");
+      await act(async () => {
+        body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientY: 250 }));
+        window.dispatchEvent(new MouseEvent("pointermove", { clientY: 10 }));
+        window.dispatchEvent(new MouseEvent("pointerup"));
+      });
+      expect(order()).toEqual(["Read", "Send", "Gym"]);
+    });
+  });
+
   it("reports the summed timers of every line, and drops a removed line's time (Edit Plan's total banner)", async () => {
     const user = userEvent.setup();
     const onTotal = vi.fn();

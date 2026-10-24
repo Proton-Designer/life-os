@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, GripVertical } from "lucide-react";
 import { dumpLine, refreshCloseViews, commitPlan, carryOverUnfinished, claimSeedLines, triageInboxItem, type PlanMode, type SeedLine, type SeedSource } from "@/app/(app)/close/plan-actions";
 import { MAX_STARRED, type DumpItem } from "@/lib/night-plan/night-plan";
 import type { PlanLineState } from "@/lib/night-plan/plan-line";
@@ -142,6 +142,9 @@ export function ClosePlanStage({
   const [carryable, setCarryable] = useState<PlanLineState[]>(() => (mode === "tonight" ? carryOver.filter((c) => !initialLines.some((l) => l.id === c.id)) : []));
   const [carryUnticked, setCarryUnticked] = useState<Set<string>>(() => new Set());
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const itemRefs = useRef(new Map<string, HTMLLIElement>());
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -315,6 +318,65 @@ export function ClosePlanStage({
       [next[i], next[j]] = [next[j]!, next[i]!];
       return next;
     });
+  }
+
+  /** Puts a line at an exact spot in the order (the drag). Same dirty/save path as the arrow buttons. */
+  function moveTo(id: string, toIndex: number) {
+    setLines((prev) => {
+      const i = prev.findIndex((l) => l.id === id);
+      if (i < 0 || i === toIndex) return prev;
+      const next = [...prev];
+      const [item] = next.splice(i, 1);
+      next.splice(Math.max(0, Math.min(toIndex, next.length)), 0, item!);
+      return next;
+    });
+    markDirty();
+  }
+
+  /**
+   * Drag to reorder. Starts from the grip handle, or after a double-click arms the row (then press and drag anywhere
+   * on it). The list reorders live under the pointer; the scrolling parent scrolls when the pointer nears its edge,
+   * so a line can be dragged from the bottom to the top in one move. The arrow buttons keep working.
+   */
+  function beginDrag(e: React.PointerEvent, id: string) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    setDragId(id);
+    let y = e.clientY;
+    const first = itemRefs.current.get(id);
+    let scroller: HTMLElement | null = first?.parentElement ?? null;
+    while (scroller && scroller.scrollHeight <= scroller.clientHeight + 1) scroller = scroller.parentElement;
+    const place = () => {
+      const others = [...itemRefs.current.entries()].filter(([k]) => k !== id);
+      const target = others.filter(([, el]) => {
+        const r = el.getBoundingClientRect();
+        return r.top + r.height / 2 < y;
+      }).length;
+      moveTo(id, target);
+    };
+    const onMove = (ev: PointerEvent) => {
+      y = ev.clientY;
+      place();
+    };
+    const tick = window.setInterval(() => {
+      if (!scroller) return;
+      const r = scroller.getBoundingClientRect();
+      if (y < r.top + 48) scroller.scrollTop -= 14;
+      else if (y > r.bottom - 48) scroller.scrollTop += 14;
+      else return;
+      place();
+    }, 16);
+    const end = () => {
+      window.clearInterval(tick);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      setDragId(null);
+      setArmedId(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
   }
 
   function setLineDraft(id: string, next: PlanLineDraft) {
@@ -525,8 +587,34 @@ export function ClosePlanStage({
               const isOpen = expanded.has(l.id);
               const summary = planDraftSummary({ ...l.draft, addToKillList: l.draft.addToKillList && killList }, workTabs);
               return (
-                <li key={l.id} className="space-y-2 rounded-md border p-2">
+                <li
+                  key={l.id}
+                  ref={(el) => {
+                    if (el) itemRefs.current.set(l.id, el);
+                    else itemRefs.current.delete(l.id);
+                  }}
+                  data-testid="plan-line"
+                  data-armed={armedId === l.id ? "true" : undefined}
+                  onDoubleClick={(e) => {
+                    if (!(e.target as HTMLElement).closest("button, input, textarea, a, select")) setArmedId(l.id);
+                  }}
+                  onPointerDown={(e) => {
+                    if (armedId === l.id && !(e.target as HTMLElement).closest("button, input, textarea, a, select")) beginDrag(e, l.id);
+                  }}
+                  className={`space-y-2 rounded-md border p-2 ${armedId === l.id ? "cursor-grab touch-none border-primary" : ""} ${dragId === l.id ? "cursor-grabbing opacity-70 ring-2 ring-primary" : ""}`}
+                >
                   <div className="flex items-center gap-2">
+                    {lines.length > 1 ? (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => beginDrag(e, l.id)}
+                        aria-label={`Drag ${l.title} to reorder`}
+                        data-testid="plan-line-grip"
+                        className="-ml-1 inline-flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        <GripVertical aria-hidden className="size-4" />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => toggleStar(l.id)}
@@ -626,7 +714,7 @@ export function ClosePlanStage({
               );
             })}
           </ul>
-          {lines.length > 1 ? <p className="text-xs text-muted-foreground">Lines with a start time run in clock order; the rest follow the order here.</p> : null}
+          {lines.length > 1 ? <p className="text-xs text-muted-foreground">Lines with a start time run in clock order; the rest follow the order here. Drag the grip, or double-click a line and then drag it, to move it anywhere.</p> : null}
         </>
       )}
 
