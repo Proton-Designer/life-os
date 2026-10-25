@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
-import { untypedFrom } from "@/lib/self-mastery/untyped-from";
+import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
+import { isRetryableBookError } from "@/lib/self-mastery/ingestion/failure-messages";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
@@ -244,4 +245,39 @@ export async function cancelBookUpload(bookId: string): Promise<void> {
   // failed before any bytes landed) is an orphaned object, not lost data.
   await supabase.storage.from(BOOKS_BUCKET).remove([path]);
   await untypedFrom(supabase, "books").delete().eq("id", bookId);
+}
+
+/**
+ * "Try again" on a failed book: puts it back at the start of the queue through `retry_book_ingestion` (271), a
+ * SECURITY DEFINER function that checks the caller owns the book (no service-role key here). Refuses first, on the server,
+ * for what a retry cannot fix or cannot run: a failure about the file itself (scanned, password, damaged, too long: it
+ * would fail the same way), the ingestion driver being down, or no usable AI key (the same two gates upload has, for the
+ * same reason: a retry queued behind nothing would sit at "processing" forever).
+ */
+export async function retryBookIngestion(bookId: string): Promise<{ ok: true } | UploadBookError> {
+  const { supabase, userId } = await requireUser();
+  const cantRetry = "This book can't be retried.";
+
+  const { data: book } = await untypedFrom(supabase, "books")
+    .select("id, status, error_message")
+    .eq("id", bookId)
+    .eq("user_id", userId)
+    .maybeSingle()
+    .returns<{ id: string; status: string; error_message: string | null } | null>();
+  if (!book || book.status !== "failed") return { ok: false, message: cantRetry };
+  if (!isRetryableBookError(book.error_message)) return { ok: false, message: book.error_message ?? cantRetry };
+
+  if (!(await isIngestionAvailable())) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
+  const keyCheck = await hasUsableIngestionKey(supabase, userId);
+  if (!keyCheck.usable) return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
+
+  const { data, error } = await untypedRpc<string>(supabase, "retry_book_ingestion", { p_book_id: bookId });
+  if (error) return { ok: false, message: "Couldn't restart this book. Please try again." };
+  if (data === "file_gone") return { ok: false, message: "The original file is no longer stored, so this book can't be run again. Upload it again." };
+  if (data !== "retried") return { ok: false, message: cantRetry };
+
+  revalidatePath("/personal/self_mastery");
+  revalidatePath("/self-mastery");
+  revalidatePath("/");
+  return { ok: true };
 }

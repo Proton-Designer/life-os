@@ -6,6 +6,7 @@ import { LessonCard } from "./lesson-card";
 import { Button } from "@/components/ui/button";
 import { OpenOriginalLink } from "./open-original-link";
 import { ReadButton } from "./read-button";
+import { RetryBookButton } from "./retry-book-button";
 import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet";
 import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
 import { hasAction } from "@/lib/promotions/types";
@@ -58,6 +59,9 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {book.errorMessage ?? "Something went wrong. Please try uploading again."}
           </p>
+          <div className="mt-3">
+            <RetryBookButton bookId={bookId} title={book.title} errorMessage={book.errorMessage} />
+          </div>
         </div>
       ) : book.status !== "ready" ? (
         (() => {

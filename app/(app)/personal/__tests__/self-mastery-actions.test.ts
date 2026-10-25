@@ -52,9 +52,11 @@ const listMock = vi.fn(
 );
 const removeMock = vi.fn(async (_paths: string[]) => ({ error: null as { message: string } | null }));
 
+const rpcMock = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({ data: "retried" as unknown, error: null as { message: string } | null }));
 const requireUserMock = vi.fn(async () => ({
   supabase: {
     from: fromMock,
+    rpc: rpcMock,
     storage: {
       from: () => ({
         createSignedUploadUrl: createSignedUploadUrlMock,
@@ -314,6 +316,63 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
 
       expect(result.ok).toBe(false);
       expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+    });
+  });
+
+  describe("retryBookIngestion", () => {
+    const failedBook = (error_message: string | null) => ({ data: { id: "book-1", status: "failed", error_message }, error: null });
+
+    it("puts a failed book back in the queue through the owner-checked RPC, and refreshes the library", async () => {
+      fromResults.books = failedBook("Something went wrong while processing this book. Please try uploading it again.");
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      const result = await retryBookIngestion("book-1");
+      expect(result).toEqual({ ok: true });
+      expect(rpcMock).toHaveBeenCalledWith("retry_book_ingestion", { p_book_id: "book-1" });
+      expect(revalidatePathMock).toHaveBeenCalledWith("/");
+    });
+
+    it("refuses a failure that is about the file itself (it would fail the same way) and never calls the RPC", async () => {
+      fromResults.books = failedBook("This PDF is password-protected. Remove the password, then upload it again.");
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      const result = await retryBookIngestion("book-1");
+      expect(result).toMatchObject({ ok: false, message: expect.stringMatching(/password/) });
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses when the driver is down or the key is missing, like upload does (a queued retry would sit forever)", async () => {
+      fromResults.books = failedBook(null);
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      isIngestionAvailableMock.mockResolvedValue(false);
+      expect(await retryBookIngestion("book-1")).toMatchObject({ ok: false });
+      isIngestionAvailableMock.mockResolvedValue(true);
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "DeepSeek" });
+      expect(await retryBookIngestion("book-1")).toMatchObject({ ok: false, message: expect.stringMatching(/API key/) });
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses a book that isn't failed or isn't this user's", async () => {
+      fromResults.books = { data: null, error: null };
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      expect(await retryBookIngestion("book-1")).toMatchObject({ ok: false });
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["file_gone", /no longer stored/],
+      ["not_failed", /can't be retried/],
+      ["not_found", /can't be retried/],
+    ])("RPC result %s becomes a plain message", async (rpcResult, message) => {
+      fromResults.books = failedBook(null);
+      rpcMock.mockResolvedValueOnce({ data: rpcResult, error: null });
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      expect(await retryBookIngestion("book-1")).toMatchObject({ ok: false, message: expect.stringMatching(message) });
+    });
+
+    it("an RPC error is a generic failure, not a thrown error", async () => {
+      fromResults.books = failedBook(null);
+      rpcMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } });
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      expect(await retryBookIngestion("book-1")).toMatchObject({ ok: false });
     });
   });
 

@@ -9,6 +9,7 @@ import { UploadBookDialog } from "./upload-book-dialog";
 import { ReadButton } from "./read-button";
 import { RenameBookButton } from "./rename-book-button";
 import { DeleteBookButton } from "./delete-book-button";
+import { RetryBookButton } from "./retry-book-button";
 import { GlobalHighlightsDialog } from "./global-highlights-dialog";
 import { ReadingStatsChip } from "./reading-stats-chip";
 import { LibraryDropTarget } from "./library-drop-target";
@@ -251,6 +252,12 @@ export async function SelfMasteryLibrary() {
                 <span className="text-xs text-muted-foreground">{statusLine(book, now)}</span>
               )}
             </Link>
+            {book.status === "failed" && book.ingestionMode !== "reader" ? (
+              <div className="flex flex-col gap-2">
+                {book.errorMessage ? <p className="text-xs text-muted-foreground" data-testid="book-error">{book.errorMessage}</p> : null}
+                <RetryBookButton bookId={book.id} title={book.title} errorMessage={book.errorMessage} />
+              </div>
+            ) : null}
             {book.canRead || book.ingestionMode === "reader" ? (
               <div className="flex items-center justify-between gap-2">
                 {book.canRead ? <ReadButton bookId={book.id} progressPct={book.readProgress?.pct ?? null} started={book.readProgress != null} /> : <span />}

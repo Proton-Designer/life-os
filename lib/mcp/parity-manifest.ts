@@ -284,6 +284,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/self-mastery-actions.ts#prepareBookUpload": { excluded: "file_upload: mints a signed upload URL for a book PDF" },
   "app/(app)/personal/self-mastery-actions.ts#finalizeBookUpload": { excluded: "file_upload: finalizes a book PDF upload and enqueues ingestion LLM spend" },
   "app/(app)/personal/self-mastery-actions.ts#cancelBookUpload": { excluded: "file_upload: cleanup for a failed/orphaned book PDF upload" },
+  "app/(app)/personal/self-mastery-actions.ts#retryBookIngestion": { excluded: "llm_spend: re-queues a failed book for ingestion, which spends the owner's LLM budget (same reason as the upload that started it)" },
   // Focus reader (2026-10-19, R3). Imports move file bytes / fetch arbitrary URLs and delete is a real DELETE;
   // position + session writes are reader-UI bookkeeping. Settings, rename and highlight create are the
   // agent-reachable ones and are tracked under one coverage id.
