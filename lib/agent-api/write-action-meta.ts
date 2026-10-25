@@ -13,6 +13,8 @@
 
 /** Handlers that call requireId(ctx): the call must carry the top-level `id`. */
 export const ACTIONS_REQUIRING_ID: ReadonlySet<string> = new Set([
+  "agent.job.submit",
+  "agent.job.fail",
   "work.target.edit",
   "work.target.complete",
   "work.target.reorder",

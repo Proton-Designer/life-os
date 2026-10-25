@@ -6,6 +6,7 @@ import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
 import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-availability";
 import { sweepStuckBooks } from "@/lib/self-mastery/ingestion/stuck-sweep";
 import { drainPendingStorageDeletions } from "@/lib/self-mastery/ingestion/storage-drain";
+import { sweepAgentJobs } from "@/lib/agent-jobs/sweep";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/gateway-provider";
@@ -547,6 +548,8 @@ export async function POST(request: Request) {
   await sweepStuckBooks(supabase);
   // Same slot, same rules: delete the stored files that earlier deletes could not (pending_storage_deletions had no drain).
   await drainPendingStorageDeletions(supabase);
+  // Same slot: agent jobs whose lease lapsed go back to pending, overdue ones expire (migration 277). Never throws.
+  await sweepAgentJobs(supabase);
 
   // One poll now runs MANY steps (claim -> stage -> advance) until the time budget is spent, something other than a clean
   // advance happens, or nothing is left to claim. See step-loop.ts. Each step is the same code, with the same writes, as

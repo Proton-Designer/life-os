@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gatewayChat } from "@/lib/ai/gateway";
+import { describeZodIssues } from "@/lib/ai/zod-issues";
 
 /**
  * Phase 1 #23 — pasted notes -> AI-drafted retrieval-practice questions.
@@ -106,6 +107,23 @@ export function normalizeDraft(raw: z.infer<typeof RawDraftSchema>): QuestionDra
     topic: raw.topic?.trim() || null,
     sourceSnippet: raw.sourceSnippet?.trim() || null,
   };
+}
+
+export type ValidatedDrafts = { ok: true; drafts: QuestionDraft[] } | { ok: false; message: string };
+
+/** The gate for "a model (or an agent) produced question drafts" (array, or the same as a JSON string). Used by agent-job submits (lib/agent-jobs); `message` names the offending field. */
+export function validateQuestionDrafts(value: unknown): ValidatedDrafts {
+  let parsedJson = value;
+  if (typeof value === "string") {
+    try {
+      parsedJson = JSON.parse(stripCodeFence(value));
+    } catch {
+      return { ok: false, message: "result is not valid JSON." };
+    }
+  }
+  const validated = RawResponseSchema.safeParse(parsedJson);
+  if (!validated.success) return { ok: false, message: describeZodIssues(validated.error) };
+  return { ok: true, drafts: validated.data.map(normalizeDraft) };
 }
 
 export async function draftQuestionsFromNotes(

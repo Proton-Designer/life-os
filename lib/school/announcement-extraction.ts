@@ -1,8 +1,7 @@
 import "server-only";
-import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gatewayChat } from "@/lib/ai/gateway";
-import { RawItemSchema, normalizeItem, stripCodeFence, type ExtractedItem, type ExtractionOutcome } from "./syllabus-extraction";
+import { validateExtractedItems, type ExtractedItem, type ExtractionOutcome } from "./syllabus-extraction";
 
 /**
  * P2-07 — pasted course announcement text -> staged deliverables. Reuses the
@@ -23,8 +22,6 @@ import { RawItemSchema, normalizeItem, stripCodeFence, type ExtractedItem, type 
  * paragraph) -- generous but far below the syllabus bound (20,000), so a
  * pasted multi-page document doesn't quietly become an expensive call. */
 const MAX_ANNOUNCEMENT_CHARS = 4_000;
-
-const RawResponseSchema = z.array(RawItemSchema).max(200);
 
 const SYSTEM_PROMPT = `You extract graded-deliverable updates from a short course announcement (an email, a Canvas post, or similar).
 
@@ -78,17 +75,10 @@ export async function extractDeliverablesFromAnnouncementText(
   }
 
   if (!result.content) return { status: "parse_failed" };
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(stripCodeFence(result.content));
-  } catch {
-    return { status: "parse_failed" };
-  }
+  const validated = validateExtractedItems(result.content, todayStr);
+  if (!validated.ok) return { status: "parse_failed" };
 
-  const validated = RawResponseSchema.safeParse(parsedJson);
-  if (!validated.success) return { status: "parse_failed" };
-
-  return { status: "extracted", items: validated.data.map((r: z.infer<typeof RawItemSchema>) => normalizeItem(r, todayStr)), truncated };
+  return { status: "extracted", items: validated.items, truncated };
 }
 
 export type { ExtractedItem, ExtractionOutcome };

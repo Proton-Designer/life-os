@@ -103,6 +103,7 @@ export const DOMAIN_ONE_LINERS: Record<string, string> = {
   calendar: "Aggregate; read owning domains",
   review: "Night Plan items",
   home: "Aggregate; read owning domains",
+  agent: "Queued work for your agent (no AI key)",
   widgets: "Home widgets (widget_manage)",
   // P4-07: write-only domains (no REGISTRY/read entry at all yet -- P4-05's
   // future territory). No `d.description` to fall back to for these (that

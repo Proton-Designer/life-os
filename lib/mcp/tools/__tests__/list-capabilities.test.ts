@@ -76,6 +76,7 @@ describe("listCapabilitiesTool", () => {
     const outcome = await listCapabilitiesTool(undefined, accountContext());
     const payload = textPayload(outcome);
     expect(Object.keys(payload.domains).sort()).toEqual([
+      "agent",
       "business",
       "calendar",
       "checkins",

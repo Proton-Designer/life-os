@@ -4,6 +4,7 @@ import { REGISTRY, listDomains, getDomain, getEntity } from "../registry";
 describe("registry", () => {
   it("lists exactly the domains actually wired so far", () => {
     expect(listDomains().map((d) => d.domain).sort()).toEqual([
+      "agent",
       "business",
       "calendar",
       "checkins",

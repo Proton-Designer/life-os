@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { gatewayChat } from "@/lib/ai/gateway";
 import { addMonthsToDateString } from "@/lib/date-utils";
 import { ASSESSMENT_TYPES, type AssessmentType } from "@/lib/school/actions-core";
+import { describeZodIssues } from "@/lib/ai/zod-issues";
 
 /**
  * Phase 1 #16 — syllabus text -> staged deliverables. Everything in here is pure
@@ -124,6 +125,27 @@ export function stripCodeFence(text: string): string {
   return fenced ? fenced[1]!.trim() : trimmed;
 }
 
+export type ValidatedItems = { ok: true; items: ExtractedItem[] } | { ok: false; message: string };
+
+/**
+ * The one gate for "a model (or an agent) produced deliverables": accepts the array, or the same array as a JSON string (a code fence is
+ * tolerated), validates it against the schema above and normalizes every item. Used by the in-app paths and by agent-job submits
+ * (lib/agent-jobs), so an agent's output passes exactly the checks a model's does. `message` names the offending field.
+ */
+export function validateExtractedItems(value: unknown, todayStr: string): ValidatedItems {
+  let parsedJson = value;
+  if (typeof value === "string") {
+    try {
+      parsedJson = JSON.parse(stripCodeFence(value));
+    } catch {
+      return { ok: false, message: "result is not valid JSON." };
+    }
+  }
+  const validated = RawResponseSchema.safeParse(parsedJson);
+  if (!validated.success) return { ok: false, message: describeZodIssues(validated.error) };
+  return { ok: true, items: validated.data.map((r) => normalizeItem(r, todayStr)) };
+}
+
 export async function extractDeliverablesFromText(
   supabase: SupabaseClient,
   userId: string,
@@ -160,15 +182,8 @@ export async function extractDeliverablesFromText(
   // failure (already handled above) — using the wrong one here would always parse
   // `undefined` and misreport every successful call as parse_failed.
   if (!result.content) return { status: "parse_failed" };
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(stripCodeFence(result.content));
-  } catch {
-    return { status: "parse_failed" };
-  }
+  const validated = validateExtractedItems(result.content, todayStr);
+  if (!validated.ok) return { status: "parse_failed" };
 
-  const validated = RawResponseSchema.safeParse(parsedJson);
-  if (!validated.success) return { status: "parse_failed" };
-
-  return { status: "extracted", items: validated.data.map((r) => normalizeItem(r, todayStr)), truncated };
+  return { status: "extracted", items: validated.items, truncated };
 }
