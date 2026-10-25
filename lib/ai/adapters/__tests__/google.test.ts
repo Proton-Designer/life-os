@@ -158,4 +158,24 @@ describe("googleChat", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("effort \"minimal\"", () => {
+    const level = () => JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string).generationConfig.thinkingConfig.thinkingLevel;
+    it("gemini-3.5-flash-lite (and 3.6-flash): thinkingLevel MINIMAL, its documented floor", async () => {
+      for (const model of ["gemini-3.5-flash-lite", "gemini-3.6-flash"]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValue(jsonResponse(200, okBody));
+        await googleChat("test-key", [{ role: "user", content: "hi" }], { model, effort: "minimal" });
+        expect(level(), model).toBe("MINIMAL");
+      }
+    });
+    it("models without a minimal level (gemini-2.5-pro, gemini-4-argon, unknown): LOW", async () => {
+      for (const model of ["gemini-2.5-pro", "gemini-4-argon", "gemini-9-unknown"]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValue(jsonResponse(200, okBody));
+        await googleChat("test-key", [{ role: "user", content: "hi" }], { model, effort: "minimal" });
+        expect(level(), model).toBe("LOW");
+      }
+    });
+  });
 });

@@ -158,4 +158,53 @@ describe("openAiSdkChat", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("effort \"minimal\" -> each provider's real lowest reasoning (verified per model, falls back to low)", () => {
+    const sentBody = () => JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    const run = (provider: "openai" | "moonshot" | "xai", model: string, effort: "minimal" | "low" | "high" = "minimal") => {
+      fetchMock.mockResolvedValue(jsonResponse(200, okBody));
+      return openAiSdkChat(provider, "test-key", [{ role: "user", content: "hi" }], { model, maxTokens: 50, effort });
+    };
+
+    it("OpenAI gpt-6-luna: reasoning_effort none", async () => {
+      await run("openai", "gpt-6-luna");
+      expect(sentBody().reasoning_effort).toBe("none");
+    });
+    it("OpenAI models without a none level (gpt-6-astra, gpt-6.1-sol, unknown ids): low", async () => {
+      for (const model of ["gpt-6-astra", "gpt-6.1-sol", "gpt-9-unknown"]) {
+        fetchMock.mockReset();
+        await run("openai", model);
+        expect(sentBody().reasoning_effort, model).toBe("low");
+      }
+    });
+    it("xAI grok-4.3: reasoning_effort none; grok-4.7 (reasoning cannot be disabled): low", async () => {
+      await run("xai", "grok-4.3");
+      expect(sentBody().reasoning_effort).toBe("none");
+      fetchMock.mockReset();
+      await run("xai", "grok-4.7");
+      expect(sentBody().reasoning_effort).toBe("low");
+    });
+    it("xAI now receives a normal effort too (documented for grok-4.x), but a model that is not grok-4.x gets none", async () => {
+      await run("xai", "grok-4.7", "high");
+      expect(sentBody().reasoning_effort).toBe("high");
+      fetchMock.mockReset();
+      await run("xai", "grok-build-0.1", "high");
+      expect(sentBody().reasoning_effort).toBeUndefined();
+    });
+    it("Kimi K2.6: thinking disabled through the documented `thinking` field, and NO reasoning_effort", async () => {
+      await run("moonshot", "kimi-k2.6");
+      expect(sentBody().thinking).toEqual({ type: "disabled" });
+      expect(sentBody().reasoning_effort).toBeUndefined();
+    });
+    it("Kimi K3 always thinks: no disable switch, reasoning_effort low (its documented floor)", async () => {
+      await run("moonshot", "kimi-k3");
+      expect(sentBody().thinking).toBeUndefined();
+      expect(sentBody().reasoning_effort).toBe("low");
+    });
+    it("Kimi K2.6 at a normal effort level is untouched (no thinking field, no effort)", async () => {
+      await run("moonshot", "kimi-k2.6", "high");
+      expect(sentBody().thinking).toBeUndefined();
+      expect(sentBody().reasoning_effort).toBeUndefined();
+    });
+  });
 });

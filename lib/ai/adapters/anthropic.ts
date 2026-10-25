@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { PROVIDERS } from "../providers";
 import type { ChatResult } from "./types";
 import type { UsageTokens } from "../pricing";
+import { planReasoning, type ReasoningEffort } from "../reasoning";
 
 /**
  * Claude, via the official `@anthropic-ai/sdk` (v0.125.0, pinned) — required,
@@ -63,8 +64,8 @@ export interface AnthropicChatOpts {
   temperature?: number;
   model?: string;
   timeoutMs?: number;
-  /** Translated to `output_config.effort` — see this file's own header for why this, not `thinking`. */
-  effort?: "low" | "medium" | "high";
+  /** Translated to `output_config.effort` — see this file's own header for why this, not `thinking`. "minimal" is Claude Haiku 5.5 only: effort low plus `thinking: {type: "disabled"}` (accepted at effort high or below on that model); every other model, where disabling thinking is a 400, gets effort low and thinking left alone. */
+  effort?: ReasoningEffort;
   /** Accepted for signature parity and ignored: the Messages API has no JSON mode that is safe to send here (no assistant prefill on this model family). The caller strips fences and prose. */
   json?: boolean;
 }
@@ -142,7 +143,11 @@ export async function anthropicChat(
     stream: false,
   };
   if (system !== undefined) params.system = system;
-  if (opts.effort) params.output_config = { effort: opts.effort };
+  if (opts.effort) {
+    const plan = planReasoning("anthropic", model, opts.effort);
+    params.output_config = { effort: plan.wireEffort as "low" | "medium" | "high" };
+    if (plan.disableThinking) params.thinking = { type: "disabled" };
+  }
   // temperature deliberately never set -- see this file's own header, quirk 2.
 
   try {

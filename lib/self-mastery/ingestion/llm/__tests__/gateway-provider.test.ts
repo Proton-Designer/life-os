@@ -154,6 +154,8 @@ describe("GatewayLlmProvider.extractLessons", () => {
     expect(opts?.tier).toBe("cheap");
     // Strict-JSON calls ask the gateway for the provider's JSON mode (and its reasoning headroom on non-DeepSeek providers).
     expect(opts?.json).toBe(true);
+    // ...and the lowest reasoning each provider genuinely allows (lib/ai/reasoning.ts maps it per provider and model).
+    expect(opts?.effort).toBe("minimal");
   });
 
   it("drops a candidate whose provenance_quote is not a verbatim substring of the chunk (isGrounded firewall survives the port)", async () => {

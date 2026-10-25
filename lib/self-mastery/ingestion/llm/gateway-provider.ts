@@ -314,7 +314,7 @@ export class GatewayLlmProvider implements LlmProvider {
       // without ingestion cost silently changing with it. The grounding
       // quality gate (verifyGroundingStage), not model size, is what
       // protects extraction quality -- see the Lead's own reasoning.
-      { maxTokens, thinking: false, tier: "cheap", json: true, timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
+      { maxTokens, thinking: false, effort: "minimal", tier: "cheap", json: true, timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
     );
     if (result.usage) {
       this.lastUsage = {

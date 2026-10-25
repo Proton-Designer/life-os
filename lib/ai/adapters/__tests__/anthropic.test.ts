@@ -147,4 +147,23 @@ describe("anthropicChat", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("effort \"minimal\"", () => {
+    const sentBody = () => JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    it("Claude Haiku 5.5: thinking disabled (accepted at effort high or below) plus effort low", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(200, okBody));
+      await anthropicChat("test-key", [{ role: "user", content: "hi" }], { model: "claude-haiku-5-5", effort: "minimal" });
+      expect(sentBody().thinking).toEqual({ type: "disabled" });
+      expect(sentBody().output_config).toEqual({ effort: "low" });
+    });
+    it("Claude Opus 5.5 / Sonnet 5.5 (thinking cannot be disabled -> a 400): effort low and NO thinking field", async () => {
+      for (const model of ["claude-opus-5-5", "claude-sonnet-5-5"]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValue(jsonResponse(200, okBody));
+        await anthropicChat("test-key", [{ role: "user", content: "hi" }], { model, effort: "minimal" });
+        expect(sentBody().thinking, model).toBeUndefined();
+        expect(sentBody().output_config, model).toEqual({ effort: "low" });
+      }
+    });
+  });
 });

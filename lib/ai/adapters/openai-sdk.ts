@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { PROVIDERS, type ProviderId } from "../providers";
 import type { ChatResult } from "./types";
 import type { UsageTokens } from "../pricing";
+import { planReasoning, sendsReasoningEffort, type ReasoningEffort } from "../reasoning";
 
 /**
  * The official `openai` npm SDK (v7.15.0, pinned), for OpenAI itself and
@@ -67,8 +68,12 @@ export interface OpenAiSdkChatOpts {
   temperature?: number;
   model?: string;
   timeoutMs?: number;
-  /** Normalized 3-level reasoning control, translated to `reasoning_effort` for providers whose QUIRKS entry confirms support -- silently unsent otherwise, never a guessed param name. */
-  effort?: "low" | "medium" | "high";
+  /**
+   * Normalized reasoning control (lib/ai/reasoning.ts decides, per provider AND model, what actually goes on the wire):
+   * `reasoning_effort` where documented (OpenAI; xAI grok-4.x; Kimi K3), Kimi K2.6's `thinking: {type: "disabled"}` for
+   * "minimal", and nothing at all where no field is documented -- never a guessed param name.
+   */
+  effort?: ReasoningEffort;
   /** Ask for a JSON object (`response_format: json_object`). OpenAI, Kimi and Grok all accept it; the prompt must still say "JSON". */
   json?: boolean;
 }
@@ -165,8 +170,15 @@ export async function openAiSdkChat(
   if (quirks.sendTemperature) {
     params.temperature = opts.temperature ?? 0.2;
   }
-  if (quirks.supportsReasoningEffort && opts.effort) {
-    params.reasoning_effort = opts.effort;
+  if (opts.effort) {
+    const plan = planReasoning(provider, model, opts.effort);
+    if (plan.wireEffort && sendsReasoningEffort(provider, model)) {
+      params.reasoning_effort = plan.wireEffort;
+    }
+    if (plan.disableThinking) {
+      // Kimi K2.6's documented switch; not part of the OpenAI SDK's typed params, so it rides in the body as given.
+      (params as unknown as Record<string, unknown>).thinking = { type: "disabled" };
+    }
   }
   if (opts.json) {
     params.response_format = { type: "json_object" };

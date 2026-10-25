@@ -3,6 +3,7 @@ import { GoogleGenAI, ApiError, ThinkingLevel, type HttpOptions as GoogleHttpOpt
 import { PROVIDERS } from "../providers";
 import type { ChatResult } from "./types";
 import type { UsageTokens } from "../pricing";
+import { planReasoning, type ReasoningEffort } from "../reasoning";
 
 /**
  * Gemini, via the official `@google/genai` SDK (v2.22.0, pinned) — the
@@ -53,7 +54,8 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 // members must be referenced by name (ThinkingLevel.LOW), even though the
 // underlying values happen to be the same strings the gateway's `effort`
 // option already uses.
-const EFFORT_TO_THINKING_LEVEL: Record<"low" | "medium" | "high", ThinkingLevel> = {
+const EFFORT_TO_THINKING_LEVEL: Record<"minimal" | "low" | "medium" | "high", ThinkingLevel> = {
+  minimal: ThinkingLevel.MINIMAL,
   low: ThinkingLevel.LOW,
   medium: ThinkingLevel.MEDIUM,
   high: ThinkingLevel.HIGH,
@@ -65,8 +67,8 @@ export interface GoogleChatOpts {
   temperature?: number;
   model?: string;
   timeoutMs?: number;
-  /** Maps directly to `thinkingConfig.thinkingLevel` -- see this file's own header, quirk 2. */
-  effort?: "low" | "medium" | "high";
+  /** Maps to `thinkingConfig.thinkingLevel` -- see this file's own header, quirk 2. "minimal" becomes MINIMAL only on models that document it (3.5 Flash-Lite, 3.6 Flash, ...); elsewhere LOW. There is no "off" level on any Gemini 3 model. */
+  effort?: ReasoningEffort;
   /** Ask for JSON back (`responseMimeType: application/json`). */
   json?: boolean;
 }
@@ -158,7 +160,7 @@ export async function googleChat(
         maxOutputTokens: opts.maxTokens ?? 300,
         ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
         ...(systemInstruction !== undefined ? { systemInstruction } : {}),
-        ...(opts.effort ? { thinkingConfig: { thinkingLevel: EFFORT_TO_THINKING_LEVEL[opts.effort] } } : {}),
+        ...(opts.effort ? { thinkingConfig: { thinkingLevel: EFFORT_TO_THINKING_LEVEL[planReasoning("google", model, opts.effort).wireEffort as "minimal" | "low" | "medium" | "high"] } } : {}),
         ...(opts.json ? { responseMimeType: "application/json" } : {}),
       },
     });

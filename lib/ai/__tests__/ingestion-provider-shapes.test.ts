@@ -22,6 +22,7 @@ vi.mock("@/lib/ai/monthly-spend-cap", () => ({ checkMonthlySpendCap: vi.fn(async
 
 const { gatewayChat } = await import("../gateway");
 const { REASONING_HEADROOM_TOKENS } = await import("../gateway");
+const { HEADROOM_MINIMAL_REASONING_TOKENS } = await import("../reasoning");
 
 const NOW = new Date("2026-10-25T12:00:00Z");
 const client = {} as unknown as SupabaseClient;
@@ -29,7 +30,7 @@ const MESSAGES = [
   { role: "system" as const, content: "You extract teachable lessons from book passages." },
   { role: "user" as const, content: 'Passage:\n"""..."""\nReturn ONLY strict JSON: {"lessons": []}' },
 ];
-const INGESTION_CALL = { maxTokens: 600, thinking: false, tier: "cheap" as const, json: true, usageStore: new FakeUsageStore(), now: NOW };
+const INGESTION_CALL = { maxTokens: 600, thinking: false, effort: "minimal" as const, tier: "cheap" as const, json: true, usageStore: new FakeUsageStore(), now: NOW };
 
 const LESSONS_JSON = '{"lessons":[{"title":"Use the two-minute rule","core_claim":"c","mechanism":"m","action_template":"a","provenance_quote":"q"}]}';
 
@@ -62,10 +63,10 @@ describe("ingestion's JSON call, per provider", () => {
   });
 
   it.each([
-    ["openai", "max_completion_tokens", "https://api.openai.com/v1/chat/completions"],
-    ["moonshot", "max_tokens", "https://api.moonshot.ai/v1/chat/completions"],
-    ["xai", "max_tokens", "https://api.x.ai/v1/chat/completions"],
-  ] as const)("%s: system message first, %s = 600 + reasoning headroom, JSON mode on", async (provider, tokenField, url) => {
+    ["openai", "max_completion_tokens", "https://api.openai.com/v1/chat/completions", { reasoning_effort: "none" }],
+    ["moonshot", "max_tokens", "https://api.moonshot.ai/v1/chat/completions", { thinking: { type: "disabled" } }],
+    ["xai", "max_tokens", "https://api.x.ai/v1/chat/completions", { reasoning_effort: "none" }],
+  ] as const)("%s (its budget model can switch reasoning OFF): system message first, %s = exactly 600 (no headroom needed), JSON mode on, reasoning off on the wire", async (provider, tokenField, url, reasoning) => {
     fetchMock.mockResolvedValue(respond({ choices: [{ message: { content: LESSONS_JSON } }], model: "echo", usage: { prompt_tokens: 10, completion_tokens: 5 } }));
     const result = await run(provider);
     expect(result.ok).toBe(true);
@@ -73,33 +74,44 @@ describe("ingestion's JSON call, per provider", () => {
     const body = sentBody();
     expect(body.messages[0]).toEqual({ role: "system", content: MESSAGES[0]!.content });
     expect(body.messages[1].role).toBe("user");
-    expect(body[tokenField]).toBe(600 + REASONING_HEADROOM_TOKENS);
+    expect(body[tokenField]).toBe(600);
     expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body).toMatchObject(reasoning);
   });
 
-  it("Claude: system prompt in the top-level `system` field (never a message), max_tokens with headroom, effort low, no JSON-mode field it does not have", async () => {
+  it("a provider/model that CANNOT switch reasoning off keeps the full headroom and the low floor (OpenAI gpt-6-astra, via an explicit capable-model call)", async () => {
+    resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-test-key-0123456789", source: "user" });
+    fetchMock.mockResolvedValue(respond({ choices: [{ message: { content: LESSONS_JSON } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }));
+    await gatewayChat(client, "u1", "self_mastery_ingestion_extract_lessons", MESSAGES, { ...INGESTION_CALL, provider: "openai", tier: "capable", usageStore: new FakeUsageStore() });
+    const body = sentBody();
+    expect(body.reasoning_effort).toBe("low");
+    expect(body.max_completion_tokens).toBe(600 + REASONING_HEADROOM_TOKENS);
+  });
+
+  it("Claude (Haiku 5.5): system prompt in the top-level `system` field (never a message), thinking disabled and max_tokens 600, effort low, no JSON-mode field it does not have", async () => {
     fetchMock.mockResolvedValue(respond({ id: "m", model: "echo", content: [{ type: "text", text: LESSONS_JSON }], usage: { input_tokens: 10, output_tokens: 5 } }));
     const result = await run("anthropic");
     expect(result.ok).toBe(true);
     const body = sentBody();
     expect(body.system).toBe(MESSAGES[0]!.content);
     expect(body.messages).toEqual([{ role: "user", content: MESSAGES[1]!.content }]);
-    expect(body.max_tokens).toBe(600 + REASONING_HEADROOM_TOKENS);
+    expect(body.max_tokens).toBe(600); // Haiku 5.5 runs with thinking disabled: no headroom needed
+    expect(body.thinking).toEqual({ type: "disabled" });
     expect(body.output_config).toEqual({ effort: "low" });
     expect(body.temperature).toBeUndefined();
     expect(body.response_format).toBeUndefined();
   });
 
-  it("Gemini: systemInstruction + contents, maxOutputTokens with headroom, thinking LOW, responseMimeType application/json", async () => {
+  it("Gemini: systemInstruction + contents, maxOutputTokens with a small headroom, thinking MINIMAL, responseMimeType application/json", async () => {
     fetchMock.mockResolvedValue(respond({ candidates: [{ content: { parts: [{ text: LESSONS_JSON }], role: "model" }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 }, modelVersion: "echo" }));
     const result = await run("google");
     expect(result.ok).toBe(true);
     const body = sentBody();
     expect(body.systemInstruction.parts[0].text).toBe(MESSAGES[0]!.content);
     expect(body.contents[0].parts[0].text).toBe(MESSAGES[1]!.content);
-    expect(body.generationConfig.maxOutputTokens).toBe(600 + REASONING_HEADROOM_TOKENS);
+    expect(body.generationConfig.maxOutputTokens).toBe(600 + HEADROOM_MINIMAL_REASONING_TOKENS); // minimal, not off: a little room
     expect(body.generationConfig.responseMimeType).toBe("application/json");
-    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "LOW" });
+    expect(body.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "MINIMAL" });
   });
 
   it("a call that does NOT ask for JSON (every other gateway caller) gets no JSON mode and no headroom on any provider", async () => {

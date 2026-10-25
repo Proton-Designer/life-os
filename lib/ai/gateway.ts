@@ -8,6 +8,7 @@ import { estimateMultiProviderCostUsd } from "./pricing";
 import { recordUsage, type UsageStore } from "./usage-log";
 import { getAiPreference } from "./preferences";
 import { checkMonthlySpendCap } from "./monthly-spend-cap";
+import { HEADROOM_FULL_REASONING_TOKENS, planReasoning, type ReasoningEffort } from "./reasoning";
 
 /**
  * THE gateway. Every AI-backed feature should call `gatewayChat()` instead
@@ -60,7 +61,7 @@ export interface GatewayChatOptions {
   /** DeepSeek-only (adapters/openai-compatible.ts's own header) -- ignored by every other provider's adapter. Overrides the tier's thinking-mode default for DeepSeek specifically. */
   thinking?: boolean;
   /** Normalized 3-level reasoning control for the SDK-backed adapters (openai-sdk.ts's OpenAI entry, anthropic.ts, google.ts) -- ignored by DeepSeek's raw-fetch path, which reads `thinking` instead. See client.ts's ChatOpts for which provider reads which. */
-  effort?: "low" | "medium" | "high";
+  effort?: ReasoningEffort;
   /**
    * Overrides client.ts's TIMEOUT_MS default (20s) for this call. Found
    * necessary live, 2026-09-14: self-mastery's ingestion extraction calls
@@ -99,8 +100,8 @@ export interface GatewayChatResult extends ChatResult {
   noKey?: boolean;
 }
 
-/** Extra room, over a caller's visible-output budget, for a non-DeepSeek reasoning model's thinking on a `json` call. */
-export const REASONING_HEADROOM_TOKENS = 1500;
+/** The most extra room a `json` call gets (a model that still reasons). Models that can truly turn reasoning off get 0, Gemini's minimal level a little: see planReasoning. */
+export const REASONING_HEADROOM_TOKENS = HEADROOM_FULL_REASONING_TOKENS;
 
 export async function gatewayChat(
   supabase: SupabaseClient,
@@ -167,8 +168,10 @@ export async function gatewayChat(
   const { result, attempts } = await withRetry(
     () =>
       chat(provider, resolved.key, messages, {
-        // DeepSeek is called with thinking OFF, so its limit is all visible output; every other provider gets the headroom.
-        maxTokens: opts.json && provider !== "deepseek" ? maxTokens + REASONING_HEADROOM_TOKENS : maxTokens,
+        // DeepSeek is called with thinking OFF, so its limit is all visible output. Every other provider gets headroom for
+        // whatever hidden reasoning it still does: none where the (provider, model) can truly turn reasoning off, a little at a
+        // "minimal" level, the full amount otherwise (lib/ai/reasoning.ts).
+        maxTokens: opts.json && provider !== "deepseek" ? maxTokens + planReasoning(provider, model, effort).headroomTokens : maxTokens,
         temperature: opts.temperature,
         model,
         thinking,

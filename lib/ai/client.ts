@@ -5,6 +5,7 @@ import { openAiSdkChat } from "./adapters/openai-sdk";
 import { anthropicChat } from "./adapters/anthropic";
 import { googleChat } from "./adapters/google";
 import type { ChatResult } from "./adapters/types";
+import type { ReasoningEffort } from "./reasoning";
 
 export type { ChatResult } from "./adapters/types";
 
@@ -43,7 +44,7 @@ export interface ChatOpts {
   /** DeepSeek-only (adapters/openai-compatible.ts's own header) — ignored by every other adapter. */
   thinking?: boolean;
   /** Normalized 3-level reasoning control for the SDK-backed adapters (openai-sdk.ts, and anthropic.ts once it lands) — ignored by DeepSeek's raw-fetch path, which keeps its own `thinking` boolean instead. */
-  effort?: "low" | "medium" | "high";
+  effort?: ReasoningEffort;
   /**
    * The caller needs a strict JSON object back (book ingestion). Turned into the provider's own JSON mode where one exists:
    * `response_format: json_object` (OpenAI, Kimi, Grok), `responseMimeType: application/json` (Gemini). Claude has no
