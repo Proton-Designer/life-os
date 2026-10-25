@@ -280,6 +280,22 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
       expect(removeMock).not.toHaveBeenCalled();
     });
 
+    it("when the ingestion job can't be queued, takes the book back out (object + row) instead of stranding it at 'processing' with no job", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "application/pdf" } }], error: null });
+      fromResults.ingestion_jobs = { data: null, error: { message: "insert failed" } };
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result.ok).toBe(false);
+      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+      const deletedBooks = fromMock.mock.calls.some(([table], i) => {
+        const chain = fromMock.mock.results[i]!.value as { delete: { mock: { calls: unknown[] } } };
+        return table === "books" && chain.delete.mock.calls.length > 0;
+      });
+      expect(deletedBooks).toBe(true);
+    });
+
     it("removes the object and deletes the row when the real object's mime type fails validation (bypassed the client-side check)", async () => {
       listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "text/plain" } }], error: null });
       const { finalizeBookUpload } = await import("../self-mastery-actions");

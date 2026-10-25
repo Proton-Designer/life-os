@@ -197,7 +197,13 @@ export async function finalizeBookUpload(bookId: string, path: string): Promise<
     user_id: userId,
     stage: "queued",
   });
-  if (jobError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  if (jobError) {
+    // The row is already 'processing', and cancelBookUpload only cleans up 'uploading' rows, so leaving it would strand
+    // a book with no job behind it forever. Take it back out the same way the failed-validation branch does.
+    await supabase.storage.from(BOOKS_BUCKET).remove([path]);
+    await untypedFrom(supabase, "books").delete().eq("id", bookId);
+    return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  }
 
   revalidatePath("/personal/self_mastery");
   revalidatePath("/");
