@@ -76,14 +76,22 @@ function terminal<T>(
 
 function makeMockSupabase(opts: {
   claimedJob: Record<string, unknown> | null;
+  /**
+   * What successive claim_ingestion_job calls return, in order; once exhausted the queue is empty (null), like the real
+   * table with nothing eligible. Defaults to `[claimedJob]`: the route now LOOPS (claim -> stage -> advance, again), so a
+   * mock that handed out the same job forever would spin until the time budget. One job, claimed once, is the shape every
+   * pre-loop test was written for.
+   */
+  claimSequence?: (Record<string, unknown> | null)[];
   rpcResults?: Record<string, { data: unknown; error: unknown }>;
   /** Keyed by table name ("source_chunks" | "lessons") -- fetchStageTotal's count query result. Defaults to `{count: null, error: null}` for any table not configured, which makes estimateBookProgressPct fall back to its static curve, same as before this file's own tests were updated for the 2026-09-15 fix. */
   countResults?: Record<string, { count: number | null; error: unknown }>;
 }) {
   const rpcCalls: { fn: string; args: unknown }[] = [];
+  const claims = [...(opts.claimSequence ?? [opts.claimedJob])];
   const rpc = vi.fn((fn: string, args: unknown) => {
     rpcCalls.push({ fn, args });
-    if (fn === "claim_ingestion_job") return Promise.resolve({ data: opts.claimedJob, error: null });
+    if (fn === "claim_ingestion_job") return Promise.resolve({ data: claims.length > 0 ? claims.shift() : null, error: null });
     const result = opts.rpcResults?.[fn];
     return Promise.resolve(result ?? { data: null, error: null });
   });
@@ -670,6 +678,246 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       await POST(new Request("http://x", { method: "POST", headers: { authorization: "Bearer wrong" } }));
 
       expect(mock.updateCalls.some((c) => c.table === "ingestion_driver_heartbeats")).toBe(false);
+    });
+  });
+
+  describe("one poll runs many steps (2a: claim -> stage -> advance, looped)", () => {
+    const job = (id: string, stage: string, chunk: number | null, book = "book-1") => ({ id, stage, cursor_chunk_index: chunk, cursor_attempt: 1, max_attempts: 3, book_id: book });
+    const advanceOk = { advance_ingestion_cursor: { data: { id: "x" }, error: null } };
+    const call = async () => {
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      return { res, body: (await res.json()) as Record<string, any> };
+    };
+
+    it("runs several stages in ONE call, each with its own advance, and reports the last step plus how the loop ended", async () => {
+      const chunking = vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 0 });
+      const extracting = vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 1 });
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { chunking, extracting_lessons: extracting } }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: null,
+        claimSequence: [job("j1", "chunking", null), job("j1", "extracting_lessons", 0), job("j1", "extracting_lessons", 1)],
+        rpcResults: advanceOk,
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { res, body } = await call();
+
+      expect(res.status).toBe(200);
+      expect(chunking).toHaveBeenCalledTimes(1);
+      expect(extracting).toHaveBeenCalledTimes(2);
+      const advances = mock.rpcCalls.filter((c) => c.fn === "advance_ingestion_cursor").map((c) => c.args);
+      expect(advances).toHaveLength(3);
+      expect(advances[0]).toMatchObject({ p_expected_stage: "chunking", p_next_stage: "extracting_lessons", p_next_chunk_index: 0 });
+      expect(advances[2]).toMatchObject({ p_expected_stage: "extracting_lessons", p_expected_chunk_index: 1, p_next_chunk_index: 1 });
+      // The books sync still happens once per successful advance (each iteration's writes are the old single-shot writes).
+      expect(mock.updateCalls.filter((u) => u.table === "books")).toHaveLength(3 * 2);
+      expect(body).toMatchObject({ ok: true, stage: "extracting_lessons", chunkIndex: 1, loop: { steps: 3, stoppedBy: "no_job" } });
+    });
+
+    it("heartbeat and sweep run ONCE per call, not once per step", async () => {
+      const handler = vi.fn().mockResolvedValue({ nextStage: "merging", nextChunkIndex: null });
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { chunking: handler } }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({ claimedJob: null, claimSequence: [job("j1", "chunking", null), job("j2", "chunking", null, "book-2")], rpcResults: advanceOk });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      await call();
+
+      const heartbeats = mock.updateCalls.filter((u) => u.table === "ingestion_driver_heartbeats");
+      expect(heartbeats).toHaveLength(1);
+      expect(handler).toHaveBeenCalledTimes(2); // and it carried on across jobs
+    });
+
+    it("keeps going past a job reaching 'done' and claims the next book, stopping only when nothing is eligible", async () => {
+      const finalizing = vi.fn().mockResolvedValue({ nextStage: "done", nextChunkIndex: null });
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { finalizing } }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({ claimedJob: null, claimSequence: [job("j1", "finalizing", null), job("j2", "finalizing", null, "book-2")], rpcResults: advanceOk });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { body } = await call();
+
+      expect(finalizing).toHaveBeenCalledTimes(2);
+      expect(body.loop).toMatchObject({ steps: 2, stoppedBy: "no_job" });
+    });
+
+    it("the time budget stops the loop: with 100 s per step it runs two steps and leaves the rest for the next poll", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const slow = vi.fn(async () => {
+          vi.setSystemTime(Date.now() + 100_000);
+          return { nextStage: "extracting_lessons", nextChunkIndex: 1 };
+        });
+        vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { extracting_lessons: slow } }));
+        const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+        const mock = makeMockSupabase({
+          claimedJob: null,
+          claimSequence: [job("j1", "extracting_lessons", 0), job("j1", "extracting_lessons", 1), job("j1", "extracting_lessons", 2), job("j1", "extracting_lessons", 3)],
+          rpcResults: advanceOk,
+        });
+        vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+        const { body } = await call();
+
+        expect(slow).toHaveBeenCalledTimes(2); // 100 s + slowest 100 s = 200 s < 240 s: go again; 200 s + 100 s >= 240 s: stop
+        expect(body.loop).toMatchObject({ steps: 2, stoppedBy: "budget" });
+        expect(mock.rpcCalls.filter((c) => c.fn === "claim_ingestion_job")).toHaveLength(2); // the third claim was never made
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a cursor another invocation already moved (advance CAS miss, data null) ends THIS loop cleanly: 200, stoppedBy 'stopped', no further claims", async () => {
+      const handler = vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 1 });
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { extracting_lessons: handler } }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: null,
+        claimSequence: [job("j1", "extracting_lessons", 0), job("j1", "extracting_lessons", 1)],
+        rpcResults: { advance_ingestion_cursor: { data: null, error: null } },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { res, body } = await call();
+
+      expect(res.status).toBe(200);
+      expect(body).toMatchObject({ ok: true, alreadyAdvanced: true, loop: { steps: 1, stoppedBy: "stopped" } });
+      expect(mock.rpcCalls.filter((c) => c.fn === "claim_ingestion_job")).toHaveLength(1);
+    });
+
+    it("a stage failure in the middle of the loop stops it where the single-shot route returned: the earlier step stays advanced, the failure is reported as before", async () => {
+      const ok = vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 1 });
+      const boom = vi.fn().mockRejectedValue(new Error("model exploded"));
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { chunking: ok, extracting_lessons: boom } }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: null,
+        claimSequence: [job("j1", "chunking", null), job("j1", "extracting_lessons", 0), job("j1", "extracting_lessons", 0)],
+        rpcResults: advanceOk,
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { res, body } = await call();
+
+      expect(res.status).toBe(500);
+      expect(body).toMatchObject({ ok: false, reason: "stage_work_failed", error: "model exploded", loop: { steps: 2, stoppedBy: "halt" } });
+      expect(mock.rpcCalls.filter((c) => c.fn === "advance_ingestion_cursor")).toHaveLength(1); // only the chunking step advanced
+      expect(mock.rpcCalls.filter((c) => c.fn === "claim_ingestion_job")).toHaveLength(2); // no claim after the failure
+    });
+
+    describe("self-chaining: a budget stop kicks the driver through the database (migration 273)", () => {
+      const kicks = (mock: ReturnType<typeof makeMockSupabase>) => mock.rpcCalls.filter((c) => c.fn === "kick_ingestion_driver");
+      const kickOk = { kick_ingestion_driver: { data: true, error: null } };
+
+      /** Two 100 s steps then the budget stops the loop (see the budget test above); `hopHeader`/env vary per case. */
+      async function budgetRun(opts: { hopHeader?: string; rpcResults?: Record<string, { data: unknown; error: unknown }> } = {}) {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+          const slow = vi.fn(async () => {
+            vi.setSystemTime(Date.now() + 100_000);
+            return { nextStage: "extracting_lessons", nextChunkIndex: 1 };
+          });
+          vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { extracting_lessons: slow } }));
+          const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+          const mock = makeMockSupabase({
+            claimedJob: null,
+            claimSequence: [job("j1", "extracting_lessons", 0), job("j1", "extracting_lessons", 1), job("j1", "extracting_lessons", 2)],
+            rpcResults: { ...advanceOk, ...kickOk, ...opts.rpcResults },
+          });
+          vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+          const { POST } = await import("../route");
+          const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}`, ...(opts.hopHeader ? { "x-ingestion-hop": opts.hopHeader } : {}) } }));
+          return { mock, res, body: (await res.json()) as Record<string, any> };
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+
+      it("a budget stop asks the DB to kick the next hop, and says so in the response", async () => {
+        const { mock, body } = await budgetRun();
+        expect(body.loop).toMatchObject({ stoppedBy: "budget", chained: true, hop: 0 });
+        expect(kicks(mock)).toHaveLength(1);
+        expect(kicks(mock)[0]!.args).toEqual({ p_hop: 1 });
+      });
+
+      it("the hop number comes from the incoming x-ingestion-hop header and goes up by one", async () => {
+        const { mock, body } = await budgetRun({ hopHeader: "5" });
+        expect(kicks(mock)[0]!.args).toEqual({ p_hop: 6 });
+        expect(body.loop).toMatchObject({ hop: 5, chained: true });
+      });
+
+      it("the chain stops at the hop cap: no kick at hop 30 (the cron resumes), and a hop above it is clamped", async () => {
+        for (const hopHeader of ["30", "999"]) {
+          vi.resetModules();
+          const { mock, body } = await budgetRun({ hopHeader });
+          expect(kicks(mock)).toHaveLength(0);
+          expect(body.loop).toMatchObject({ stoppedBy: "budget", chained: false, hop: 30 });
+        }
+      });
+
+      it("a malformed hop header counts as 0 rather than being trusted", async () => {
+        const { mock } = await budgetRun({ hopHeader: "banana" });
+        expect(kicks(mock)[0]!.args).toEqual({ p_hop: 1 });
+      });
+
+      it("the kill switch INGESTION_SELF_CHAIN=off never kicks", async () => {
+        vi.stubEnv("INGESTION_SELF_CHAIN", "off");
+        const { mock, body } = await budgetRun();
+        expect(kicks(mock)).toHaveLength(0);
+        expect(body.loop).toMatchObject({ stoppedBy: "budget", chained: false });
+      });
+
+      it("when the DB's rate guard declines (returns false) the response says chained:false and nothing breaks", async () => {
+        const { body, res } = await budgetRun({ rpcResults: { kick_ingestion_driver: { data: false, error: null } } });
+        expect(res.status).toBe(200);
+        expect(body.loop).toMatchObject({ stoppedBy: "budget", chained: false });
+      });
+
+      it("a kick that errors never changes the response: same status and body, chained:false, the cron is the fallback", async () => {
+        const { res, body } = await budgetRun({ rpcResults: { kick_ingestion_driver: { data: null, error: { message: "boom" } } } });
+        expect(res.status).toBe(200);
+        expect(body).toMatchObject({ ok: true, stage: "extracting_lessons", loop: { steps: 2, stoppedBy: "budget", chained: false } });
+      });
+
+      it.each([
+        ["nothing eligible", [] as ReturnType<typeof job>[], "no_job"],
+        ["a job reaching done", [job("j1", "finalizing", null)], "no_job"],
+      ])("never kicks after a non-budget stop: %s", async (_name, claimSequence, stoppedBy) => {
+        const finalizing = vi.fn().mockResolvedValue({ nextStage: "done", nextChunkIndex: null });
+        vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { finalizing } }));
+        const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+        const mock = makeMockSupabase({ claimedJob: null, claimSequence, rpcResults: { ...advanceOk, ...kickOk } });
+        vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+        const { POST } = await import("../route");
+        const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+        expect((await res.json()).loop.stoppedBy).toBe(stoppedBy);
+        expect(kicks(mock)).toHaveLength(0);
+      });
+
+      it("never kicks after a stage failure or after a cursor another invocation moved", async () => {
+        const boom = vi.fn().mockRejectedValue(new Error("model exploded"));
+        vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { extracting_lessons: boom } }));
+        const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+        const failing = makeMockSupabase({ claimedJob: job("j1", "extracting_lessons", 0), rpcResults: { ...advanceOk, ...kickOk } });
+        vi.mocked(createServiceRoleClient).mockReturnValue(failing as never);
+        const { POST } = await import("../route");
+        const failed = await (await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }))).json();
+        expect(failed.loop.stoppedBy).toBe("halt");
+        expect(kicks(failing)).toHaveLength(0);
+
+        vi.resetModules();
+        const ok = vi.fn().mockResolvedValue({ nextStage: "extracting_lessons", nextChunkIndex: 1 });
+        vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({ STAGE_HANDLERS: { extracting_lessons: ok } }));
+        const { createServiceRoleClient: create2 } = await import("@/lib/supabase/service-role");
+        const missed = makeMockSupabase({ claimedJob: job("j1", "extracting_lessons", 0), rpcResults: { advance_ingestion_cursor: { data: null, error: null }, ...kickOk } });
+        vi.mocked(create2).mockReturnValue(missed as never);
+        const { POST: POST2 } = await import("../route");
+        const stopped = await (await POST2(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }))).json();
+        expect(stopped.loop.stoppedBy).toBe("stopped");
+        expect(kicks(missed)).toHaveLength(0);
+      });
     });
   });
 });

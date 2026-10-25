@@ -9,6 +9,8 @@ import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
 import type { IngestStage } from "@/lib/self-mastery/types";
+import { runStepLoop, type StepOutcome } from "@/lib/self-mastery/ingestion/step-loop";
+import { HOP_HEADER, kickNextHop, parseHop } from "@/lib/self-mastery/ingestion/step-chain";
 
 /**
  * A5 gates 3-4, plus S6's driver wiring (2026-09-14): one ingestion chunk
@@ -18,16 +20,21 @@ import type { IngestStage } from "@/lib/self-mastery/types";
  * `claim_ingestion_job`, does exactly the one stage/chunk's work, and
  * advances via `advance_ingestion_cursor` — never routes around it.
  *
- * STILL ONE STAGE PER INVOCATION, NOT LOOPED — a deliberate choice, not an
- * oversight. Looping several stages per call (to shorten a real book's
- * multi-hour run) was drafted and then backed out: this route's control
- * flow is exactly what nine of its own tests (route.test.ts) pin down call
- *-by-call, including two that assert an EXACT count of `.update()` calls
- * per invocation (Gate 5's pair) — a real driver loop needs those tests
- * restructured around a stateful mock that tracks cursor position across
- * iterations, which is a bigger, riskier change than this pass's actual
- * blocker (there was no consumer at all) warranted. Flagged as the next
- * throughput lever in the build report, not silently dropped.
+ * LOOPS WITHIN ONE INVOCATION (2026-10-25; this used to say "still one stage per invocation, not looped"). A real book is
+ * ~130 chunk-sized steps, each a few seconds of work, and one step per one-minute poll made that hours of wall clock. The
+ * body below the heartbeat is `runStep` (claim -> stage -> advance -> books sync, exactly the old single-shot code and
+ * writes, every old return now a `halt`), driven by `runStepLoop` (lib/self-mastery/ingestion/step-loop.ts) until the
+ * time budget (LOOP_BUDGET_MS, counting the slowest step so far) is spent, nothing is left to claim, or a step is not a
+ * clean advance (failure, skip, circuit breaker, a cursor another invocation already moved). The nine original tests
+ * still pin the single-step behaviour (their mock now hands out one job, then an empty queue); the loop has its own.
+ * A step is durable once its advance lands, so a crash anywhere loses at most the step in flight (lease expiry, CAS).
+ * Overlapping polls are safe: `advance_ingestion_cursor` releases the lease, `claim_ingestion_job` is SKIP LOCKED and the
+ * advance is a CAS, so two invocations can interleave on one job; the loser steps aside (`stopped`).
+ *
+ * SELF-CHAINING: a 'budget' stop means work remains, so the route asks the database to POST to itself again
+ * (`kick_ingestion_driver`, migration 273, a pg_net call: same origin as the cron, asynchronous, rate-guarded to one kick
+ * per 20 s) with the hop in `x-ingestion-hop`, capped at MAX_HOPS; `INGESTION_SELF_CHAIN=off` disables it. Never after
+ * any other stop. The 1-minute cron stays the fallback. See lib/self-mastery/ingestion/step-chain.ts.
  *
  * HEARTBEAT ON EVERY AUTHENTICATED CALL, EVEN "NOTHING TO DO" — see
  * `recordIngestionDriverHeartbeat`'s own header. `isIngestionAvailable()`
@@ -210,31 +217,13 @@ async function syncBookProgress(supabase: SupabaseClient, bookId: string, stage:
   }
 }
 
-export async function POST(request: Request) {
-  if (!process.env.SELF_MASTERY_INGESTION_SECRET) {
-    return NextResponse.json({ ok: false, reason: "not_configured" }, { status: 503 });
-  }
-  if (!checkIngestionSecret(request)) {
-    return NextResponse.json({ ok: false, reason: "unauthorized" }, { status: 401 });
-  }
-
-  const supabase = createServiceRoleClient();
-
-  // Unconditional once auth passes, BEFORE the claim — this call proves
-  // "the driver reached this route just now," which must stay true whether
-  // or not a job happened to be eligible. See recordIngestionDriverHeartbeat
-  // and isIngestionAvailable's own headers. Best-effort by design (returns
-  // a bool, never throws) — a heartbeat write failing must never block the
-  // real ingestion work this invocation exists to do.
-  await recordIngestionDriverHeartbeat(supabase);
-
-  // Housekeeping before the claim: fail books that can never finish (no job, or a job silent for an hour) so the library
-  // offers "Try again". Bounded, idempotent and never throws (stuck-sweep.ts); it must not cost the poll its real work.
-  await sweepStuckBooks(supabase);
+/** What one trip through claim -> stage -> advance produced. See step-loop.ts for what each kind does to the loop. */
+async function runStep(supabase: ReturnType<typeof createServiceRoleClient>): Promise<StepOutcome> {
+  const halt = (body: Record<string, unknown>, init?: { status?: number }): StepOutcome => ({ kind: "halt", status: init?.status ?? 200, body });
 
   const { data: job, error: claimError } = await supabase.rpc("claim_ingestion_job");
   if (claimError) {
-    return NextResponse.json({ ok: false, reason: "claim_failed", error: claimError.message }, { status: 500 });
+    return halt({ ok: false, reason: "claim_failed", error: claimError.message }, { status: 500 });
   }
   // BUG FOUND LIVE, running item 7 against an empty ingestion_jobs table:
   // `claim_ingestion_job` (109) is declared to RETURN a `public.ingestion_jobs`
@@ -252,14 +241,14 @@ export async function POST(request: Request) {
   // key and can never be legitimately null for a real claimed row, so it's
   // the correct discriminator here without touching the RPC's return shape.
   if (!job || job.id === null) {
-    return NextResponse.json({ ok: true, reason: "no_eligible_job" }, { status: 200 });
+    return { kind: "no_job", status: 200, body: { ok: true, reason: "no_eligible_job" } };
   }
 
   const handler = STAGE_HANDLERS[job.stage];
   if (!handler) {
     // Named, not swallowed: an unimplemented stage is a 501, not a silent
     // 200 that would look identical to real progress from the outside.
-    return NextResponse.json(
+    return halt(
       { ok: false, reason: "stage_not_implemented", stage: job.stage, jobId: job.id },
       { status: 501 },
     );
@@ -348,7 +337,7 @@ export async function POST(request: Request) {
             jobErrorMessage: `${skipReason} -- AND skip_ingestion_cursor_position itself failed: ${skipError.message}`,
             bookErrorMessage: "Something went wrong while processing this book. Please try uploading it again.",
           });
-          return NextResponse.json(
+          return halt(
             { ok: false, reason: "chunk_skip_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, skipError: skipError.message, bookMarkedFailed: failed.ok },
             { status: 500 },
           );
@@ -402,7 +391,7 @@ export async function POST(request: Request) {
             jobErrorMessage: `${expectedStage}: circuit breaker tripped after ${totalSkipped} skips (${consecutiveSkipped} consecutive) -- last: ${skipReason}`,
             bookErrorMessage: `${providerReason} Please try again later.`,
           });
-          return NextResponse.json(
+          return halt(
             {
               ok: false,
               reason: "circuit_breaker_tripped",
@@ -416,7 +405,7 @@ export async function POST(request: Request) {
           );
         }
 
-        return NextResponse.json({
+        return halt({
           ok: true,
           reason: "chunk_skipped_after_exhausted_attempts",
           stage: expectedStage,
@@ -436,19 +425,19 @@ export async function POST(request: Request) {
         bookErrorMessage: "Something went wrong while processing this book. Please try uploading it again.",
       });
       if (!failed.ok) {
-        return NextResponse.json(
+        return halt(
           { ok: false, reason: "stage_work_failed_and_could_not_mark_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, failError: failed.failError },
           { status: 500 },
         );
       }
 
-      return NextResponse.json(
+      return halt(
         { ok: false, reason: "attempts_exhausted", stage: expectedStage, chunkIndex: expectedChunkIndex, maxAttempts: job.max_attempts, error: errorMessage },
         { status: 500 },
       );
     }
 
-    return NextResponse.json(
+    return halt(
       { ok: false, reason: "stage_work_failed", stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage },
       { status: 500 },
     );
@@ -477,7 +466,7 @@ export async function POST(request: Request) {
     // finding than gate 3's own red case (which tests the refusal path
     // deliberately), and a real occurrence here would mean the two are out
     // of sync in a way worth investigating, not retrying quietly.
-    return NextResponse.json({ ok: false, reason: "advance_failed", error: advanceError.message }, { status: 500 });
+    return halt({ ok: false, reason: "advance_failed", error: advanceError.message }, { status: 500 });
   }
 
   // See this file's own header for why this exists: books.stage was
@@ -496,17 +485,60 @@ export async function POST(request: Request) {
     await syncBookProgress(supabase, job.book_id, work.nextStage, work.nextChunkIndex);
   }
 
-  return NextResponse.json({
-    ok: true,
-    jobId: job.id,
-    stage: expectedStage,
-    chunkIndex: expectedChunkIndex,
-    // null from advance_ingestion_cursor means the cursor had already moved
-    // (a concurrent or retried caller got here first) — the idempotent
-    // no-op this design exists to make safe, reported honestly rather than
-    // conflated with "I moved it."
-    alreadyAdvanced: advanced === null,
-    nextStage: work.nextStage,
-    nextChunkIndex: work.nextChunkIndex,
-  });
+  return {
+    // A cursor that had already moved means another invocation got there first (the idempotent no-op this design exists
+    // to make safe): this caller steps aside instead of claiming again.
+    kind: advanced === null ? "stopped" : "advanced",
+    status: 200,
+    body: {
+      ok: true,
+      jobId: job.id,
+      stage: expectedStage,
+      chunkIndex: expectedChunkIndex,
+      // null from advance_ingestion_cursor means the cursor had already moved
+      // (a concurrent or retried caller got here first) — the idempotent
+      // no-op this design exists to make safe, reported honestly rather than
+      // conflated with "I moved it."
+      alreadyAdvanced: advanced === null,
+      nextStage: work.nextStage,
+      nextChunkIndex: work.nextChunkIndex,
+    },
+  };
+}
+
+export async function POST(request: Request) {
+  if (!process.env.SELF_MASTERY_INGESTION_SECRET) {
+    return NextResponse.json({ ok: false, reason: "not_configured" }, { status: 503 });
+  }
+  if (!checkIngestionSecret(request)) {
+    return NextResponse.json({ ok: false, reason: "unauthorized" }, { status: 401 });
+  }
+
+  const supabase = createServiceRoleClient();
+
+  // Unconditional once auth passes, BEFORE the claim — this call proves
+  // "the driver reached this route just now," which must stay true whether
+  // or not a job happened to be eligible. See recordIngestionDriverHeartbeat
+  // and isIngestionAvailable's own headers. Best-effort by design (returns
+  // a bool, never throws) — a heartbeat write failing must never block the
+  // real ingestion work this invocation exists to do.
+  await recordIngestionDriverHeartbeat(supabase);
+
+  // Housekeeping before the claim: fail books that can never finish (no job, or a job silent for an hour) so the library
+  // offers "Try again". Bounded, idempotent and never throws (stuck-sweep.ts); it must not cost the poll its real work.
+  await sweepStuckBooks(supabase);
+
+  // One poll now runs MANY steps (claim -> stage -> advance) until the time budget is spent, something other than a clean
+  // advance happens, or nothing is left to claim. See step-loop.ts. Each step is the same code, with the same writes, as
+  // the old single-shot route, so crash-safety is unchanged: a step is durable once its advance lands.
+  const hop = parseHop(request.headers.get(HOP_HEADER));
+  const result = await runStepLoop(() => runStep(supabase));
+  // Only a 'budget' stop means work remains. Anything else (nothing eligible, a failure, a cursor someone else moved) is
+  // never chained, and the 1-minute cron stays the fallback. The kick is a DB-side pg_net POST (migration 273), so this
+  // returns at once; see step-chain.ts for the rails (hop cap, kill switch, 20 s rate guard in the RPC).
+  const chained = result.stoppedBy === "budget" ? await kickNextHop(supabase, hop) : false;
+  return NextResponse.json(
+    { ...result.body, loop: { steps: result.steps, elapsedMs: result.elapsedMs, stoppedBy: result.stoppedBy, chained, hop } },
+    { status: result.status },
+  );
 }
