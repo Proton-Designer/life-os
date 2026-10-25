@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const draftQuestionsFromTranscriptCoreMock = vi.fn(async (..._args: unknown[]) => ({ status: "drafted", drafts: [], partial: false }));
 vi.mock("@/lib/school/question-draft-from-transcript", () => ({
   draftQuestionsFromTranscript: (...args: unknown[]) => draftQuestionsFromTranscriptCoreMock(...args),
+  transcriptChunksForQueue: (text: string) => ({ chunks: text.length > 20000 ? [text.slice(0, 20000), text.slice(20000)] : [text], partial: false }),
 }));
 
 vi.mock("@/lib/school/question-draft-generation", () => ({
@@ -24,7 +25,8 @@ function makeChain(result: { data: unknown; error: unknown }) {
 }
 
 let fromResult: { data: unknown; error: unknown } = { data: null, error: null };
-const fromMock = vi.fn((_table: string) => makeChain(fromResult));
+let recordingResult: { data: unknown; error: unknown } = { data: { class_id: "class-9" }, error: null };
+const fromMock = vi.fn((table: string) => makeChain(table === "lecture_recordings" ? recordingResult : fromResult));
 const requireUserMock = vi.fn(async () => ({ supabase: { from: fromMock }, userId: "user-1" }));
 vi.mock("@/lib/supabase/auth", () => ({
   requireUser: () => requireUserMock(),
@@ -108,5 +110,57 @@ describe("draftQuestionsFromNotes — no key, connected agent (agent work queue)
     const { draftQuestionsFromNotes } = await import("../question-draft-actions");
     expect((await draftQuestionsFromNotes("Notes", "class-1") as { status: string }).status).toBe("drafted");
     expect(enqueueMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("draftQuestionsFromTranscript — no key, connected agent (agent work queue)", () => {
+  beforeEach(() => {
+    routeMock.mockReset().mockResolvedValue("queue");
+    enqueueMock.mockReset().mockResolvedValue("job-1");
+    fromResult = { data: { status: "completed", transcript_text: "the lecture, verbatim" }, error: null };
+    recordingResult = { data: { class_id: "class-9" }, error: null };
+  });
+
+  it("queues the transcript (as the recording's own class) instead of calling the model", async () => {
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromTranscript("rec-1")).toEqual({ status: "queued", jobId: "job-1", count: 1 });
+    expect(fromMock).toHaveBeenCalledWith("lecture_recordings");
+    expect(enqueueMock).toHaveBeenCalledWith(expect.anything(), { kind: "school.question_draft", subjectId: "class-9", input: { text: "the lecture, verbatim", truncated: false } });
+    expect(draftQuestionsFromTranscriptCoreMock).not.toHaveBeenCalled();
+  });
+
+  it("a long transcript becomes one job per chunk (the same chunks the in-app drafting would send)", async () => {
+    fromResult = { data: { status: "completed", transcript_text: "w".repeat(30000) }, error: null };
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromTranscript("rec-1")).toEqual({ status: "queued", jobId: "job-1", count: 2 });
+    expect(enqueueMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("a transcript that is not ready is still not_ready, never queued", async () => {
+    fromResult = { data: { status: "processing", transcript_text: null }, error: null };
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromTranscript("rec-1")).toEqual({ status: "not_ready" });
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("a recording that is not the caller's (no row) is an error result, never queued", async () => {
+    recordingResult = { data: null, error: null };
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromTranscript("rec-1")).toEqual({ status: "error" });
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("a full queue reads as unavailable", async () => {
+    enqueueMock.mockRejectedValueOnce(new Error("too many jobs"));
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromTranscript("rec-1")).toEqual({ status: "unavailable" });
+  });
+
+  it("with a key (inline) nothing is queued and the core drafter runs as before", async () => {
+    routeMock.mockResolvedValue("inline");
+    const { draftQuestionsFromTranscript } = await import("../question-draft-actions");
+    await draftQuestionsFromTranscript("rec-1");
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(draftQuestionsFromTranscriptCoreMock).toHaveBeenCalled();
   });
 });

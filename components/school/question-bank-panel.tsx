@@ -254,6 +254,12 @@ export function QuestionBankPanel({
     setAiMessage(null);
     startDrafting(async () => {
       const result = await draftQuestionsFromTranscript(recordingId);
+      if (result.status === "queued") {
+        // No AI key but a connected agent: the drafting waits in the agent queue; the drafts come back as a "ready" card below.
+        setFormMode("closed");
+        setJobsRefreshKey((k) => k + 1);
+        return;
+      }
       if (result.status !== "drafted") {
         setAiMessage(TRANSCRIPT_DRAFT_OUTCOME_MESSAGE[result.status] ?? "Drafting didn't work — try again or add a question manually.");
         return;

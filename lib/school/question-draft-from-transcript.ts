@@ -169,3 +169,9 @@ export async function draftQuestionsFromTranscript(
   if (anyChunkParseFailed && !anyChunkSucceeded) return { status: "parse_failed" };
   return { status: "unavailable" };
 }
+
+/** The transcript pieces an agent job is made of: the same chunks the in-app drafting would send, at most MAX_CHUNKS_PER_TRANSCRIPT, and whether the transcript was longer than that. */
+export function transcriptChunksForQueue(transcriptText: string): { chunks: string[]; partial: boolean } {
+  const all = chunkText(transcriptText, MAX_CHUNK_CHARS);
+  return { chunks: all.slice(0, MAX_CHUNKS_PER_TRANSCRIPT), partial: all.length > MAX_CHUNKS_PER_TRANSCRIPT };
+}

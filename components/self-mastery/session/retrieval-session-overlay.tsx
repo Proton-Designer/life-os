@@ -28,7 +28,8 @@ import {
   revalidateAfterReview,
   type FinishSessionResult,
 } from "@/app/(app)/personal/self-mastery-session-actions";
-import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
+import { getAnswerFeedback, getCardFeedbackState, markCardFeedbackSeen, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
+import type { FeedbackState } from "@/lib/self-mastery/feedback-notes";
 import { getCloserDayConnection } from "@/app/(app)/personal/closer-day-connection-actions";
 import type { CloserDayConnectionResult } from "@/lib/self-mastery/closer-day-connection-types";
 import { ConnectAgentHint } from "@/components/agent/connect-agent-hint";
@@ -90,6 +91,10 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   // fire-and-forget after reveal, never awaited before showing the grade
   // buttons -- a second opinion, never a gate.
   const [aiFeedback, setAiFeedback] = useState<AnswerFeedback | null>(null);
+  // No key but a connected agent ("feedback later"): this answer is queued for the agent, and feedback the agent already attached to
+  // EARLIER answers on this card shows here. Neither ever gates, delays or pre-selects a grade.
+  const [feedbackQueued, setFeedbackQueued] = useState(false);
+  const [agentFeedback, setAgentFeedback] = useState<FeedbackState | null>(null);
   // The lesson's "why it works" / "try this" — read-only, same content
   // book-detail-view.tsx already shows. Fetched alongside revealCardAnswer
   // (Promise.all in handleReveal), never before it, for the same reason:
@@ -215,6 +220,8 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
     setConfidence(null);
     setRevealedAnswer(null);
     setAiFeedback(null);
+    setFeedbackQueued(false);
+    setAgentFeedback(null);
     setLessonContext(null);
     setCloserDayConnection(null);
   }
@@ -267,7 +274,8 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
       getAnswerFeedback(requestedCardId, requestedAnswer)
         .then((feedback) => {
           if (activeItemIdRef.current !== requestedCardId) return; // abandoned -- user already moved on
-          setAiFeedback(feedback);
+          if (feedback && "queued" in feedback) setFeedbackQueued(true);
+          else setAiFeedback(feedback);
         })
         .catch(() => {
           // null is the normal answer for every failure mode already: no
@@ -276,6 +284,16 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
           // nothing, exactly as if getAnswerFeedback itself had returned
           // null.
         });
+
+      // Feedback an agent attached to earlier answers on this card (and whether one is still on its way). Display-only.
+      getCardFeedbackState(requestedCardId)
+        .then((state) => {
+          if (activeItemIdRef.current !== requestedCardId) return;
+          setAgentFeedback(state);
+          const fresh = state.notes.filter((n) => n.isNew).map((n) => n.id);
+          if (fresh.length > 0) void markCardFeedbackSeen(fresh).catch(() => {});
+        })
+        .catch(() => {});
 
       // P2-15: only the CLOSER card gets a day-connection attempt -- this
       // is a session-ending ritual (session-screen-spec.md §1.4), not
@@ -657,6 +675,26 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                             AI suggests: {RATING_LABEL[aiFeedback.suggestedRating]}
                           </p>
                         )}
+                      </div>
+                    )}
+                    {(feedbackQueued || agentFeedback?.pending) && (
+                      <p data-testid="agent-feedback-pending" className="text-xs text-muted-foreground">
+                        Your agent will add feedback on its next run. It will show here the next time you open this card.
+                      </p>
+                    )}
+                    {agentFeedback && agentFeedback.notes.length > 0 && (
+                      <div data-testid="agent-feedback-notes" className="flex flex-col gap-2 rounded-lg border border-border/40 bg-muted/30 p-3 text-sm">
+                        <p className="text-xs font-medium text-muted-foreground">Feedback from your agent on an earlier answer</p>
+                        {agentFeedback.notes.map((n) => (
+                          <div key={n.id} className="flex flex-col gap-0.5">
+                            <p className="text-xs text-muted-foreground">You wrote: &ldquo;{n.attempt.length > 120 ? `${n.attempt.slice(0, 119)}…` : n.attempt}&rdquo;</p>
+                            <p>{n.feedback}</p>
+                            {n.suggestedRating ? (
+                              <p className="text-xs text-muted-foreground">Suggested then: {RATING_LABEL[n.suggestedRating as Rating]} (your call)</p>
+                            ) : null}
+                            {n.sourceLabel ? <p className="text-xs text-muted-foreground/80">{n.sourceLabel}</p> : null}
+                          </div>
+                        ))}
                       </div>
                     )}
                     {/* P2-15: the closer's "connect this to today" line --

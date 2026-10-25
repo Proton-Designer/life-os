@@ -6,15 +6,20 @@ import type { TeachableLesson, SubmitTeachBackResult } from "@/app/(app)/persona
 
 const getTeachableLessonsMock = vi.fn(async (..._args: unknown[]): Promise<TeachableLesson[]> => []);
 const submitTeachBackMock = vi.fn(async (..._args: unknown[]): Promise<SubmitTeachBackResult> => ({ outcome: "evaluated", followUpQuestions: [], gapFeedback: "" }));
+const getLessonFeedbackStateMock = vi.fn(async (..._args: unknown[]): Promise<import("@/lib/self-mastery/feedback-notes").FeedbackState> => ({ notes: [], pending: false }));
+const markLessonFeedbackSeenMock = vi.fn(async (..._args: unknown[]) => {});
 vi.mock("@/app/(app)/personal/teach-back-actions", () => ({
   getTeachableLessons: (...args: unknown[]) => getTeachableLessonsMock(...args),
   submitTeachBack: (...args: unknown[]) => submitTeachBackMock(...args),
+  getLessonFeedbackState: (...args: unknown[]) => getLessonFeedbackStateMock(...args),
+  markLessonFeedbackSeen: (...args: unknown[]) => markLessonFeedbackSeenMock(...args),
 }));
 
 describe("TeachBackPanel (P2-18)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getTeachableLessonsMock.mockResolvedValue([]);
+    getLessonFeedbackStateMock.mockResolvedValue({ notes: [], pending: false });
   });
 
   it("renders nothing when there are no ready books", () => {
@@ -93,5 +98,42 @@ describe("TeachBackPanel (P2-18)", () => {
     await user.click(screen.getByRole("button", { name: "Atomic Habits" }));
     await user.click(await screen.findByRole("button", { name: "Spaced repetition" }));
     expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled();
+  });
+
+  async function pickLesson(user: ReturnType<typeof userEvent.setup>) {
+    getTeachableLessonsMock.mockResolvedValue([{ id: "l1", title: "Spaced repetition", coreClaim: null }]);
+    render(<TeachBackPanel books={[{ id: "b1", title: "Atomic Habits" }]} />);
+    await user.click(screen.getByRole("button", { name: "Atomic Habits" }));
+    await user.click(await screen.findByRole("button", { name: "Spaced repetition" }));
+  }
+
+  it("feedback later: a queued explanation says the agent will add feedback on its next run", async () => {
+    const user = userEvent.setup();
+    submitTeachBackMock.mockResolvedValue({ outcome: "queued" });
+    await pickLesson(user);
+    await user.type(screen.getByPlaceholderText(/explain this lesson/i), "Spacing reviews out beats cramming because forgetting is gradual.");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    expect(await screen.findByText(/Your agent will add feedback on its next run/)).toBeInTheDocument();
+  });
+
+  it("picking a lesson shows feedback an agent attached earlier (with follow-up questions and its source) and marks it seen", async () => {
+    const user = userEvent.setup();
+    getLessonFeedbackStateMock.mockResolvedValue({
+      pending: false,
+      notes: [{ id: "n1", attempt: "spacing is good", feedback: "You missed why the intervals grow.", suggestedRating: null, followUpQuestions: ["What happens if you review too early?"], sourceLabel: "Written by Claude via your connector", createdAt: "2026-10-24T14:00:00Z", isNew: true }],
+    });
+    await pickLesson(user);
+    const notes = await screen.findByTestId("agent-feedback-notes");
+    expect(notes).toHaveTextContent("You missed why the intervals grow.");
+    expect(notes).toHaveTextContent("What happens if you review too early?");
+    expect(notes).toHaveTextContent("Written by Claude via your connector");
+    await waitFor(() => expect(markLessonFeedbackSeenMock).toHaveBeenCalledWith(["n1"]));
+  });
+
+  it("a lesson with an explanation still waiting on the agent says so", async () => {
+    const user = userEvent.setup();
+    getLessonFeedbackStateMock.mockResolvedValue({ notes: [], pending: true });
+    await pickLesson(user);
+    expect(await screen.findByTestId("agent-feedback-pending")).toBeInTheDocument();
   });
 });

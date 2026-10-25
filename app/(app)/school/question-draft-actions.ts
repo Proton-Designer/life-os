@@ -6,6 +6,7 @@ import { enqueueAgentJobCore } from "@/lib/agent-jobs/core";
 import { draftQuestionsFromNotes as draftQuestionsFromNotesCore, type QuestionDraftOutcome } from "@/lib/school/question-draft-generation";
 import {
   draftQuestionsFromTranscript as draftQuestionsFromTranscriptCore,
+  transcriptChunksForQueue,
   type TranscriptQuestionDraftOutcome,
 } from "@/lib/school/question-draft-from-transcript";
 
@@ -50,7 +51,9 @@ export async function draftQuestionsFromNotes(notesText: string, classId?: strin
  * `transcript_text` to draft from — `queued`/`processing`/`failed` all read
  * as "not ready yet," a normal state, not an error.
  */
-export async function draftQuestionsFromTranscript(recordingId: string): Promise<TranscriptQuestionDraftOutcome | { status: "not_ready" } | { status: "error" }> {
+export async function draftQuestionsFromTranscript(
+  recordingId: string,
+): Promise<TranscriptQuestionDraftOutcome | { status: "not_ready" } | { status: "error" } | { status: "queued"; jobId: string; count: number }> {
   const { supabase, userId } = await requireUser();
   const { data: transcript, error } = await supabase
     .from("lecture_transcripts")
@@ -65,5 +68,25 @@ export async function draftQuestionsFromTranscript(recordingId: string): Promise
   if (!transcript || transcript.status !== "completed" || !transcript.transcript_text) {
     return { status: "not_ready" };
   }
+
+  // No AI key but a connected agent: queue one job per transcript chunk (the same chunks the in-app drafting sends). The drafts come
+  // back as "ready" cards on the question bank, reviewed like any AI draft.
+  if ((await routeAiRequest(supabase, userId, new Date())) === "queue") {
+    // The job's subject is the recording's own class (scoped to this user, never trusting recordingId alone).
+    const { data: recording, error: recordingError } = await supabase.from("lecture_recordings").select("class_id").eq("id", recordingId).eq("user_id", userId).maybeSingle();
+    if (recordingError || !recording?.class_id) return { status: "error" };
+    const { chunks, partial } = transcriptChunksForQueue(transcript.transcript_text);
+    try {
+      let firstJobId = "";
+      for (const chunk of chunks) {
+        const jobId = await enqueueAgentJobCore(supabase, { kind: "school.question_draft", subjectId: recording.class_id, input: { text: chunk, truncated: partial } });
+        firstJobId ||= jobId;
+      }
+      return { status: "queued", jobId: firstJobId, count: chunks.length };
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
+
   return draftQuestionsFromTranscriptCore(supabase, userId, transcript.transcript_text);
 }

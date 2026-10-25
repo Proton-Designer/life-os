@@ -2,11 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 vi.mock("server-only", () => ({}));
-const stageMock = vi.fn(async () => "batch-1");
-vi.mock("@/lib/school/staging-core", () => ({
-  createStagingBatchCore: (...a: unknown[]) => stageMock(...(a as [])),
-  createStagedDeliverablesCore: vi.fn(async () => {}),
-}));
+const stageMock = vi.fn(async (..._a: unknown[]) => "batch-1");
+vi.mock("../stage-for-job", () => ({ stageItemsForJob: (...a: unknown[]) => stageMock(...a) }));
 vi.mock("@/lib/ai/gateway", () => ({ gatewayChat: vi.fn() }));
 
 const core = await import("../core");
@@ -59,7 +56,7 @@ describe("submitAgentJobCore", () => {
       complete_agent_job: { data: 1 },
     });
     const out = await core.submitAgentJobCore(client, "user-1", { id: JOB, result: validItems, tokenId: "tok-1" });
-    expect(stageMock).toHaveBeenCalledWith(client, "user-1", CLASS, "announcement", "Midterm moved to Nov 5, 2026");
+    expect(stageMock).toHaveBeenCalledWith(client, "user-1", expect.objectContaining({ jobId: JOB, classId: CLASS, source: "announcement", rawText: "Midterm moved to Nov 5, 2026" }));
     expect(calls.map((c) => c.fn)).toEqual(["begin_agent_job_submit", "complete_agent_job"]);
     expect(out.summary).toMatch(/announcement/);
   });
@@ -97,7 +94,7 @@ describe("submitAgentJobCore", () => {
       complete_agent_job: { data: 1 },
     });
     await core.submitAgentJobCore(client, "user-1", { id: JOB, result: validItems, tokenId: "tok-1" });
-    expect(stageMock).toHaveBeenCalledWith(client, "user-1", CLASS, "syllabus");
+    expect(stageMock).toHaveBeenCalledWith(client, "user-1", expect.objectContaining({ jobId: JOB, classId: CLASS, source: "syllabus" }));
   });
 
   it("question drafts: validated, stored as the job's result for the person to review; nothing is written to the question bank", async () => {

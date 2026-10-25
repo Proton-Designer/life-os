@@ -58,7 +58,7 @@ function stripCodeFence(text: string): string {
   return fenced ? fenced[1]!.trim() : trimmed;
 }
 
-interface LessonRow {
+export interface LessonRow {
   title: string;
   core_claim: string | null;
   mechanism: string | null;
@@ -76,7 +76,7 @@ function buildLessonContext(lesson: LessonRow): string {
 }
 
 /** Fetches the lesson's own ground-truth content, scoped to this user's active lesson — never another user's, never an archived/rejected one (there is nothing real to teach back on those). */
-async function fetchTeachableLesson(supabase: SupabaseClient, userId: string, lessonId: string): Promise<LessonRow | null> {
+export async function fetchTeachableLesson(supabase: SupabaseClient, userId: string, lessonId: string): Promise<LessonRow | null> {
   const { data, error } = await supabase
     .from("lessons")
     .select("title, core_claim, mechanism, action_template, provenance_quote")

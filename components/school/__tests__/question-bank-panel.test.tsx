@@ -45,28 +45,39 @@ vi.mock("@/app/(app)/school/class-share-actions", () => ({
 
 type DraftOutcome =
   | { status: "drafted"; drafts: { prompt: string; answer: string; topic: string | null; sourceSnippet: string | null }[]; truncated: boolean }
+  | { status: "queued"; jobId: string }
   | { status: "no_key" }
   | { status: "unavailable" }
   | { status: "parse_failed" };
-const draftQuestionsFromNotes = vi.fn(async (_notes: string): Promise<DraftOutcome> => ({ status: "drafted", drafts: [], truncated: false }));
+const draftQuestionsFromNotes = vi.fn(async (_notes: string, _classId?: string): Promise<DraftOutcome> => ({ status: "drafted", drafts: [], truncated: false }));
 
 type TranscriptDraftOutcome =
   | { status: "drafted"; drafts: { prompt: string; answer: string; topic: string | null; sourceSnippet: string | null }[]; partial: boolean }
   | { status: "no_key" }
   | { status: "unavailable" }
   | { status: "parse_failed" }
+  | { status: "queued"; jobId: string; count: number }
   | { status: "not_ready" };
 const draftQuestionsFromTranscript = vi.fn(
   async (_recordingId: string): Promise<TranscriptDraftOutcome> => ({ status: "drafted", drafts: [], partial: false }),
 );
 
 vi.mock("@/app/(app)/school/question-draft-actions", () => ({
-  draftQuestionsFromNotes: (notes: string) => draftQuestionsFromNotes(notes),
+  draftQuestionsFromNotes: (notes: string, classId?: string) => draftQuestionsFromNotes(notes, classId),
   draftQuestionsFromTranscript: (recordingId: string) => draftQuestionsFromTranscript(recordingId),
 }));
 
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+const stableRouter = { refresh }; // a fresh router object per render would re-run AgentJobsStatus's load effect forever
+vi.mock("next/navigation", () => ({ useRouter: () => stableRouter }));
+
+const listAgentJobs = vi.fn(async (_classId: string): Promise<import("@/lib/agent-jobs/types").AgentJobView[]> => []);
+const dismissAgentJob = vi.fn(async (_id: string) => ({ ok: true }));
+vi.mock("@/app/(app)/agent-jobs-actions", () => ({
+  listAgentJobs: (c: string) => listAgentJobs(c),
+  cancelAgentJob: vi.fn(async () => ({ ok: true })),
+  dismissAgentJob: (id: string) => dismissAgentJob(id),
+}));
 
 function question(overrides: Partial<QuestionBankQuestion> = {}): QuestionBankQuestion {
   return {
@@ -93,6 +104,8 @@ beforeEach(() => {
   draftQuestionsFromNotes.mockClear();
   draftQuestionsFromTranscript.mockClear();
   refresh.mockClear();
+  listAgentJobs.mockReset().mockResolvedValue([]);
+  dismissAgentJob.mockClear();
 });
 
 describe("QuestionBankPanel", () => {
@@ -272,7 +285,7 @@ describe("QuestionBankPanel", () => {
       await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Some notes about FSRS");
       await user.click(screen.getByRole("button", { name: "Draft questions" }));
 
-      expect(draftQuestionsFromNotes).toHaveBeenCalledWith("Some notes about FSRS");
+      expect(draftQuestionsFromNotes).toHaveBeenCalledWith("Some notes about FSRS", "c1");
       await waitFor(() => expect(screen.getByDisplayValue("What is FSRS?")).toBeInTheDocument());
       expect(screen.getByDisplayValue("A spaced-repetition scheduler")).toBeInTheDocument();
       expect(screen.getByDisplayValue("Study techniques")).toBeInTheDocument();
@@ -498,5 +511,51 @@ describe("QuestionBankPanel", () => {
       expect(draftQuestionsFromTranscript).not.toHaveBeenCalled();
       expect(screen.getByRole("button", { name: /Draft from transcript/ })).toBeInTheDocument();
     });
+  });
+});
+
+describe("QuestionBankPanel — drafting through the agent queue (no AI key, connected agent)", () => {
+  it("pasted notes that are queued close the form and show the waiting card, not an error", async () => {
+    draftQuestionsFromNotes.mockResolvedValueOnce({ status: "queued", jobId: "job-1" });
+    listAgentJobs.mockResolvedValue([]);
+    render(<QuestionBankPanel classId="c1" questions={[]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Draft with AI/ }));
+    await user.type(screen.getByPlaceholderText(/Paste lecture notes/), "Some notes about FSRS");
+    listAgentJobs.mockResolvedValue([{ id: "job-1", kind: "school.question_draft", state: "waiting", createdAt: "2026-10-25T21:05:00Z", error: null }]);
+    await user.click(screen.getByRole("button", { name: "Draft questions" }));
+    expect(await screen.findByText("Waiting for your agent")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Paste lecture notes/)).not.toBeInTheDocument();
+  });
+
+  it("a transcript that is queued also waits on the agent", async () => {
+    draftQuestionsFromTranscript.mockResolvedValueOnce({ status: "queued", jobId: "job-2", count: 1 });
+    listAgentJobs.mockResolvedValue([]);
+    render(<QuestionBankPanel classId="c1" questions={[]} lectures={[lecture()]} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Draft from transcript/ }));
+    listAgentJobs.mockResolvedValue([{ id: "job-2", kind: "school.question_draft", state: "waiting", createdAt: "2026-10-25T21:05:00Z", error: null }]);
+    await user.click(screen.getByRole("button", { name: "Draft" }));
+    expect(await screen.findByText("Waiting for your agent")).toBeInTheDocument();
+  });
+
+  it("drafts an agent finished come back as a ready card; Review opens the same editable review list as AI drafts, and nothing is added until the person adds it", async () => {
+    listAgentJobs.mockResolvedValue([
+      {
+        id: "job-3",
+        kind: "school.question_draft",
+        state: "ready_drafts",
+        createdAt: "2026-10-25T21:05:00Z",
+        error: null,
+        drafts: [{ prompt: "What is FSRS?", answer: "A scheduler", topic: null, sourceSnippet: null }],
+      },
+    ]);
+    render(<QuestionBankPanel classId="c1" questions={[]} />);
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("agent-drafts-ready")).toHaveTextContent("Your agent drafted 1 question");
+    await user.click(screen.getByRole("button", { name: "Review" }));
+    expect(await screen.findByDisplayValue("What is FSRS?")).toBeInTheDocument();
+    expect(createQuestion).not.toHaveBeenCalled();
+    expect(dismissAgentJob).toHaveBeenCalledWith("job-3");
   });
 });

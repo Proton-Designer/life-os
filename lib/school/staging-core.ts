@@ -189,7 +189,9 @@ export async function createStagingBatchCore(
    * `"canvas_assignment"` call, and sync-core.test.ts mocks this function
    * entirely, so it only ever checked which arguments were PASSED, never
    * which column they landed in. */
-  canvasAssignmentId?: string
+  canvasAssignmentId?: string,
+  /** Migration 280: the agent job that produced this batch (unique per user+job), so applying one job twice cannot stage two batches. See lib/agent-jobs/stage-for-job.ts. */
+  agentJobId?: string
 ): Promise<string> {
   const { data, error } = await supabase
     .from("staging_batches")
@@ -200,6 +202,8 @@ export async function createStagingBatchCore(
       raw_text: rawText ?? null,
       canvas_announcement_id: canvasAnnouncementId ?? null,
       canvas_assignment_id: canvasAssignmentId ?? null,
+      // Only sent when set: every other caller keeps working against a database that predates migration 280.
+      ...(agentJobId ? { agent_job_id: agentJobId } : {}),
     })
     .select("id")
     .single();

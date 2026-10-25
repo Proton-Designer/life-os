@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { getTeachableLessons, submitTeachBack, type TeachableLesson, type SubmitTeachBackResult } from "@/app/(app)/personal/teach-back-actions";
+import { getTeachableLessons, submitTeachBack, getLessonFeedbackState, markLessonFeedbackSeen, type TeachableLesson, type SubmitTeachBackResult } from "@/app/(app)/personal/teach-back-actions";
+import type { FeedbackState } from "@/lib/self-mastery/feedback-notes";
 
 const OUTCOME_MESSAGE: Record<string, string> = {
   too_short: "Write a bit more — at least a couple of sentences of your own explanation.",
   no_key: "Add an API key in Settings to use Teach-Back mode.",
   unavailable: "AI evaluation isn't available right now — try again shortly.",
   parse_failed: "Couldn't evaluate that — try again, or pick a different lesson.",
+  queued: "Saved. Your agent will add feedback on its next run; it will show here the next time you open this lesson.",
 };
 
 /**
@@ -24,6 +26,8 @@ export function TeachBackPanel({ books }: { books: { id: string; title: string }
   const [lessonId, setLessonId] = useState<string | null>(null);
   const [explanation, setExplanation] = useState("");
   const [result, setResult] = useState<SubmitTeachBackResult | null>(null);
+  // Feedback an agent attached to earlier explanations of the picked lesson ("feedback later"), and whether one is still on its way.
+  const [agentFeedback, setAgentFeedback] = useState<FeedbackState | null>(null);
   const [isPending, startTransition] = useTransition();
 
   if (books.length === 0) return null;
@@ -42,6 +46,14 @@ export function TeachBackPanel({ books }: { books: { id: string; title: string }
     setLessonId(id);
     setExplanation("");
     setResult(null);
+    setAgentFeedback(null);
+    getLessonFeedbackState(id)
+      .then((state) => {
+        setAgentFeedback(state);
+        const fresh = state.notes.filter((n) => n.isNew).map((n) => n.id);
+        if (fresh.length > 0) void markLessonFeedbackSeen(fresh).catch(() => {});
+      })
+      .catch(() => {});
   }
 
   function handleSubmit() {
@@ -107,6 +119,31 @@ export function TeachBackPanel({ books }: { books: { id: string; title: string }
           >
             {isPending ? "Evaluating…" : "Submit"}
           </button>
+        </div>
+      )}
+
+      {lessonId && agentFeedback && agentFeedback.pending && result?.outcome !== "queued" && (
+        <p data-testid="agent-feedback-pending" className="text-xs text-muted-foreground">
+          Your agent will add feedback on your earlier explanation on its next run.
+        </p>
+      )}
+      {lessonId && agentFeedback && agentFeedback.notes.length > 0 && (
+        <div data-testid="agent-feedback-notes" className="flex flex-col gap-2 rounded-lg border border-border/40 p-3 text-xs">
+          <span className="font-medium">Feedback from your agent on an earlier explanation</span>
+          {agentFeedback.notes.map((n) => (
+            <div key={n.id} className="flex flex-col gap-1">
+              <p className="text-muted-foreground">You wrote: &ldquo;{n.attempt.length > 160 ? `${n.attempt.slice(0, 159)}…` : n.attempt}&rdquo;</p>
+              <p>{n.feedback}</p>
+              {n.followUpQuestions.length > 0 && (
+                <ul className="list-inside list-disc text-muted-foreground">
+                  {n.followUpQuestions.map((q, i) => (
+                    <li key={i}>{q}</li>
+                  ))}
+                </ul>
+              )}
+              {n.sourceLabel ? <p className="text-muted-foreground/80">{n.sourceLabel}</p> : null}
+            </div>
+          ))}
         </div>
       )}
 

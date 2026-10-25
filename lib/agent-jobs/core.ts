@@ -25,11 +25,12 @@ export async function enqueueAgentJobCore(
   input: { kind: AgentJobKind; subjectId: string | null; input: Record<string, unknown> },
 ): Promise<string> {
   const def = AGENT_JOB_KIND_DEFS[input.kind];
-  const chars = typeof input.input.text === "string" ? input.input.text.length : 0;
+  const field = input.input[def.textField];
+  const chars = typeof field === "string" ? field.length : 0;
   if (chars > def.maxInputChars) throw new ToolInputError(`${def.label} input must be at most ${def.maxInputChars} characters. Got ${chars}.`);
   const { data, error } = await supabase.rpc("enqueue_agent_job", {
     p_kind: input.kind,
-    p_subject_type: input.subjectId ? "class" : null,
+    p_subject_type: input.subjectId ? def.subjectType : null,
     p_subject_id: input.subjectId,
     p_input: input.input,
     p_input_chars: chars,

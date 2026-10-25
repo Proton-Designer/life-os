@@ -39,9 +39,13 @@ vi.mock("@/lib/self-mastery/session/offline-queue", () => ({
   localStorageAdapter: {},
 }));
 
-const getAnswerFeedbackMock = vi.fn(async (_cardId: string, _userAnswer: string): Promise<{ feedback: string; suggestedRating: 1 | 2 | 3 | 4 | null } | null> => null);
+const getAnswerFeedbackMock = vi.fn(async (_cardId: string, _userAnswer: string): Promise<{ feedback: string; suggestedRating: 1 | 2 | 3 | 4 | null } | { queued: true } | null> => null);
+const getCardFeedbackStateMock = vi.fn(async (_cardId: string): Promise<import("@/lib/self-mastery/feedback-notes").FeedbackState> => ({ notes: [], pending: false }));
+const markCardFeedbackSeenMock = vi.fn(async (_ids: string[]) => {});
 vi.mock("@/app/(app)/personal/answer-feedback-actions", () => ({
   getAnswerFeedback: (cardId: string, userAnswer: string) => getAnswerFeedbackMock(cardId, userAnswer),
+  getCardFeedbackState: (cardId: string) => getCardFeedbackStateMock(cardId),
+  markCardFeedbackSeen: (ids: string[]) => markCardFeedbackSeenMock(ids),
 }));
 
 const getCloserDayConnectionMock = vi.fn(async (_cardId: string): Promise<import("@/lib/self-mastery/closer-day-connection-types").CloserDayConnectionResult | null> => null);
@@ -95,6 +99,9 @@ describe("RetrievalSessionOverlay", () => {
     replayPendingReviewsMock.mockResolvedValue({ succeeded: ["queued-1"], failures: [] });
     getAnswerFeedbackMock.mockReset();
     getAnswerFeedbackMock.mockResolvedValue(null); // the default state for the overwhelming majority of users -- no key
+    getCardFeedbackStateMock.mockReset();
+    getCardFeedbackStateMock.mockResolvedValue({ notes: [], pending: false });
+    markCardFeedbackSeenMock.mockReset();
     getCloserDayConnectionMock.mockReset();
     getCloserDayConnectionMock.mockResolvedValue(null);
   });
@@ -191,6 +198,45 @@ describe("RetrievalSessionOverlay", () => {
     await waitFor(() => expect(screen.getByText("An answer")).toBeInTheDocument());
 
     expect(getCloserDayConnectionMock).not.toHaveBeenCalled();
+  });
+
+  async function openRevealedCard() {
+    loadTodaysSessionMock.mockResolvedValue(builtSession([card("c1", "What is the generation effect?")]));
+    revealCardAnswerMock.mockResolvedValue("Retrieval beats re-reading");
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("What is the generation effect?")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByText("Retrieval beats re-reading")).toBeInTheDocument());
+    return user;
+  }
+
+  it("feedback later: a queued answer says the agent will add feedback on its next run, and the grade buttons stay live", async () => {
+    getAnswerFeedbackMock.mockResolvedValue({ queued: true });
+    await openRevealedCard();
+    await waitFor(() => expect(screen.getByTestId("agent-feedback-pending")).toHaveTextContent("Your agent will add feedback on its next run"));
+    for (const name of ["Again", "Hard", "Good", "Easy"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+  });
+
+  it("feedback an agent attached to an earlier answer shows on the card, marks itself seen, and is only a suggestion", async () => {
+    getCardFeedbackStateMock.mockResolvedValue({
+      pending: false,
+      notes: [{ id: "n1", attempt: "it helps memory", feedback: "You missed that recall itself is what strengthens it.", suggestedRating: 2, followUpQuestions: [], sourceLabel: "Written by Claude via your connector", createdAt: "2026-10-24T14:00:00Z", isNew: true }],
+    });
+    await openRevealedCard();
+    await waitFor(() => expect(screen.getByTestId("agent-feedback-notes")).toHaveTextContent("You missed that recall itself is what strengthens it."));
+    expect(screen.getByTestId("agent-feedback-notes")).toHaveTextContent("Suggested then: Hard (your call)");
+    expect(screen.getByTestId("agent-feedback-notes")).toHaveTextContent("Written by Claude via your connector");
+    await waitFor(() => expect(markCardFeedbackSeenMock).toHaveBeenCalledWith(["n1"]));
+    // never a gate or a preselection
+    for (const name of ["Again", "Hard", "Good", "Easy"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+  });
+
+  it("with nothing queued and no notes (every key holder, every no-agent user) the card shows nothing extra", async () => {
+    await openRevealedCard();
+    await waitFor(() => expect(getCardFeedbackStateMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("agent-feedback-pending")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-feedback-notes")).not.toBeInTheDocument();
   });
 
   it("P2-15: the closer card requests a day-connection, and shows it under 'Today' once it resolves with a real one", async () => {

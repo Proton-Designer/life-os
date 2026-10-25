@@ -2,6 +2,9 @@
 
 import { requireUser } from "@/lib/supabase/auth";
 import { gatewayChat } from "@/lib/ai/gateway";
+import { routeAiRequest } from "@/lib/agent-jobs/route";
+import { enqueueAgentJobCore } from "@/lib/agent-jobs/core";
+import { getFeedbackState, markFeedbackNotesSeen, type FeedbackState } from "@/lib/self-mastery/feedback-notes";
 
 /**
  * Written feedback on a typed retrieval answer — the one thing a user's own API
@@ -38,7 +41,15 @@ const SYSTEM = [
   "where n is 1 (forgot), 2 (hard), 3 (good), or 4 (easy).",
 ].join(" ");
 
-export async function getAnswerFeedback(cardId: string, userAnswer: string): Promise<AnswerFeedback | null> {
+/** No AI key but a connected agent: the attempt is saved and the agent's feedback attaches to the card when it arrives ("feedback later"). */
+export interface AnswerFeedbackQueued {
+  queued: true;
+}
+
+/** Same cap as the in-app call would send; keeps a queued attempt small. */
+const ATTEMPT_QUEUE_MAX_CHARS = 2_000;
+
+export async function getAnswerFeedback(cardId: string, userAnswer: string): Promise<AnswerFeedback | AnswerFeedbackQueued | null> {
   const attempt = userAnswer.trim();
   if (!attempt) return null; // nothing to compare; a blank is an honest "I don't know"
 
@@ -51,6 +62,20 @@ export async function getAnswerFeedback(cardId: string, userAnswer: string): Pro
     .eq("id", cardId)
     .maybeSingle();
   if (error || !data?.answer) return null;
+
+  // No key but a connected agent: queue it. Never a gate -- the grade buttons are already live and the feedback arrives later.
+  if ((await routeAiRequest(supabase, userId, new Date())) === "queue") {
+    try {
+      await enqueueAgentJobCore(supabase, {
+        kind: "self_mastery.answer_feedback",
+        subjectId: cardId,
+        input: { prompt: data.prompt, answer: data.answer, attempt: attempt.slice(0, ATTEMPT_QUEUE_MAX_CHARS) },
+      });
+      return { queued: true };
+    } catch {
+      return null; // queue full or the like: the normal "no feedback" answer, never an error
+    }
+  }
 
   // Routed through the gateway (lib/ai/gateway.ts), not lib/ai/client.ts's
   // chat() directly, as of the Phase 1 LLM gateway build: this is what gets
@@ -92,4 +117,16 @@ function parseFeedback(raw: string): AnswerFeedback {
   const suggested = match ? (Number(match[1]) as 1 | 2 | 3 | 4) : null;
   const feedback = raw.replace(/RATING:\s*[1-4]\b/i, "").trim();
   return { feedback: feedback || raw.trim(), suggestedRating: suggested };
+}
+
+/** Feedback an agent attached to earlier answers on this card, and whether one is still on its way. Display-only, never a gate. */
+export async function getCardFeedbackState(cardId: string): Promise<FeedbackState> {
+  const { supabase, userId } = await requireUser();
+  return getFeedbackState(supabase, userId, { subjectType: "card", subjectId: cardId });
+}
+
+/** The notes were shown: stop highlighting them as new. */
+export async function markCardFeedbackSeen(noteIds: string[]): Promise<void> {
+  const { supabase } = await requireUser();
+  await markFeedbackNotesSeen(supabase, noteIds.slice(0, 10));
 }
