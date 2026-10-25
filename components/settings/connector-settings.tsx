@@ -75,6 +75,7 @@ export function ConnectorSettings({
   const [label, setLabel] = useState("");
   const [wantsRead, setWantsRead] = useState(true);
   const [wantsWrite, setWantsWrite] = useState(false);
+  const [wantsJobs, setWantsJobs] = useState(false);
   const [expiry, setExpiry] = useState<TokenExpiryChoice>(DEFAULT_TOKEN_EXPIRY);
   const [justCreated, setJustCreated] = useState<{ token: string; status: McpTokenStatus } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -84,6 +85,7 @@ export function ConnectorSettings({
   const [linkLabel, setLinkLabel] = useState("");
   const [linkWantsRead, setLinkWantsRead] = useState(true);
   const [linkWantsWrite, setLinkWantsWrite] = useState(false);
+  const [linkWantsJobs, setLinkWantsJobs] = useState(false);
   const [linkExpiry, setLinkExpiry] = useState<TokenExpiryChoice>(DEFAULT_TOKEN_EXPIRY);
   const [generatedLink, setGeneratedLink] = useState<{ code: string; expiresAt: string } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -99,7 +101,7 @@ export function ConnectorSettings({
 
   function handleCreate() {
     setError(null);
-    const scopes = [...(wantsRead ? ["read"] : []), ...(wantsWrite ? ["write"] : [])];
+    const scopes = wantsJobs ? ["jobs"] : [...(wantsRead ? ["read"] : []), ...(wantsWrite ? ["write"] : [])];
     startTransition(async () => {
       const res = await createMcpToken(label, scopes, expiry);
       if (!res.ok || !res.token || !res.status) {
@@ -140,7 +142,7 @@ export function ConnectorSettings({
 
   function handleCreateLink() {
     setLinkError(null);
-    const scopes = [...(linkWantsRead ? ["read"] : []), ...(linkWantsWrite ? ["write"] : [])];
+    const scopes = linkWantsJobs ? ["jobs"] : [...(linkWantsRead ? ["read"] : []), ...(linkWantsWrite ? ["write"] : [])];
     startLinkTransition(async () => {
       const res = await createAgentConnectLink(scopes, linkExpiry, linkLabel || undefined);
       if (!res.ok || !res.code || !res.expiresAt) {
@@ -293,12 +295,20 @@ export function ConnectorSettings({
             <div className="flex flex-col gap-2">
               <span className="text-xs text-muted-foreground">Permissions</span>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={wantsRead} onChange={(e) => setWantsRead(e.target.checked)} disabled={isPending} />
+                <input type="checkbox" checked={wantsRead} onChange={(e) => setWantsRead(e.target.checked)} disabled={isPending || wantsJobs} />
                 Read — can look at your data
               </label>
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={wantsWrite} onChange={(e) => setWantsWrite(e.target.checked)} disabled={isPending} />
+                <input type="checkbox" checked={wantsWrite} onChange={(e) => setWantsWrite(e.target.checked)} disabled={isPending || wantsJobs} />
                 Write — can also add or change data
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={wantsJobs} onChange={(e) => setWantsJobs(e.target.checked)} disabled={isPending} />
+                <span>
+                  Queued work only — can do nothing except list, claim and answer the jobs your app queues for an agent (parsing a syllabus or
+                  announcement, drafting questions). Use this for the hourly queued-work task: it reads text written by other people, so it
+                  gets no other access.
+                </span>
               </label>
             </div>
 
@@ -326,7 +336,7 @@ export function ConnectorSettings({
               </span>
             </div>
 
-            <Button size="sm" className="self-start" disabled={isPending || (!wantsRead && !wantsWrite)} onClick={handleCreate}>
+            <Button size="sm" className="self-start" disabled={isPending || (!wantsJobs && !wantsRead && !wantsWrite)} onClick={handleCreate}>
               {isPending ? "Creating…" : "Create token"}
             </Button>
 
@@ -388,12 +398,16 @@ export function ConnectorSettings({
               <div className="flex flex-col gap-2">
                 <span className="text-xs text-muted-foreground">Permissions it will have</span>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={linkWantsRead} onChange={(e) => setLinkWantsRead(e.target.checked)} disabled={isLinkPending} />
+                  <input type="checkbox" checked={linkWantsRead} onChange={(e) => setLinkWantsRead(e.target.checked)} disabled={isLinkPending || linkWantsJobs} />
                   Read — can look at your data
                 </label>
                 <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={linkWantsWrite} onChange={(e) => setLinkWantsWrite(e.target.checked)} disabled={isLinkPending} />
+                  <input type="checkbox" checked={linkWantsWrite} onChange={(e) => setLinkWantsWrite(e.target.checked)} disabled={isLinkPending || linkWantsJobs} />
                   Write — can also add or change data
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={linkWantsJobs} onChange={(e) => setLinkWantsJobs(e.target.checked)} disabled={isLinkPending} />
+                  <span>Queued work only — can do nothing except list, claim and answer the jobs your app queues for an agent. Use this for the hourly queued-work task.</span>
                 </label>
               </div>
 
@@ -421,7 +435,7 @@ export function ConnectorSettings({
               <Button
                 size="sm"
                 className="self-start"
-                disabled={isLinkPending || (!linkWantsRead && !linkWantsWrite)}
+                disabled={isLinkPending || (!linkWantsJobs && !linkWantsRead && !linkWantsWrite)}
                 onClick={handleCreateLink}
               >
                 {isLinkPending ? "Creating…" : "Generate connect link"}

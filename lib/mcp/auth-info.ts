@@ -36,6 +36,6 @@ function isMcpAuthExtra(value: unknown): value is McpAuthExtra {
  */
 export function readMcpAuth(authInfo: AuthInfoLike | undefined): { userId: string; tokenId: string; scopes: McpScope[] } | null {
   if (!authInfo || !isMcpAuthExtra(authInfo.extra)) return null;
-  const scopes = authInfo.scopes.filter((s): s is McpScope => s === "read" || s === "write");
+  const scopes = authInfo.scopes.filter((s): s is McpScope => s === "read" || s === "write" || s === "jobs");
   return { userId: authInfo.extra.userId, tokenId: authInfo.extra.tokenId, scopes };
 }

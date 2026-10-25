@@ -68,11 +68,11 @@ describe("agent.job write ops", () => {
 });
 
 describe("agent.job read entity", () => {
-  it("lists the caller's jobs, input only at full detail", () => {
+  it("lists the caller's jobs; the untrusted input is never readable here (it reaches the agent only through claim)", () => {
     const e = getEntity("agent", "job")!;
     expect(e.table).toBe("agent_jobs");
     expect(e.summaryColumns).not.toContain("input");
-    expect(e.fullColumns).toContain("input");
+    expect(e.fullColumns).not.toContain("input");
     expect(e.filterableColumns).toEqual(expect.arrayContaining(["status", "kind"]));
   });
 });

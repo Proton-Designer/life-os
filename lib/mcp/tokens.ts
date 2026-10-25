@@ -22,7 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * be a way to recover a token's plaintext from this table, even for us.
  */
 
-export const MCP_SCOPES = ["read", "write"] as const;
+export const MCP_SCOPES = ["read", "write", "jobs"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
 
 /** What minted a token (migration 215's CHECK). Descriptive only -- scopes still decide what a token may do. */
@@ -132,6 +132,23 @@ export function isMcpScope(value: string): value is McpScope {
 /** Does this token carry the permission a tool call needs? */
 export function tokenHasScope(scopes: McpScope[], required: McpScope): boolean {
   return scopes.includes(required);
+}
+
+/**
+ * The only operations a `jobs` scope grants (queued-work agent, migration 277): list the person's jobs, and claim / submit / fail them.
+ * The agent that works those jobs reads third-party text (an announcement, a syllabus), so a token minted for it must not be able to
+ * do anything else, however the text tries to steer it. Operation strings are `<domain>.<entity>.<action>` / `.read` as the dispatcher computes them.
+ */
+export const JOBS_SCOPE_OPERATIONS: ReadonlySet<string> = new Set(["agent.job.read", "agent.job.claim", "agent.job.submit", "agent.job.fail"]);
+
+/**
+ * The dispatcher's scope gate. A token passes when it carries the scope the tool needs (`read` for reads, `write` for writes), or when
+ * it carries `jobs` and the operation is one of JOBS_SCOPE_OPERATIONS. `jobs` never widens anything else: a `jobs`-only token is
+ * refused on every other read, write, list_capabilities, widget_manage and scheduler_manage call.
+ */
+export function tokenAllowsOperation(scopes: McpScope[], required: McpScope, operation: string): boolean {
+  if (required !== "jobs" && scopes.includes(required)) return true;
+  return scopes.includes("jobs") && JOBS_SCOPE_OPERATIONS.has(operation);
 }
 
 interface TokenRow {

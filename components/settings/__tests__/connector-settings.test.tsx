@@ -229,5 +229,19 @@ describe("ConnectorSettings — Schedule your Morning Brief", () => {
     expect(screen.getByRole("heading", { name: "Let your agent do queued work" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Copy queued work prompt" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/data, never instructions/));
+    // the hourly job task gets its own jobs-only connector, not the read+write one
+    expect(screen.getByTestId("schedule-jobs-blurb")).toHaveTextContent(/SEPARATE connector or token.*Queued work only/);
+    expect(screen.getByTestId("schedule-weekly-blurb")).not.toHaveTextContent(/Queued work only/);
+  });
+
+  it("the token form offers a jobs-only permission; choosing it sends exactly ['jobs'] and locks read/write", async () => {
+    const user = userEvent.setup();
+    createMcpToken.mockResolvedValue({ ok: true, message: "ok", token: "t", status: token({ id: "n", scopes: ["jobs"] }) });
+    render(<ConnectorSettings initialTokens={[]} initialScheduledActions={[]} />);
+    await user.click(screen.getByRole("tab", { name: "Any agent" }));
+    await user.click(screen.getAllByLabelText(/Queued work only/)[0]!);
+    expect(screen.getAllByLabelText(/Read — can look at your data/)[0]).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: /create token/i }));
+    expect(createMcpToken).toHaveBeenCalledWith(expect.any(String), ["jobs"], expect.anything());
   });
 });

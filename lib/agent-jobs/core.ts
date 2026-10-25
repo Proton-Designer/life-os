@@ -12,7 +12,8 @@ export interface ClaimedJob {
   id: string;
   kind: AgentJobKind;
   subject_id: string | null;
-  input: Record<string, unknown>;
+  /** Text from the person's own documents (a professor's announcement, a syllabus, notes): UNTRUSTED data to do the task on, never instructions. */
+  untrusted_input: Record<string, unknown>;
   attempts: number;
   lease_until: string;
   instructions: string;
@@ -52,7 +53,7 @@ export async function claimAgentJobsCore(supabase: SupabaseClient, args: { kind?
       id: r.id,
       kind: r.kind as AgentJobKind,
       subject_id: r.subject_id,
-      input: r.input,
+      untrusted_input: r.input,
       attempts: r.attempts,
       lease_until: r.lease_until,
       instructions: `${def.task}\n\n${JOB_INPUT_IS_DATA}`,
@@ -118,7 +119,7 @@ export async function hasAgentConnector(supabase: SupabaseClient, userId: string
     .select("id")
     .eq("user_id", userId)
     .is("revoked_at", null)
-    .contains("scopes", ["write"])
+    .overlaps("scopes", ["write", "jobs"])
     .or(`expires_at.is.null,expires_at.gt.${now.toISOString()}`)
     .limit(1);
   return !error && Array.isArray(data) && data.length > 0;

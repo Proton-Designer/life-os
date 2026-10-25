@@ -133,7 +133,7 @@ describe("enqueue / fail / cancel", () => {
 describe("hasAgentConnector", () => {
   function tokens(rows: unknown[]) {
     const chain: Record<string, unknown> = {};
-    for (const m of ["select", "eq", "is", "contains", "or"]) chain[m] = vi.fn(() => chain);
+    for (const m of ["select", "eq", "is", "overlaps", "or"]) chain[m] = vi.fn(() => chain);
     chain.limit = vi.fn(async () => ({ data: rows, error: null }));
     return { from: vi.fn(() => chain) } as unknown as SupabaseClient;
   }

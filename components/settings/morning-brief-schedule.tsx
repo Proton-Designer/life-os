@@ -49,7 +49,7 @@ export function AgentOutputsSchedule() {
   const items = [
     { id: "weekly", title: "Schedule your weekly review", when: "every Sunday at 7:00 AM", blurb: "Writes the \"Your week\" narrative on the Weekly Review screen.", prompt: WEEKLY_REVIEW_SCHEDULE_PROMPT },
     { id: "lessons", title: "Schedule lesson links to your day", when: "every day at 6:00 AM", blurb: "Writes the \"Today\" line that ties a lesson to your plan when you finish a study session.", prompt: DAY_CONNECTION_SCHEDULE_PROMPT },
-    { id: "jobs", title: "Let your agent do queued work", when: "every hour", blurb: "Without an AI key, things like parsing a syllabus or announcement, or drafting questions, wait here for your agent. It claims them, does them and submits the result; you review it in the app as usual.", prompt: AGENT_JOBS_SCHEDULE_PROMPT },
+    { id: "jobs", title: "Let your agent do queued work", when: "every hour", blurb: "Create a SEPARATE connector or token for this one with only the \"Queued work only\" permission: this task reads text other people wrote (syllabi, announcements), so it should not be able to change anything else. Without an AI key, things like parsing a syllabus or announcement, or drafting questions, wait here for your agent. It claims them, does them and submits the result; you review it in the app as usual.", prompt: AGENT_JOBS_SCHEDULE_PROMPT },
   ];
   async function copy(id: string, prompt: string) {
     try {
@@ -66,8 +66,8 @@ export function AgentOutputsSchedule() {
           <h3 id={`schedule-${it.id}-heading`} className="text-sm font-medium">
             {it.title}
           </h3>
-          <p className="text-sm text-muted-foreground">
-            {it.blurb} Create a scheduled task in Claude or ChatGPT ({it.when}) and paste this as its prompt. Needs read and write access. Without an AI key of your own, this is how it gets filled.
+          <p data-testid={`schedule-${it.id}-blurb`} className="text-sm text-muted-foreground">
+            {it.blurb} Create a scheduled task in Claude or ChatGPT ({it.when}) and paste this as its prompt. Without an AI key of your own, this is how it gets filled.
           </p>
           <pre className="max-h-48 overflow-auto rounded-md bg-muted/50 p-3 font-mono text-xs whitespace-pre-wrap select-all">{it.prompt}</pre>
           <div>

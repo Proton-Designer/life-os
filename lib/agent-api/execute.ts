@@ -2,7 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { tokenHasScope, touchLastUsed, type McpScope } from "@/lib/mcp/tokens";
+import { tokenAllowsOperation, touchLastUsed, type McpScope } from "@/lib/mcp/tokens";
 import { consumeRateLimit } from "@/lib/mcp/rate-limit";
 import { writeAuditRow, type McpAuditOutcome, type McpAuditTransport } from "@/lib/mcp/audit";
 import { mintSessionJwt, buildUserScopedClient } from "@/lib/mcp/session";
@@ -145,7 +145,7 @@ export async function executeOperation(
     return retryAfterSeconds !== undefined ? { ...denied, retryAfterSeconds } : denied;
   };
 
-  if (!tokenHasScope(auth.scopes, requiredScope)) {
+  if (!tokenAllowsOperation(auth.scopes, requiredScope, operation)) {
     return deny("insufficient_scope", `This token doesn't have "${requiredScope}" permission.`);
   }
 
