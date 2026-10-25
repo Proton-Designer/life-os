@@ -56,6 +56,7 @@ import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
 import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/types";
 import { getUserEmbeddings, embeddingModelTag } from "@/lib/ai/embeddings";
 import { loadPdf, extractPages, extractOutline } from "./pdf";
+import { detectScannedPdf } from "./guards";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
@@ -269,6 +270,9 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
  * re-download/page-range-matching machinery this file's own author
  * couldn't verify anyway (no Storage access from here).
  */
+const SCANNED_PDF_MESSAGE =
+  "This PDF looks like scanned images with no text we can read. Upload a version with selectable text (or run it through OCR first) and try again.";
+
 async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   const { data: book, error: bookError } = await ctx.supabase
     .from("books")
@@ -298,6 +302,16 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   // stay consistent with each other, not repaired in one place and raw in
   // the other).
   const pages = repairExtractedPages(await extractPages(pdf));
+  // A scanned/image-only PDF has no text layer, so every later stage would run on nothing and the book would only
+  // fail at the very end ("couldn't find teachable lessons"). Stop here, once, saying what is wrong.
+  if (detectScannedPdf(pages).isLikelyScanned) {
+    const { error: scannedFailError } = await ctx.supabase
+      .from("books")
+      .update({ status: "failed", error_message: SCANNED_PDF_MESSAGE })
+      .eq("id", ctx.job.book_id);
+    if (scannedFailError) throw scannedFailError;
+    return { nextStage: "failed", nextChunkIndex: null };
+  }
   const outline = await extractOutline(pdf);
   const sections = parseStructure(pages, outline);
   const chunks = chunkBook(pages, sections);
