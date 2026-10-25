@@ -231,10 +231,10 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
  * retry, not partial chunking -- an explicit, deliberate scope decision,
  * not an oversight (flagged to the Lead when built, not discovered later).
  *
- * Whole-book (chunk_index null in, chunk_index 0 out into
- * `extracting_lessons` -- `embedding` is skipped entirely, same as
- * `merging`'s own embedding-less path: no embedder exists in this repo,
- * ADR-003/R43).
+ * Whole-book (chunk_index null in, chunk_index 0 out into `embedding`, the next
+ * stage). The embedding stage writes `source_chunks.embedding` only when the
+ * owner has an embeddings-capable BYOK key (OpenAI/Google); without one it
+ * writes nothing and the pipeline carries on (merge then cannot de-duplicate).
  *
  * IDEMPOTENT: delete-then-insert of this book's `source_chunks`, keyed by
  * `book_id` -- a retried attempt overwrites its own prior output rather

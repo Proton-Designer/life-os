@@ -32,10 +32,14 @@ so nobody re-derives them:
    `getUserById`, `listUsers`, `signOut`, `updateUserById`. No `createSession`.
    Resolution pending Eng1's spike.
 3. **"The BYO key is used for book→flashcards once a worker exists" is false, and was
-   false deliberately.** Verified by Eng1: ingestion is gated on `SELF_MASTERY_INGESTION_URL`
-   alone, and `lib/self-mastery/ingestion-availability.ts:22-35` documents the explicit
-   decision never to wire the BYO key into it — "a credential is not a consumer." None of
-   the three ingestion providers import `lib/ai`'s key path.
+   false deliberately.** *(Superseded 2026-10-25, see `.brain/domains/self-mastery.md`: the
+   `SELF_MASTERY_INGESTION_URL` gate was retired; ingestion is now gated on a fresh
+   `ingestion_driver_heartbeats` row written by the in-app step route that a pg_cron job polls every
+   minute, AND on the user having a usable AI key (`hasUsableIngestionKey`, `lib/ai/gateway.ts`).
+   The "a credential is not a consumer" reasoning still holds: the key alone never opens the gate.)*
+   Original finding: ingestion was gated on `SELF_MASTERY_INGESTION_URL` alone, and
+   `lib/self-mastery/ingestion-availability.ts` documented the decision never to wire the BYO key
+   into the gate. The ingestion LLM calls now do go through `gatewayChat` with the owner's key.
 
 4. **"ChatGPT and Gemini both accept a plain pasted bearer token; only Claude needs OAuth"
    is wrong, and it inverts the design.** Eng2, against current vendor docs (2026-09-08):

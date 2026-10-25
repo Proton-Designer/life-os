@@ -460,3 +460,9 @@ worth adding is a real judgment call, not done here.
 - **Two-tab session queue:** the unsent-stretch queue is one `localStorage` key, last write wins, so a second tab can overwrite the first tab's offline queue (<= 10 stretches).
 - **Cross-user queue burn:** that queue is not tied to a user id; after sign-out/sign-in as someone else on the same browser, the old user's stretches are refused (book not theirs) and dropped after 3 tries - no wrong credit, a few lost stretches.
 
+## 2026-10-25 — Book upload (Self-Mastery) notes
+- **Archived candidates are never deleted.** Every extracted candidate stays as a `lessons` row with `status='archived'`, `rank=null`; only the ≤60 ranked survivors become `active`. A finished book therefore carries hundreds of archived rows (storage, and any `lessons` count that does not filter `status='active'` is wrong). Accepted for now; a cleanup (delete archived-null-rank rows after `finalizing`) is not built.
+- **Retry is refused once the book has been studied.** `retry_book_ingestion` (272) returns `has_history` when the book has reviews, promotions or self-explanations, because a retry deletes the book's lessons and the review log is append-only. A partially-studied failed book must be re-uploaded as a new book.
+- **The ingestion cron is not in the repo.** pg_cron jobid 5 (`self-mastery-ingestion-driver-every-1min`) and the Vault secret were applied by hand (migration 166 says so); nothing recreates them.
+- **The stuck-book "no job" check keys on `books.created_at`** and looks only at the 25 oldest `processing` books per poll (`books` has no `updated_at`).
+

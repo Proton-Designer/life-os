@@ -5,7 +5,7 @@ layer: L2
 type: domain
 status: canonical
 owner: unassigned
-updated: 2026-09-13
+updated: 2026-10-25
 sources:
   - lib/self-mastery/**
   - lib/promotions/**
@@ -40,7 +40,7 @@ Spaced repetition over real material — books → sections → lessons → card
 | Card types | `free_recall \| application \| cloze \| why` |
 | FSRS state | `new → learning → review → relearning`, via `ts-fsrs`. Exactly one scheduler module in the codebase (`lib/self-mastery/fsrs-scheduler.ts`) — both read-side display and write-side grading import `Card` conversion from it. |
 | Retrievability vs. desired retention | Retrievability (shown in UI) is not affected by `desired_retention`; that setting only affects *scheduling* (next due date). |
-| Meditations deck | A seeded, 12-lesson deck shipped with every account — today the only deck any account actually has. |
+| Meditations deck | A seeded, 12-lesson deck shipped with every account (uploads add to it). |
 
 ## Where the code lives
 
@@ -67,9 +67,25 @@ Library reads `books`/`cards`/`card_states`, joined in memory for per-book progr
 
 ## Constraints & gotchas
 
-- **Book upload is disabled in this deployment.** `ingestion-availability.ts` gates on `SELF_MASTERY_INGESTION_URL` being set (deliberately not on a BYO key) — confirmed absent locally; asserted absent in production by docs, not independently re-verified against Vercel env vars.
+- **Book upload (PDF → lessons + cards) is LIVE** (verified read-only 2026-10-25; see "Book upload" below). It is gated on a recent ingestion heartbeat AND the user's own usable AI key, not on `SELF_MASTERY_INGESTION_URL` (retired).
 - Migration 115's `personal_growth` flatten **silently broke** Self-Mastery nav in production (200-with-redirect, nothing errored) until `lib/shell/nav-domain-state.ts` synthesized the three personal areas from flat keys — that fallback is live code, not dead code.
 - `lib/self-mastery/untyped-from.ts`'s header comment is confirmed stale (books/lessons/cards ARE now in the generated DB type) — tracked in `docs/ai-connector/KNOWN-STALE-COMMENTS.md`, left as low-priority cleanup.
+
+## Book upload → lessons and cards (live; corrected 2026-10-25)
+
+**Flow.** `prepareBookUpload` (books row `uploading` + signed URL) → browser PUT to the private `books` bucket → `finalizeBookUpload` (re-reads the object, sets `processing`, inserts an `ingestion_jobs` row at `queued`; if the job insert fails it removes the file and the row) → a **pg_cron job (jobid 5, `self-mastery-ingestion-driver-every-1min`, applied by hand, NOT in a migration)** POSTs `https://tracking-app-sand.vercel.app/api/self-mastery/ingestion/step` every minute with the bearer `SELF_MASTERY_INGESTION_SECRET` (also in the Vault). Each call claims one job (FIFO, one per call) and advances ONE stage or ONE chunk: queued/extracting_text/parsing_structure/chunking (one stage) → embedding → extracting_lessons → merging → verifying_grounding → generating_cards → finalizing → done.
+
+**Gate (both must hold).** `isIngestionAvailable()` = `ingestion_driver_heartbeats.last_polled_at` < 5 min old (the route writes it on every authenticated call, even with no job) AND `hasUsableIngestionKey()` (the user's saved provider key, or the shared-key policy: Vercel env `AI_SHARED_KEY_POLICY` + `AI_SHARED_KEY_ALLOWED_USER_IDS` + `DEEPSEEK_API_KEY`). Checked in the library (button) and again in `prepareBookUpload` / `retryBookIngestion`. Extraction runs on DeepSeek only (via `gatewayChat`, so spend caps apply).
+
+**Archived candidates vs ~60 active lessons.** `extracting_lessons` writes EVERY candidate as `status='archived', rank=null`. `merging` ranks only the survivors (target = clamp(pages/8, 6, 60)); `generating_cards` iterates only ranked lessons and promotes a lesson to `active` once it has ≥1 card; `verifying_grounding` can set `rejected`. Non-survivors stay `archived` forever. So a finished book has ~55–60 active lessons and ~4 cards each (cards.ts caps at 4), plus hundreds of archived rows. Any raw `lessons` count must filter `status='active'` (`get-library.ts` does). Observed live: 284–387 rows vs 200–240 cards.
+
+**Early failures (file problems, first attempt, no retries burned).** The chunking stage fails the book immediately with a specific message for: scanned/no-text PDF (`detectScannedPdf`), password-protected, unreadable/damaged, over 1,500 pages. Messages and `isRetryableBookError` live in `lib/self-mastery/ingestion/failure-messages.ts`. Other failures (provider timeouts, circuit breaker, our bugs) get the generic or provider message and ARE retryable.
+
+**Stuck-book sweep (`ingestion/stuck-sweep.ts`, called from the step route after the heartbeat).** Fails, with a retryable message: a `processing` book with no job for >10 min (judged by `books.created_at`; books has no `updated_at`), and a job that was claimed at least once (stage≠queued or has a lease) and not touched for >1 h. A never-claimed `queued` job is exempt (FIFO: it is just waiting). 25 rows per query per poll, state-guarded writes (idempotent), never throws.
+
+**Retry.** "Try again" on a failed book (library card + book page) → `retryBookIngestion` → RPC `retry_book_ingestion` (migrations **271**, replaced by **272**): SECURITY DEFINER, owner-checked via `auth.uid()`, only for a `failed` book whose PDF is still in Storage; deletes the book's leftover lessons (cards cascade), resets the job to `queued` with a fresh cursor, sets the book to `processing`. Returns `retried | not_found | not_failed | file_gone | has_history`. **Refused (`has_history`) once any review, promotion or self-explanation exists for the book** — the review log is append-only and promotions are the user's history; the person must upload the file again as a new book. Not offered for file-problem failures. A failed book keeps its PDF; a ready book's PDF is deleted at `finalizing`.
+
+**Still not built / degraded.** PDF only (no EPUB lessons, no OCR); no triage tier; de-dup needs an embeddings key (OpenAI/Google BYOK) — without one near-duplicates survive; rejected lessons are not back-filled; section summaries only via `scripts/summarize-book-sections.ts`; `lessons.embedding` is never written (semantic search reads `source_chunks`); no Batch API / cost target. See `.claude-scratch/ulm-gap-briefing.md`.
 
 ## Focus reader (2026-10-19)
 
@@ -104,4 +120,4 @@ Every library book is readable in a focus reader (RSVP / page / listen) **indepe
 
 ## Unverified
 
-- Whether the upload gate's short-circuit is actually applied at the call site rendering the upload dialog trigger (not traced to source this pass).
+- The pg_cron job exists only in the live database (applied by hand, no migration creates it); if the project is ever rebuilt it must be re-registered.
