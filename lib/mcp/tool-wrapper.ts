@@ -43,7 +43,7 @@ export async function runMcpTool(
   // statically typed against the generated `Database` union — the table
   // name is a runtime string, not a literal this client's types can know
   // about.
-  fn: (userClient: SupabaseClient, userId: string) => Promise<RunMcpToolOutcome>,
+  fn: (userClient: SupabaseClient, userId: string, caller: { tokenId: string }) => Promise<RunMcpToolOutcome>,
 ): Promise<CallToolResult> {
   const outcome = await executeOperation(serviceClient, authInfo, { toolName, operation, requiredScope, args, run: fn }, "mcp");
   return outcome.ok ? outcome.toolResult : errorResult(outcome.message);

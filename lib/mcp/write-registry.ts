@@ -85,6 +85,7 @@ import {
 } from "@/lib/self-mastery/session/build-session";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "./tool-input-error";
+import { parseAgentBriefText, resolveAgentBriefDate, writeAgentBriefCore, clearAgentBriefCore } from "@/lib/morning-brief/agent-brief-core";
 
 /**
  * `write(domain, entity, action, id?, patch?)` — L6's dispatch table,
@@ -117,6 +118,8 @@ export interface WriteContext {
   now: Date;
   /** `write(..., id?, ...)`'s top-level id — for actions that target an EXISTING row by id (edit/advance/reorder/...), as opposed to deen's date-keyed actions, which never use it. */
   id?: string;
+  /** The calling token's id (when the transport has one) -- lets an action name its source, e.g. day.morning_brief.write's "Written by <client>". */
+  tokenId?: string;
 }
 
 export type WritePatch = Record<string, unknown>;
@@ -2873,6 +2876,43 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
                   structuredContent: { updated_at: ctx.now.toISOString(), local_date: result.localDate, woke_at: result.wokeAtIso },
                 },
                 summary: `started day ${result.localDate}`,
+              };
+            },
+          },
+        },
+      },
+      morning_brief: {
+        entity: "morning_brief",
+        actions: {
+          write: {
+            action: "write",
+            description: "Write the person's Morning Brief for today, replacing the built-in AI brief on Home. patch.text is plain text (paragraphs and line breaks are kept; no HTML), 1 to 2000 characters. patch.date defaults to the account's local today; only local today or tomorrow is accepted. Overwrites any brief already there, including a built-in one; the nightly built-in brief never overwrites it. Home shows it as written by this connector.",
+            patchShape: "{ text: string, date?: 'YYYY-MM-DD' }",
+            idempotent: true,
+            idempotencyVerification: "write_agent_morning_brief (migration 274) upserts on the DB's unique (user_id, brief_date) with fixed values -- a retry writes the identical text; only generated_at advances.",
+            handler: async (ctx, patch) => {
+              const text = parseAgentBriefText(patch.text);
+              const date = resolveAgentBriefDate(patch.date, ctx.now, ctx.timezone);
+              await writeAgentBriefCore(ctx.userClient, { date, text, tokenId: ctx.tokenId });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date, written: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), date, written: true } },
+                summary: `wrote the morning brief for ${date}`,
+              };
+            },
+          },
+          clear: {
+            action: "clear",
+            description: "Delete the agent-written Morning Brief for a date (default: the account's local today; today or tomorrow only), so Home goes back to the built-in brief or nothing. Never deletes a built-in brief.",
+            patchShape: "{ date?: 'YYYY-MM-DD' }",
+            idempotent: false,
+            idempotencyVerification: "A retry after a successful clear finds no agent brief and reports an error rather than a second success, so the repeated call is not the same outcome as the first.",
+            handler: async (ctx, patch) => {
+              const date = resolveAgentBriefDate(patch.date, ctx.now, ctx.timezone);
+              const removed = await clearAgentBriefCore(ctx.userClient, date);
+              if (!removed) throw new ToolNotFoundError(`There is no agent-written morning brief for ${date} to clear.`);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ date, cleared: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), date, cleared: true } },
+                summary: `cleared the agent morning brief for ${date}`,
               };
             },
           },

@@ -513,6 +513,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "school.canvas_import.run_batch": { mcp: "school.canvas_import.run_batch", note: "distinct from canvas-actions.ts#importConcludedCanvasCourses, which stays pending P4-cov-P2-20" },
   "widgets.widget.create": { mcp: "widgets.widget.create", note: "via widget_manage; same tool as the already-declared widgets.widget.delete" },
   "widgets.widget.update": { mcp: "widgets.widget.update", note: "via widget_manage" },
+  "day.morning_brief.write": { mcp: "day.morning_brief.write", note: "an agent writes the Morning Brief (no Server Action: the built-in brief is written by the nightly cron); migration 274" },
+  "day.morning_brief.clear": { mcp: "day.morning_brief.clear", note: "reverts an agent-written Morning Brief; never touches a built-in one" },
   "scheduler.scheduled_action.create": { mcp: "scheduler.scheduled_action.create", note: "via scheduler_manage" },
   "scheduler.scheduled_action.cancel": { mcp: "scheduler.scheduled_action.cancel", note: "via scheduler_manage" },
   "scheduler.scheduled_action.pause": { mcp: "scheduler.scheduled_action.pause", note: "via scheduler_manage" },

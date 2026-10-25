@@ -55,7 +55,7 @@ export interface OperationSpec {
   args: unknown;
   // Untyped client on purpose: a registry-driven dispatcher's table name is
   // a runtime string, which the generated `Database` union can't type.
-  run: (userClient: SupabaseClient, userId: string) => Promise<ToolOutcome>;
+  run: (userClient: SupabaseClient, userId: string, caller: { tokenId: string }) => Promise<ToolOutcome>;
 }
 
 export type OperationErrorCode = "unauthenticated" | "insufficient_scope" | "rate_limited" | "invalid_input" | "not_found" | "audit_failed" | "internal";
@@ -168,7 +168,7 @@ export async function executeOperation(
   try {
     const jwt = await mintSessionJwt(auth.userId);
     const userClient = buildUserScopedClient(jwt);
-    const { result: toolResult, summary } = await op.run(userClient, auth.userId);
+    const { result: toolResult, summary } = await op.run(userClient, auth.userId, { tokenId: auth.tokenId });
     resultSummary = summary;
     result = { ok: true, data: toolResult.structuredContent ?? null, text: textOfResult(toolResult), summary, toolResult };
   } catch (e) {

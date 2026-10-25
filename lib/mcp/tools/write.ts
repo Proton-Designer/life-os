@@ -32,7 +32,7 @@ export function resolveWriteOperation(args: WriteArgs): string {
  * enforced structurally rather than by convention: there is exactly one
  * place in the whole write path that touches `profiles.timezone`.
  */
-export async function writeTool(supabase: SupabaseClient, userId: string, args: WriteArgs): Promise<RunMcpToolOutcome> {
+export async function writeTool(supabase: SupabaseClient, userId: string, args: WriteArgs, tokenId?: string): Promise<RunMcpToolOutcome> {
   const actionDef = getWriteAction(args.domain, args.entity, args.action);
   if (!actionDef) {
     const entities = listWriteEntities(args.domain);
@@ -52,7 +52,7 @@ export async function writeTool(supabase: SupabaseClient, userId: string, args: 
   await assertDeenAvailable(supabase, userId, args.domain);
   const timezone = await fetchTimezone(supabase, userId);
   const now = new Date();
-  return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id }, withDateDefault(args, timezone, now));
+  return actionDef.handler({ userClient: supabase, userId, timezone, now, id: args.id, tokenId }, withDateDefault(args, timezone, now));
 }
 
 /**

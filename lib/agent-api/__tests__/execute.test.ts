@@ -134,7 +134,7 @@ describe("executeOperation — success", () => {
     expect(outcome.data).toEqual({ items: [] });
     expect(outcome.text).toBe('{"items":[]}');
     expect(outcome.summary).toBe("returned 0 prayer(s)");
-    expect(spec.run).toHaveBeenCalledWith({ __fake: "user-scoped-client" }, "user-1");
+    expect(spec.run).toHaveBeenCalledWith({ __fake: "user-scoped-client" }, "user-1", expect.objectContaining({ tokenId: expect.any(String) }));
     expect(events).toEqual(["audit:ok"]);
     expect(inserts[0]).toEqual(expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "read", operation: "deen.prayer.read", outcome: "ok" }));
   });

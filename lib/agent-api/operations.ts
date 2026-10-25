@@ -117,7 +117,7 @@ export function buildOperationSpec<T extends AgentToolName>(tool: T, parsedArgs:
     }
     case "write": {
       const args = parsedArgs as WriteArgs;
-      return { toolName: "write", operation: resolveWriteOperation(args), requiredScope: "write", args, run: (userClient, userId) => writeTool(userClient, userId, args) };
+      return { toolName: "write", operation: resolveWriteOperation(args), requiredScope: "write", args, run: (userClient, userId, caller) => writeTool(userClient, userId, args, caller.tokenId) };
     }
     case "widget_manage": {
       const args = parsedArgs as WidgetManageArgs;

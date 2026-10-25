@@ -158,3 +158,13 @@ describe("writeTool — deen.prayer.unlog (R9)", () => {
     await expect(writeTool(client, "user-1", { domain: "deen", entity: "prayer", action: "unlog" })).rejects.toThrow(/patch\.prayer_name/i);
   });
 });
+
+describe("writeTool — the calling token reaches the action", () => {
+  it("passes tokenId to day.morning_brief.write so the brief can name its source", async () => {
+    const rpc = vi.fn(async () => ({ data: 1, error: null }));
+    const base = makeClient({ timezone: "America/Chicago" }) as unknown as { from: unknown };
+    const client = { from: base.from, rpc } as unknown as SupabaseClient;
+    await writeTool(client, "user-1", { domain: "day", entity: "morning_brief", action: "write", patch: { text: "Hello" } }, "tok-7");
+    expect(rpc).toHaveBeenCalledWith("write_agent_morning_brief", expect.objectContaining({ p_token_id: "tok-7" }));
+  });
+});

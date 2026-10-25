@@ -353,12 +353,12 @@ export async function processOneScheduledAction(serviceClient: SupabaseClient, c
   const authInfo: AuthInfoLike = { scopes: liveToken.scopes, extra: { userId: liveToken.userId, tokenId: row.token_id } };
   const operation = resolveOperation(row); // recomputed fresh, never trusted from the stored column
 
-  let run: (userClient: SupabaseClient, userId: string) => Promise<ToolOutcome>;
+  let run: (userClient: SupabaseClient, userId: string, caller: { tokenId: string }) => Promise<ToolOutcome>;
   if (row.tool_name === "notify") {
     const timezone = await fetchTimezoneForUser(serviceClient, row.user_id);
     run = () => dispatchNotify(serviceClient, row, timezone, now);
   } else {
-    run = (userClient, userId) => writeTool(userClient, userId, row.args as WriteArgs);
+    run = (userClient, userId, caller) => writeTool(userClient, userId, row.args as WriteArgs, caller.tokenId);
   }
   const result = await executeOperation(serviceClient, authInfo, { toolName: row.tool_name, operation, requiredScope: "write", args: row.args, run }, "scheduler");
 

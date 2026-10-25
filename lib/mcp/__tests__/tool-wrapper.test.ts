@@ -116,7 +116,7 @@ describe("runMcpTool", () => {
     expect(textOf(result)).toBe("ok");
     expect(mintSessionJwtMock).toHaveBeenCalledWith("user-1");
     expect(buildUserScopedClientMock).toHaveBeenCalledWith("fake.jwt.token");
-    expect(okFn).toHaveBeenCalledWith({ __fake: "user-scoped-client" }, "user-1");
+    expect(okFn).toHaveBeenCalledWith({ __fake: "user-scoped-client" }, "user-1", expect.objectContaining({ tokenId: expect.any(String) }));
     expect(inserts[0]).toEqual(
       expect.objectContaining({ user_id: "user-1", token_id: "tok-1", tool_name: "get_profile", operation: "test.get_profile", outcome: "ok", args: { q: "me" } }),
     );

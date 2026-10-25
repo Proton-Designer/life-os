@@ -210,7 +210,8 @@ async function claimBriefSlot(supabase: SupabaseClient, userId: string, briefDat
 }
 
 async function releaseBriefSlot(supabase: SupabaseClient, userId: string, briefDate: string): Promise<void> {
-  const { error } = await untypedFrom(supabase, "ai_morning_briefs").delete().eq("user_id", userId).eq("brief_date", briefDate);
+  // Only a claim that was never filled: a brief an agent wrote in between (migration 274, provider 'mcp') has text and stays.
+  const { error } = await untypedFrom(supabase, "ai_morning_briefs").delete().eq("user_id", userId).eq("brief_date", briefDate).is("brief_text", null);
   if (error) throw error;
 }
 
@@ -218,7 +219,9 @@ async function fillBriefSlot(supabase: SupabaseClient, userId: string, briefDate
   const { error } = await untypedFrom(supabase, "ai_morning_briefs")
     .update({ brief_text: result.briefText, provider: result.provider, model: result.model, generated_at: now.toISOString() })
     .eq("user_id", userId)
-    .eq("brief_date", briefDate);
+    .eq("brief_date", briefDate)
+    // Fill only the empty claim: if an agent wrote today's brief after we claimed, its text wins (zero rows updated is fine).
+    .is("brief_text", null);
   if (error) throw error;
 }
 

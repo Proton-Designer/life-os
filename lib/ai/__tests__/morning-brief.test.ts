@@ -144,6 +144,8 @@ describe("dispatchNightlyMorningBriefs()", () => {
     const updateCalls: Record<string, unknown>[] = [];
     const deleteCalls: Record<string, unknown>[] = [];
     const claimed = new Set(opts.claimedUsers ?? []);
+    // .is(col, value) filters applied to the brief row's update / delete, so a test can prove they are guarded.
+    const isFilters: { op: "update" | "delete"; col: string; val: unknown }[] = [];
 
     const from = vi.fn((table: string) => {
       const eqArgs: Record<string, unknown> = {};
@@ -158,6 +160,11 @@ describe("dispatchNightlyMorningBriefs()", () => {
       chain.not = vi.fn(() => chain);
       chain.order = vi.fn(() => chain);
       chain.limit = vi.fn(() => chain);
+      chain.is = vi.fn((col: string, val: unknown) => {
+        const op = (chain.delete as ReturnType<typeof vi.fn>).mock.calls.length > 0 ? "delete" : "update";
+        isFilters.push({ op, col, val });
+        return chain;
+      });
       chain.then = (resolve: (v: { data?: unknown; count?: number; error: null }) => void) => {
         if (table === "profiles") return resolve({ data: opts.profiles ?? [], error: null });
         if (table === "tasks") return resolve({ count: 0, data: [], error: null }); // no brief-content assertions in this describe block
@@ -190,8 +197,33 @@ describe("dispatchNightlyMorningBriefs()", () => {
       return chain;
     });
 
-    return { client: { from } as unknown as SupabaseClient, insertCalls, updateCalls, deleteCalls };
+    return { client: { from } as unknown as SupabaseClient, insertCalls, updateCalls, deleteCalls, isFilters };
   }
+
+  // An agent-written brief (day.morning_brief.write, provider 'mcp') can land BETWEEN the cron's claim and its fill/release.
+  // The claim insert already loses to an existing row (23505); these two guard the race the other way round.
+  it("fills the claimed row only while its text is still empty, so a brief an agent wrote in between is never overwritten", async () => {
+    gatewayChatMock.mockResolvedValue({ ok: true, content: "a\nb\nc" });
+    const { client, updateCalls, isFilters } = makeClient({ profiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
+    await dispatchNightlyMorningBriefs(client, AT_0400_LOCAL);
+    expect(updateCalls).toHaveLength(1);
+    expect(isFilters).toContainEqual({ op: "update", col: "brief_text", val: null });
+  });
+
+  it("releases a failed claim only while its text is still empty, so a brief an agent wrote in between is never deleted", async () => {
+    gatewayChatMock.mockResolvedValue({ ok: false, message: "no key" });
+    const { client, deleteCalls, isFilters } = makeClient({ profiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
+    await dispatchNightlyMorningBriefs(client, AT_0400_LOCAL);
+    expect(deleteCalls).toHaveLength(1);
+    expect(isFilters).toContainEqual({ op: "delete", col: "brief_text", val: null });
+  });
+
+  it("never calls the model for a day an agent already wrote (the claim hits the unique key)", async () => {
+    const { client } = makeClient({ profiles: [{ user_id: "user-1", timezone: "America/Chicago" }], claimedUsers: new Set(["user-1"]) });
+    const result = await dispatchNightlyMorningBriefs(client, AT_0400_LOCAL);
+    expect(result.generated).toBe(0);
+    expect(gatewayChatMock).not.toHaveBeenCalled();
+  });
 
   it("skips a user outside their own local generation window", async () => {
     const { client } = makeClient({ profiles: [{ user_id: "user-1", timezone: "America/Chicago" }] });
