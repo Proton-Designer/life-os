@@ -40,7 +40,7 @@ describe("registry — self_mastery domain expansion is actually registered", ()
     const domain = getDomain("self_mastery");
     expect(domain).toBeTruthy();
     expect(Object.keys(domain!.entities).sort()).toEqual(
-      ["book", "book_section", "card", "card_state", "lesson", "lesson_promotion", "lesson_verdict", "question", "review", "self_explanation", "source", "source_chunks"].sort(),
+      ["book", "book_section", "card", "card_state", "day_connection", "lesson", "lesson_promotion", "lesson_verdict", "question", "review", "self_explanation", "source", "source_chunks"].sort(),
     );
   });
 });

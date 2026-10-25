@@ -38,6 +38,16 @@ describe("registry", () => {
     expect(entity!.fullColumns).toEqual(expect.arrayContaining(entity!.summaryColumns));
   });
 
+  it("the agent-written outputs are readable: review.weekly_narrative and self_mastery.day_connection", () => {
+    const w = getEntity("review", "weekly_narrative")!;
+    expect(w.table).toBe("collegeos_weekly_narratives");
+    expect(w.orderBy[0]).toEqual({ column: "week_start", ascending: false });
+    expect(w.summaryColumns).toEqual(expect.arrayContaining(["narrative_text", "provider", "model"]));
+    const d = getEntity("self_mastery", "day_connection")!;
+    expect(d.table).toBe("card_day_connections");
+    expect(d.filterableColumns).toEqual(expect.arrayContaining(["card_id", "connection_date"]));
+  });
+
   it("getDomain returns null for an unregistered domain, never throws", () => {
     expect(getDomain("nonexistent_domain")).toBeNull();
   });

@@ -154,6 +154,7 @@ describe("dispatchCollegeOsWeeklyNarratives()", () => {
       chain.gte = vi.fn(() => chain);
       chain.lt = vi.fn(() => chain);
       chain.in = vi.fn(() => chain);
+      chain.is = vi.fn(() => chain);
       chain.then = (resolve: (v: { data?: unknown; error: null }) => void) => {
         if (table === "profiles") return resolve({ data: opts.profiles ?? [], error: null });
         resolve({ data: null, error: null });

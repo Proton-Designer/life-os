@@ -843,6 +843,22 @@ export const REGISTRY: Record<string, DomainDef> = {
     //   entity below.
     description: "Book study: library metadata, chapter structure, extracted lessons, spaced-repetition cards with their review state and append-only review log, promoted-lesson verdicts, and the class question bank. Raw book text is never readable.",
     entities: {
+      day_connection: {
+        entity: "day_connection",
+        table: "card_day_connections",
+        description: "The session closer's 'connect this lesson to today' line for a lesson card and a day (connection_date): one sentence written by a connected agent. Card ids come from self_mastery.card.",
+        idColumn: "id",
+        updatedAtColumn: "generated_at",
+        updatedAtVerification: "write_agent_day_connection (migration 276) is the only writer and sets generated_at = now() on every upsert.",
+        summaryColumns: ["card_id", "connection_date", "connection_text", "model"],
+        fullColumns: ["card_id", "connection_date", "connection_text", "provider", "model", "generated_at", "created_at"],
+        filterableColumns: ["card_id", "connection_date"],
+        rangeFilterableColumns: ["connection_date"],
+        orderBy: [
+          { column: "connection_date", ascending: false },
+          { column: "created_at", ascending: false },
+        ],
+      },
       /**
        * RULED ON BY THE LEAD (measured, not judged): `provenance_quote`
        * below is genuinely verbatim book text, not a paraphrase -- the
@@ -1578,6 +1594,20 @@ export const REGISTRY: Record<string, DomainDef> = {
     //   NULL), below.
     description: "The evening close and Night Plan. Most of what it shows lives in distractions, work.work_session and settings.user_setting; its own data is the Night Plan's dumped and ranked items.",
     entities: {
+      weekly_narrative: {
+        entity: "weekly_narrative",
+        table: "collegeos_weekly_narratives",
+        description: "The Weekly Review narrative, one per Sun-Sat week (week_start = its Sunday). provider 'mcp' = written by a connected agent; anything else = built-in. Summarise the week from work.work_session, distractions.event, deen.habit_log.",
+        idColumn: "id",
+        updatedAtColumn: "generated_at",
+        updatedAtVerification:
+          "generated_at is set by both write paths: the cron's fillNarrativeSlot (lib/weekly-review/weekly-narrative.ts) and write_agent_weekly_narrative (migration 275, now() on every upsert). NULL only on the cron's momentary claim row, which holds no text.",
+        summaryColumns: ["week_start", "narrative_text", "provider", "model"],
+        fullColumns: ["week_start", "narrative_text", "provider", "model", "generated_at", "created_at"],
+        filterableColumns: ["week_start", "provider"],
+        rangeFilterableColumns: ["week_start"],
+        orderBy: [{ column: "week_start", ascending: false }],
+      },
       night_plan_task: {
         entity: "night_plan_task",
         table: "tasks",

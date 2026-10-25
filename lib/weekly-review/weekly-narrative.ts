@@ -149,7 +149,7 @@ async function claimNarrativeSlot(supabase: TypedClient, userId: string, weekSta
 }
 
 async function releaseNarrativeSlot(supabase: TypedClient, userId: string, weekStart: string): Promise<void> {
-  const { error } = await untypedFrom(supabase, "collegeos_weekly_narratives").delete().eq("user_id", userId).eq("week_start", weekStart);
+  const { error } = await untypedFrom(supabase, "collegeos_weekly_narratives").delete().eq("user_id", userId).eq("week_start", weekStart).is("narrative_text", null); // only a claim never filled: an agent-written narrative (migration 275) has text and stays
   if (error) throw error;
 }
 
@@ -163,7 +163,8 @@ async function fillNarrativeSlot(
   const { error } = await untypedFrom(supabase, "collegeos_weekly_narratives")
     .update({ narrative_text: result.narrativeText, provider: result.provider, model: result.model, generated_at: now.toISOString() })
     .eq("user_id", userId)
-    .eq("week_start", weekStart);
+    .eq("week_start", weekStart)
+    .is("narrative_text", null); // fill only the empty claim: an agent-written narrative that landed after the claim wins
   if (error) throw error;
 }
 

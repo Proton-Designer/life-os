@@ -85,6 +85,8 @@ import {
 } from "@/lib/self-mastery/session/build-session";
 import type { RunMcpToolOutcome } from "./tool-wrapper";
 import { ToolInputError, ToolNotFoundError } from "./tool-input-error";
+import { resolveAgentWeekStart, writeAgentWeeklyNarrativeCore, clearAgentWeeklyNarrativeCore } from "@/lib/weekly-review/agent-narrative-core";
+import { parseCardId, parseDayConnectionText, writeAgentDayConnectionCore, clearAgentDayConnectionCore } from "@/lib/self-mastery/agent-day-connection-core";
 import { parseAgentBriefText, resolveAgentBriefDate, writeAgentBriefCore, clearAgentBriefCore } from "@/lib/morning-brief/agent-brief-core";
 
 /**
@@ -2405,6 +2407,46 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
   self_mastery: {
     domain: "self_mastery",
     entities: {
+      day_connection: {
+        entity: "day_connection",
+        actions: {
+          write: {
+            action: "write",
+            description: "Write the session closer's 'connect this lesson to today' line for one lesson card: ONE sentence (1 to 220 characters, no line break) tying the card to something real the person has today. patch.card_id is the lesson card; patch.date defaults to the account's local today (today or tomorrow only). Overwrites an earlier line for that card and day. Only for the person's own cards.",
+            patchShape: "{ card_id: string, text: string, date?: 'YYYY-MM-DD' }",
+            idempotent: true,
+            idempotencyVerification: "write_agent_day_connection (migration 276) upserts on the DB's unique (user_id, card_id, connection_date) with fixed values -- a retry writes the identical line.",
+            handler: async (ctx, patch) => {
+              const cardId = parseCardId(patch.card_id);
+              const text = parseDayConnectionText(patch.text);
+              const date = resolveAgentBriefDate(patch.date, ctx.now, ctx.timezone);
+              if (!(await writeAgentDayConnectionCore(ctx.userClient, { cardId, date, text, tokenId: ctx.tokenId }))) {
+                throw new ToolNotFoundError(`No lesson card found with id "${cardId}".`);
+              }
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ card_id: cardId, date, written: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), card_id: cardId, date, written: true } },
+                summary: `wrote a day connection for card ${cardId} on ${date}`,
+              };
+            },
+          },
+          clear: {
+            action: "clear",
+            description: "Delete the day-connection line for one lesson card and day (patch.card_id required; patch.date defaults to the local today).",
+            patchShape: "{ card_id: string, date?: 'YYYY-MM-DD' }",
+            idempotent: false,
+            idempotencyVerification: "A retry after a successful clear finds nothing to clear and reports an error rather than a second success.",
+            handler: async (ctx, patch) => {
+              const cardId = parseCardId(patch.card_id);
+              const date = resolveAgentBriefDate(patch.date, ctx.now, ctx.timezone);
+              if (!(await clearAgentDayConnectionCore(ctx.userClient, cardId, date))) throw new ToolNotFoundError(`There is no agent-written day connection for card ${cardId} on ${date} to clear.`);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ card_id: cardId, date, cleared: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), card_id: cardId, date, cleared: true } },
+                summary: `cleared the day connection for card ${cardId} on ${date}`,
+              };
+            },
+          },
+        },
+      },
       review: {
         entity: "review",
         actions: {
@@ -2683,6 +2725,42 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
   review: {
     domain: "review",
     entities: {
+      weekly_narrative: {
+        entity: "weekly_narrative",
+        actions: {
+          write: {
+            action: "write",
+            description: "Write the Weekly Review narrative ('Your week'), replacing the built-in AI one. patch.text is plain text, 1 to 2000 characters, paragraphs separated by blank lines. patch.week_start is the Sunday that starts the week: the last completed week (default) or the current week. Overwrites any narrative already there; the built-in generator never overwrites it. The review screen shows it as written by this connector.",
+            patchShape: "{ text: string, week_start?: 'YYYY-MM-DD' }",
+            idempotent: true,
+            idempotencyVerification: "write_agent_weekly_narrative (migration 275) upserts on the DB's unique (user_id, week_start) with fixed values -- a retry writes the identical text; only generated_at advances.",
+            handler: async (ctx, patch) => {
+              const text = parseAgentBriefText(patch.text);
+              const weekStart = resolveAgentWeekStart(patch.week_start, ctx.now, ctx.timezone);
+              await writeAgentWeeklyNarrativeCore(ctx.userClient, { weekStart, text, tokenId: ctx.tokenId });
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ week_start: weekStart, written: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), week_start: weekStart, written: true } },
+                summary: `wrote the weekly narrative for the week of ${weekStart}`,
+              };
+            },
+          },
+          clear: {
+            action: "clear",
+            description: "Delete the agent-written weekly narrative for a week (default: the last completed week; same allowed weeks as write), so the review goes back to the built-in narrative or nothing. Never deletes a built-in one.",
+            patchShape: "{ week_start?: 'YYYY-MM-DD' }",
+            idempotent: false,
+            idempotencyVerification: "A retry after a successful clear finds nothing to clear and reports an error rather than a second success.",
+            handler: async (ctx, patch) => {
+              const weekStart = resolveAgentWeekStart(patch.week_start, ctx.now, ctx.timezone);
+              if (!(await clearAgentWeeklyNarrativeCore(ctx.userClient, weekStart))) throw new ToolNotFoundError(`There is no agent-written weekly narrative for the week of ${weekStart} to clear.`);
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify({ week_start: weekStart, cleared: true }) }], structuredContent: { updated_at: ctx.now.toISOString(), week_start: weekStart, cleared: true } },
+                summary: `cleared the agent weekly narrative for the week of ${weekStart}`,
+              };
+            },
+          },
+        },
+      },
       night_plan_task: {
         entity: "night_plan_task",
         actions: {

@@ -78,7 +78,7 @@ describe("write-registry dispatch shape", () => {
   });
 
   it("self_mastery's write surface is exactly grade/record_verdict/log/question_review/session/lesson.promote -- P4-08 added question_review, session, and lesson (promote-only) -- still never cards/source_chunks/book content", () => {
-    expect(listWriteEntities("self_mastery").sort()).toEqual(["lesson", "lesson_promotion", "question_review", "review", "self_explanation", "session"]);
+    expect(listWriteEntities("self_mastery").sort()).toEqual(["day_connection", "lesson", "lesson_promotion", "question_review", "review", "self_explanation", "session"]);
     expect(listWriteActions("self_mastery", "review")).toEqual(["grade"]);
     expect(listWriteActions("self_mastery", "lesson_promotion")).toEqual(["record_verdict"]);
     expect(listWriteActions("self_mastery", "self_explanation")).toEqual(["log"]);
