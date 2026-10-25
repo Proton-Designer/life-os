@@ -15,9 +15,6 @@ function okResult(content: string): GatewayChatResult {
 function noKeyResult(): GatewayChatResult {
   return { ok: false, message: "AI features aren't enabled for this account." };
 }
-function capBlockedResult(): GatewayChatResult {
-  return { ok: false, message: "The shared AI budget cap has been reached", capBlocked: true };
-}
 function genuineFailureResult(): GatewayChatResult {
   return { ok: false, message: "DeepSeek took too long to respond.", attempts: 3 };
 }
@@ -54,9 +51,6 @@ describe("draftQuestionsFromNotes", () => {
     const genuine = await draftQuestionsFromNotes(FAKE_SUPABASE, USER_ID, "text");
     expect(genuine).toEqual({ status: "unavailable" });
 
-    gatewayChatSpy.mockResolvedValue(capBlockedResult());
-    const capped = await draftQuestionsFromNotes(FAKE_SUPABASE, USER_ID, "text");
-    expect(capped).toEqual({ status: "unavailable" });
   });
 
   it("returns parse_failed on non-JSON content, never throws", async () => {

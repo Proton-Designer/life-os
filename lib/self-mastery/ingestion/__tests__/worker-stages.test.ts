@@ -104,7 +104,7 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     ).rejects.toThrow(/gateway call failed/);
   });
 
-  it("a deterministic gateway block surfaces as a TYPED blockKind on GatewayCallFailedError (no message matching): no key, per-user monthly cap, shared cap", async () => {
+  it("a deterministic gateway block surfaces as a TYPED blockKind on GatewayCallFailedError (no message matching): no key, per-user monthly cap", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
     const { gatewayChat } = await import("@/lib/ai/gateway");
@@ -117,7 +117,6 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     for (const [result, kind] of [
       [{ ok: false, message: "whatever words", noKey: true }, "no_key"],
       [{ ok: false, message: "whatever words", monthlyCapBlocked: true }, "monthly_cap"],
-      [{ ok: false, message: "whatever words", capBlocked: true }, "global_cap"],
       [{ ok: false, message: "provider timed out", errorKind: "timeout" }, undefined],
     ] as const) {
       vi.mocked(gatewayChat).mockResolvedValue(result as never);

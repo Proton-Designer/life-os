@@ -70,26 +70,6 @@ describe("gatewayChat()", () => {
     expect(store.entries).toHaveLength(0);
   });
 
-  it("BYO ('user') key: never consults/blocked by the spend cap, even with a near-zero cap override", async () => {
-    resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-user-key", source: "user" });
-    fetchMock.mockResolvedValue(jsonResponse(200, {
-      model: "deepseek-flash",
-      choices: [{ message: { content: "answer" } }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, completion_tokens_details: { reasoning_tokens: 0 } },
-    }));
-    const store = new FakeUsageStore();
-    const result = await gatewayChat(fakeClient, "u1", "answer_feedback", [{ role: "user", content: "hi" }], {
-      usageStore: store,
-      capUsdOverride: 0.0000001,
-      now: OFF_PEAK,
-    });
-    expect(result.ok).toBe(true);
-    expect(result.keySource).toBe("user");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(store.entries).toHaveLength(1);
-    expect(store.entries[0].keySource).toBe("user");
-  });
-
   it("defaults to the cheap tier: deepseek-flash, thinking disabled", async () => {
     resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
     fetchMock.mockResolvedValue(jsonResponse(200, { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 5, completion_tokens: 2 } }));
@@ -117,20 +97,6 @@ describe("gatewayChat()", () => {
     await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], { tier: "cheap", thinking: true, usageStore: store, now: OFF_PEAK });
     const sentBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(sentBody.thinking).toEqual({ type: "enabled" });
-  });
-
-  it("server-key call refused by the spend cap makes NO network call and logs nothing", async () => {
-    resolveApiKeyWithSourceMock.mockResolvedValue({ key: "sk-server-key", source: "server" });
-    const store = new FakeUsageStore();
-    const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], {
-      usageStore: store,
-      capUsdOverride: 0.0000001,
-      now: OFF_PEAK,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.capBlocked).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(store.entries).toHaveLength(0);
   });
 
   it("retries a rate-limited server-key call and logs the SUCCESSFUL final attempt with retry_count reflecting the retries", async () => {
@@ -293,7 +259,6 @@ describe("gatewayChat()", () => {
       const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], {
         provider: "openai",
         tier: "cheap",
-        capUsdOverride: 1000, // clear the default $1 cap -- this call alone would exceed it
         usageStore: store,
         now: OFF_PEAK,
       });
@@ -475,7 +440,6 @@ describe("gatewayChat()", () => {
       const store = new FakeUsageStore();
       const result = await gatewayChat(fakeClient, "u1", "test", [{ role: "user", content: "hi" }], {
         usageStore: store,
-        capUsdOverride: 1_000_000, // clears the global cap entirely
         now: OFF_PEAK,
       });
 

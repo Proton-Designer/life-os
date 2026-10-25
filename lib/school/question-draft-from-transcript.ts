@@ -132,7 +132,7 @@ export async function draftQuestionsFromTranscript(
       // rather than repeating the same failure MAX_CHUNKS_PER_TRANSCRIPT
       // times. Same discriminating condition question-draft-generation.ts's
       // own draftQuestionsFromNotes already uses.
-      if (result.attempts === undefined && !result.capBlocked && !result.monthlyCapBlocked) {
+      if (result.attempts === undefined && !result.monthlyCapBlocked) {
         if (!anyChunkSucceeded) return { status: "no_key" };
         break;
       }

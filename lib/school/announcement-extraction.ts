@@ -73,7 +73,7 @@ export async function extractDeliverablesFromAnnouncementText(
   );
 
   if (!result.ok) {
-    if (result.attempts === undefined && !result.capBlocked) return { status: "no_key" };
+    if (result.attempts === undefined) return { status: "no_key" };
     return { status: "unavailable" };
   }
 

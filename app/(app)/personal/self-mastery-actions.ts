@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
-import { isRetryableBookError } from "@/lib/self-mastery/ingestion/failure-messages";
+import { isRetryableBookError, NO_KEY_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
@@ -84,17 +84,9 @@ export async function prepareBookUpload(
   // lib/self-mastery/ingestion-availability.ts.
   if (!(await isIngestionAvailable())) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
 
-  // SAME SERVER-SIDE-REFUSAL POSTURE, for the key side (2026-09-15, the
-  // Lead's fix): the driver being alive says nothing about whether THIS
-  // user's own resolved AI provider has a usable key behind it — see
-  // hasUsableIngestionKey's own header in lib/ai/gateway.ts. Checked here,
-  // not just in self-mastery-library.tsx's button visibility, for the exact
-  // reason the driver check above already is: a hidden button is a UI
-  // convenience, not the actual guard.
-  const keyCheck = await hasUsableIngestionKey(supabase, userId);
-  if (!keyCheck.usable) {
-    return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
-  }
+  // NO KEY CHECK HERE ANY MORE (2026-10-25, Ayman: "anyone can upload"). There is no shared key, so a user without their
+  // own can still upload: the book is created and stays readable in the reader, and finalizeBookUpload marks it failed with
+  // the retryable "add a key, then Try again" message instead of queueing a job that could never run.
 
   const trimmedTitle = title.trim();
   if (!trimmedTitle) return { ok: false, message: "Give this book a title." };
@@ -186,6 +178,20 @@ export async function finalizeBookUpload(bookId: string, path: string): Promise<
     await supabase.storage.from(BOOKS_BUCKET).remove([path]);
     await untypedFrom(supabase, "books").delete().eq("id", bookId);
     return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  }
+
+  // No usable key for this user's chosen provider: keep the book (and its PDF, so it is readable in the reader and a later
+  // "Try again" has something to run), mark it failed with the retryable no-key message, and queue NO job. A queued job
+  // with no key would only burn its attempts.
+  const keyCheck = await hasUsableIngestionKey(supabase, userId);
+  if (!keyCheck.usable) {
+    const { error: noKeyError } = await untypedFrom(supabase, "books")
+      .update({ file_path: path, status: "failed", error_message: NO_KEY_MESSAGE, file_size_bytes: sizeBytes })
+      .eq("id", bookId);
+    if (noKeyError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+    revalidatePath("/personal/self_mastery");
+    revalidatePath("/");
+    return { ok: true, bookId };
   }
 
   const { error: updateError } = await untypedFrom(supabase, "books")

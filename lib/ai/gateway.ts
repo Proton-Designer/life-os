@@ -4,7 +4,6 @@ import { chat, type ChatResult } from "./client";
 import { resolveApiKeyWithSource } from "./resolve-key";
 import { PROVIDERS, type ModelTier, type ProviderId } from "./providers";
 import { withRetry, type RetryOptions } from "./retry";
-import { checkSpendCap } from "./spend-cap";
 import { estimateMultiProviderCostUsd } from "./pricing";
 import { recordUsage, type UsageStore } from "./usage-log";
 import { getAiPreference } from "./preferences";
@@ -75,8 +74,6 @@ export interface GatewayChatOptions {
   retry?: RetryOptions;
   /** Test seam — an in-memory FakeUsageStore in every gateway test, never Supabase. */
   usageStore?: UsageStore;
-  /** Test seam for the spend cap; production always uses the env-configured cap. */
-  capUsdOverride?: number;
   /** Test seam for peak/off-peak pricing and the cap's time-sensitive estimate. */
   now?: Date;
 }
@@ -88,9 +85,7 @@ export interface GatewayChatResult extends ChatResult {
   attempts?: number;
   /** What this call was billed at, our own estimate from the response's own usage — 0 when no call was made. */
   costUsd?: number;
-  /** True only when the spend cap itself is why this call didn't happen — lets a caller distinguish "AI is off" from "AI ran out of shared budget" if it ever wants to. */
-  capBlocked?: boolean;
-  /** True only when THIS user's own monthly budget (lib/ai/monthly-spend-cap.ts) — separate from the shared-key `capBlocked` above — is why this call didn't happen. */
+  /** True only when THIS user's own monthly budget (lib/ai/monthly-spend-cap.ts) — is why this call didn't happen. */
   monthlyCapBlocked?: boolean;
   /** True only when no API key resolved for this user at all (no key of their own and not on the shared-key allowlist): deterministic until a key is added, so callers can fail fast instead of retrying. */
   noKey?: boolean;
@@ -142,23 +137,9 @@ export async function gatewayChat(
   const maxTokens = opts.maxTokens ?? 300;
   const promptChars = messages.reduce((sum, m) => sum + m.content.length, 0);
 
-  const capCheck = await checkSpendCap(resolved.source, model, promptChars, maxTokens, {
-    store: opts.usageStore,
-    capUsdOverride: opts.capUsdOverride,
-    at: opts.now,
-    provider,
-  });
-  if (!capCheck.allowed) {
-    // No call is made and nothing is logged — there is no usage to record
-    // for a call that never reached the provider. The cap having refused IS
-    // the fact worth knowing; `capBlocked` carries it without needing a log row.
-    return { ok: false, message: capCheck.reason, keySource: resolved.source, capBlocked: true };
-  }
-
-  // SEPARATE from the global cap just above: this user's OWN monthly
-  // budget, regardless of key source (their own key still spends their own
-  // money). See lib/ai/monthly-spend-cap.ts's own header for why this is a
-  // distinct check rather than folded into checkSpendCap.
+  // This user's OWN monthly budget (their own key still spends their own
+  // money). The shared-key global cap that used to sit before this check was
+  // removed with the shared key (2026-10-25). See lib/ai/monthly-spend-cap.ts.
   const monthlyCheck = await checkMonthlySpendCap(supabase, userId, provider, model, promptChars, maxTokens, {
     store: opts.usageStore,
     at: opts.now,
@@ -238,11 +219,9 @@ export interface IngestionKeyCheck {
  * own header describes, just reached through the key side instead of the
  * driver side.
  *
- * Reuses `resolveApiKeyWithSource` (not a hand-rolled key lookup) so the
- * allowlist (`resolve-key.ts`'s `sharedKeyAllowed`) applies exactly as it
- * would on the real ingestion call -- a non-allowlisted user with no
- * DeepSeek key of their own must see "no key," never a false "usable"
- * because this check forgot the allowlist exists.
+ * Reuses `resolveApiKeyWithSource` (not a hand-rolled key lookup) so this
+ * check resolves exactly as the real ingestion call will: the user's own
+ * key for their chosen provider, or none (there is no shared fallback).
  *
  * FAILS CLOSED on a preference read failure, same posture as gatewayChat
  * itself: `usable: false` with no `providerLabel` (there is no resolved

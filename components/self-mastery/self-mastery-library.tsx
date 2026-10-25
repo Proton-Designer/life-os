@@ -17,7 +17,6 @@ import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
 import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
-import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { getMostRecentCompletedWeek } from "@/lib/weekly-review/week-range";
@@ -57,12 +56,9 @@ export async function SelfMasteryLibrary() {
   const now = new Date();
   const { supabase, userId } = await requireUser();
   const ingestionAvailable = await isIngestionAvailable();
-  // Only worth checking once the driver itself is alive -- no point resolving
-  // a key for a feature that's unavailable for an unrelated reason, and it
-  // keeps the "driver down" message (the more fundamental gap) taking
-  // priority over "no key" when both happen to be true at once.
-  const keyCheck = ingestionAvailable ? await hasUsableIngestionKey(supabase, userId) : null;
-  const canUpload = ingestionAvailable && (keyCheck?.usable ?? false);
+  // Upload is offered to everyone while the driver is alive. A user with no key of their own still gets the book (readable
+  // in the reader); it is marked failed with an "add a key, then Try again" message instead of being processed.
+  const canUpload = ingestionAvailable;
 
   // P2-03's ULM weekly recap -- keyed on the most recently COMPLETED
   // Sun-Sat week (same week-range convention the Weekly Review page uses),
@@ -205,7 +201,7 @@ export async function SelfMasteryLibrary() {
             // button that eats the file — an absent feature is a gap, a broken
             // promise reads as a broken app.
             <p className="max-w-xs text-sm text-muted-foreground">
-              {ingestionAvailable ? ingestionNoKeyMessage(keyCheck?.providerLabel) : INGESTION_UNAVAILABLE_MESSAGE}
+              {INGESTION_UNAVAILABLE_MESSAGE}
             </p>
           )}
         </div>

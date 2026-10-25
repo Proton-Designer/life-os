@@ -307,12 +307,11 @@ describe("POST /api/self-mastery/ingestion/step", () => {
     it.each([
       ["no_key", /Add an API key in Settings, then tap Try again/],
       ["monthly_cap", /month's AI budget/],
-      ["global_cap", /shared AI budget/],
     ] as const)("%s: attempt 1 of 3 already marks the job and the book failed, and the loop halts", async (blockKind, message) => {
       const GatewayCallFailedError = await loadGatewayCallFailedError();
       vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
         STAGE_HANDLERS: {
-          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- blocked", undefined, blockKind === "global_cap", blockKind === "no_key" || blockKind === "monthly_cap" ? blockKind : undefined)),
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- blocked", undefined, blockKind)),
         },
       }));
       const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
@@ -565,11 +564,11 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       expect(booksUpdate?.values).toMatchObject({ status: "failed" });
     });
 
-    it("exhausted SPEND-CAP refusal -> NOT silently skipped past, even though errorKind is undefined on a capBlocked result", async () => {
+    it("exhausted MONTHLY-CAP refusal -> NOT silently skipped past, even though errorKind is undefined on a blocked result", async () => {
       const GatewayCallFailedError = await loadGatewayCallFailedError();
       vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
         STAGE_HANDLERS: {
-          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- spend cap reached", undefined, true)),
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- monthly budget reached", undefined, "monthly_cap")),
         },
       }));
       const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
@@ -583,10 +582,11 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      // 2b: a spend-cap refusal is a typed, deterministic block, so it now fails the book on the FIRST attempt as
-      // "ai_blocked" (this test ran it at the last attempt and expected "attempts_exhausted"). What it exists to prove is
-      // unchanged: the position is never skipped past, and the book fails with the real reason.
-      expect(body).toMatchObject({ reason: "ai_blocked", blockKind: "global_cap" });
+      // 2b: a cap refusal is a typed, deterministic block, so it fails the book on the FIRST attempt as "ai_blocked" (this
+      // test ran it at the last attempt and expected "attempts_exhausted"). What it exists to prove is unchanged: the
+      // position is never skipped past, and the book fails with the real reason. (The shared-key global cap this used to
+      // exercise was removed with the shared key; the per-user monthly cap is the remaining cap.)
+      expect(body).toMatchObject({ reason: "ai_blocked", blockKind: "monthly_cap" });
       expect(mock.updateCalls.find((c) => c.table === "ingestion_jobs")?.values).toMatchObject({ stage: "failed" });
       expect(mock.rpcCalls.some((c) => c.fn === "skip_ingestion_cursor_position")).toBe(false);
     });

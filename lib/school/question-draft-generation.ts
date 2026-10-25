@@ -136,7 +136,7 @@ export async function draftQuestionsFromNotes(
     // Same distinguishing logic as syllabus-extraction.ts: `attempts` is
     // absent exactly when no call was attempted at all (no key, or a cap
     // refusal before any provider was reached).
-    if (result.attempts === undefined && !result.capBlocked) return { status: "no_key" };
+    if (result.attempts === undefined) return { status: "no_key" };
     return { status: "unavailable" };
   }
 

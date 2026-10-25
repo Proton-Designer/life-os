@@ -151,10 +151,8 @@ export async function extractDeliverablesFromText(
 
   if (!result.ok) {
     // gatewayChat's own contract (see resolve-key.ts): `attempts` is absent exactly
-    // when no call was attempted at all — no key, or a cap refusal before any
-    // provider was ever reached. `capBlocked` distinguishes the latter, since
-    // "add an API key" would be false advice to someone who already has one.
-    if (result.attempts === undefined && !result.capBlocked) return { status: "no_key" };
+    // when no call was attempted at all — no key (there is no shared fallback key any more) before any provider was ever reached.
+    if (result.attempts === undefined) return { status: "no_key" };
     return { status: "unavailable" };
   }
 

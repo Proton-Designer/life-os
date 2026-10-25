@@ -21,9 +21,6 @@ function okResult(content: string): GatewayChatResult {
 function noKeyResult(): GatewayChatResult {
   return { ok: false, message: "AI features aren't enabled for this account." };
 }
-function capBlockedResult(): GatewayChatResult {
-  return { ok: false, message: "The shared AI budget cap has been reached", capBlocked: true };
-}
 function monthlyCapBlockedResult(): GatewayChatResult {
   return { ok: false, message: "Over this month's budget", monthlyCapBlocked: true };
 }
@@ -95,15 +92,6 @@ describe("draftQuestionsFromTranscript", () => {
     expect(gatewayChatSpy).toHaveBeenCalledTimes(2);
     expect(result).toEqual({ status: "drafted", drafts: expect.any(Array), partial: true });
     if (result.status === "drafted") expect(result.drafts).toHaveLength(2);
-  });
-
-  it("keeps earlier chunks' drafts and marks partial when a later chunk hits the shared lifetime cap", async () => {
-    gatewayChatSpy.mockResolvedValueOnce(okResult(draftsJson(1))).mockResolvedValueOnce(capBlockedResult());
-    const longTranscript = Array.from({ length: 45_000 }, (_, i) => `word${i}`).join(" ");
-
-    const result = await draftQuestionsFromTranscript(FAKE_SUPABASE, USER_ID, longTranscript);
-
-    expect(result).toMatchObject({ status: "drafted", partial: true });
   });
 
   it("returns parse_failed when the only chunk's response can't be parsed", async () => {

@@ -97,8 +97,8 @@ export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
  * fall through to the real, gateway-routed, spend-capped `DeepSeekProvider`,
  * using `ctx.job.user_id` (the book's owner, set by `set_user_id_from_book`
  * at job-creation time -- migration 074) so `gatewayChat` resolves that
- * user's own key first, the shared operator-funded `DEEPSEEK_API_KEY`
- * otherwise, exactly like every other gateway caller.
+ * user's own key for their chosen provider (there is no shared fallback
+ * key any more), exactly like every other gateway caller.
  *
  * Typed as the concrete union, not the `LlmProvider` interface: both
  * concrete classes expose their own `lastUsage` (DevShimProvider's

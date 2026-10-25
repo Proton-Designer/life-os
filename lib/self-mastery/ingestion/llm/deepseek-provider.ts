@@ -2,9 +2,9 @@
  * L9/R6's engine, EXTENDED (2026-09-13, Phase 1 item 3): R6's original
  * ruling drew a hard line at "DeepSeek is the bulk-text summarization
  * engine, not a second lesson-extraction backend" -- true when this file
- * had no funded key and no spend-controlled gateway to call through. Both
- * now exist (a real, operator-funded `DEEPSEEK_API_KEY`; `lib/ai/gateway.ts`'s
- * `gatewayChat()`, with tiering/retry/a hard spend cap/usage logging), so
+ * had no funded key and no spend-controlled gateway to call through. The
+ * gateway now exists (`lib/ai/gateway.ts`'s `gatewayChat()`, with
+ * tiering/retry/a per-user monthly cap/usage logging, on the user's OWN key), so
  * that ruling is SUPERSEDED for the three methods the pipeline actually
  * calls on a real-model provider: `extractLessons`, `generateCards`,
  * `checkEntailment`.
@@ -37,8 +37,7 @@
  *
  * Deliberately thin otherwise: no key resolution of its own (that's
  * `gatewayChat`'s job, via `resolveApiKeyWithSource` -- the book owner's own
- * BYO key if they have one, the operator-funded `DEEPSEEK_API_KEY` server
- * key otherwise, same resolution order every other gateway caller gets).
+ * BYO key for their chosen provider, or none: there is no shared fallback).
  * No retry policy of its own either -- `gatewayChat`'s `withRetry` already
  * covers transient failures (429/5xx); this class's own MAX_ATTEMPTS loops
  * on `extractLessons`/`generateCards` are a DIFFERENT thing -- recovering
@@ -216,12 +215,12 @@ const ENTAILMENT_SYSTEM_PROMPT =
  * decide "is this a content-shaped failure (safe to skip this one chunk)
  * or an infrastructure/budget failure (must not be silently skipped past)."
  */
-export type AiBlockKind = "no_key" | "monthly_cap" | "global_cap";
+export type AiBlockKind = "no_key" | "monthly_cap";
 
 export class GatewayCallFailedError extends Error {
   /**
-   * Set when the gateway refused the call for a reason that is about the ACCOUNT, not the content: no key at all, this
-   * user's monthly budget, or the shared budget. Taken from the gateway's typed flags (never the message text). Retrying
+   * Set when the gateway refused the call for a reason that is about the ACCOUNT, not the content: no key at all, or this
+   * user's own monthly budget. Taken from the gateway's typed flags (never the message text). Retrying
    * the same call cannot succeed until something outside changes, so the route fails the book at once instead.
    */
   public readonly blockKind?: AiBlockKind;
@@ -229,12 +228,11 @@ export class GatewayCallFailedError extends Error {
   constructor(
     message: string,
     public readonly errorKind?: ChatResult["errorKind"],
-    public readonly capBlocked?: boolean,
-    aiBlock?: "no_key" | "monthly_cap",
+    aiBlock?: AiBlockKind,
   ) {
     super(message);
     this.name = "GatewayCallFailedError";
-    this.blockKind = capBlocked ? "global_cap" : aiBlock;
+    this.blockKind = aiBlock;
   }
 }
 
@@ -319,7 +317,6 @@ export class DeepSeekProvider implements LlmProvider {
       throw new GatewayCallFailedError(
         `DeepSeekProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`,
         result.errorKind,
-        result.capBlocked,
         result.noKey ? "no_key" : result.monthlyCapBlocked ? "monthly_cap" : undefined,
       );
     }

@@ -23,10 +23,6 @@ export class FakeUsageStore implements UsageStore {
     this.entries.push({ ...entry, recordedAt });
   }
 
-  async totalServerKeySpendUsd(): Promise<number> {
-    return this.entries.filter((e) => e.keySource === "server").reduce((sum, e) => sum + e.costUsd, 0);
-  }
-
   async monthlySpendUsdForUser(userId: string, startUtc: Date, endUtc: Date): Promise<number> {
     return this.entries
       .filter((e) => e.userId === userId && e.recordedAt >= startUtc && e.recordedAt < endUtc)

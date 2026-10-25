@@ -105,28 +105,17 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
       expect(result.ok).toBe(true);
     });
 
-    it("THE REGRESSION GUARD: refuses with a provider-specific message and never touches `books` when the resolved provider has no usable key", async () => {
+    it("a user with NO key can still start an upload (no shared-key world: the book is created and readable; the key is dealt with at finalize)", async () => {
       hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "Claude" });
       const { prepareBookUpload } = await import("../self-mastery-actions");
 
       const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
 
-      expect(result).toEqual({ ok: false, message: "Add an API key for Claude in Settings to process books." });
-      expect(fromMock).not.toHaveBeenCalled();
-      expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ ok: true });
+      expect(createSignedUploadUrlMock).toHaveBeenCalled();
     });
 
-    it("falls back to a generic message when the preference itself couldn't be resolved (no providerLabel)", async () => {
-      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: undefined });
-      const { prepareBookUpload } = await import("../self-mastery-actions");
-
-      const result = await prepareBookUpload("A Book", "", "standard", 5_000_000);
-
-      expect(result).toEqual({ ok: false, message: "Add an AI provider key in Settings to process books." });
-      expect(fromMock).not.toHaveBeenCalled();
-    });
-
-    it("the driver-down message wins over the key check -- hasUsableIngestionKey is never even called", async () => {
+    it("driver down still refuses the upload (nothing would consume the queue) -- the key is never even looked at", async () => {
       isIngestionAvailableMock.mockResolvedValue(false);
       const { prepareBookUpload } = await import("../self-mastery-actions");
 
@@ -296,6 +285,22 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
         return table === "books" && chain.delete.mock.calls.length > 0;
       });
       expect(deletedBooks).toBe(true);
+    });
+
+    it("with NO usable key: the book is kept and readable but marked failed with the retryable no-key message, and NO job is queued", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "application/pdf" } }], error: null });
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "DeepSeek" });
+      fromResults.ingestion_jobs = { data: null, error: null };
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result).toEqual({ ok: true, bookId: "book-1" });
+      expect(fromMock).not.toHaveBeenCalledWith("ingestion_jobs");
+      expect(removeMock).not.toHaveBeenCalled(); // the PDF stays: the reader (and a later Try again) need it
+      const bookChains = fromMock.mock.calls.map(([t], i) => ({ t, chain: fromMock.mock.results[i]!.value as { update: { mock: { calls: unknown[][] } } } })).filter((c) => c.t === "books");
+      const patches = bookChains.flatMap((c) => c.chain.update.mock.calls.map((a) => a[0] as Record<string, unknown>));
+      expect(patches).toContainEqual(expect.objectContaining({ file_path: "user-1/book-1.pdf", status: "failed", error_message: expect.stringMatching(/Add an API key in Settings, then tap Try again/) }));
     });
 
     it("removes the object and deletes the row when the real object's mime type fails validation (bypassed the client-side check)", async () => {

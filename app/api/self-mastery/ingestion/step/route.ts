@@ -276,7 +276,7 @@ async function runStep(supabase: ReturnType<typeof createServiceRoleClient>): Pr
     // a thrown Supabase PostgrestError isn't `instanceof Error`. Shared fix.
     const errorMessage = describeError(e);
 
-    // A refusal that is about the ACCOUNT (no key, this user's monthly budget, the shared budget) cannot succeed on a retry
+    // A refusal that is about the ACCOUNT (no key, this user's monthly budget) cannot succeed on a retry
     // a few minutes later: fail the book NOW, on attempt 1, with a message that says what to do. These stay retryable from
     // the library ("Try again") once the key is added or the budget clears. The signal is the gateway's typed flag, never
     // the message text. Only deterministic blocks take this path; a timeout or empty reply keeps the retry/skip logic below.
@@ -321,7 +321,6 @@ async function runStep(supabase: ReturnType<typeof createServiceRoleClient>): Pr
       // exception, fail-the-book stays the default.
       const isContentShapedFailure =
         e instanceof GatewayCallFailedError &&
-        !e.capBlocked &&
         (e.errorKind === "timeout" || e.errorKind === "empty_content");
 
       // Only stages with a real cursor_chunk_index have a "position" to

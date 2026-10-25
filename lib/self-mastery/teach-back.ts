@@ -112,7 +112,7 @@ export async function evaluateTeachBack(supabase: SupabaseClient, userId: string
   );
 
   if (!result.ok) {
-    if (result.attempts === undefined && !result.capBlocked && !result.monthlyCapBlocked) return { status: "no_key" };
+    if (result.attempts === undefined && !result.monthlyCapBlocked) return { status: "no_key" };
     return { status: "unavailable" };
   }
 

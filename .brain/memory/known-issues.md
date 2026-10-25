@@ -465,4 +465,5 @@ worth adding is a real judgment call, not done here.
 - **Retry is refused once the book has been studied.** `retry_book_ingestion` (272) returns `has_history` when the book has reviews, promotions or self-explanations, because a retry deletes the book's lessons and the review log is append-only. A partially-studied failed book must be re-uploaded as a new book.
 - **The ingestion cron is not in the repo.** pg_cron jobid 5 (`self-mastery-ingestion-driver-every-1min`) and the Vault secret were applied by hand (migration 166 says so); nothing recreates them.
 - **The stuck-book "no job" check keys on `books.created_at`** and looks only at the 25 oldest `processing` books per poll (`books` has no `updated_at`).
+- **Not deployed yet (2026-10-25): the shared-key removal.** Ayman's real account has no key of its own and relies on the shared key in production until the removal ships; deploying it turns AI off for that account until a key is added in Settings. Vercel env `AI_SHARED_KEY_POLICY`, `AI_SHARED_KEY_ALLOWED_USER_IDS` and `DEEPSEEK_API_KEY` become dead once it does (`DEEPSEEK_API_KEY` is still read by local scripts).
 

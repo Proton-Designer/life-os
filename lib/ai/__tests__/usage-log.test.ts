@@ -82,21 +82,6 @@ describe("SupabaseUsageStore", () => {
     expect(errorSpy).toHaveBeenCalled();
   });
 
-  it("totalServerKeySpendUsd() sums cost_usd across the returned rows", async () => {
-    chain = makeChain({ data: [{ cost_usd: "0.10" }, { cost_usd: "0.05" }, { cost_usd: 0.02 }], error: null });
-    const store = new SupabaseUsageStore();
-    const total = await store.totalServerKeySpendUsd();
-    expect(total).toBeCloseTo(0.17, 10);
-    expect(chain.eq).toHaveBeenCalledWith("key_source", "server");
-  });
-
-  it("totalServerKeySpendUsd() fails CLOSED (returns Infinity) when the query errors, never zero", async () => {
-    chain = makeChain({ data: null, error: { message: "connection refused" } });
-    const store = new SupabaseUsageStore();
-    const total = await store.totalServerKeySpendUsd();
-    expect(total).toBe(Number.POSITIVE_INFINITY);
-  });
-
   it("monthlySpendUsdForUser() sums cost_usd for that user within the given window, across every key source", async () => {
     chain = makeChain({ data: [{ cost_usd: "0.10" }, { cost_usd: "0.05" }], error: null });
     const store = new SupabaseUsageStore();

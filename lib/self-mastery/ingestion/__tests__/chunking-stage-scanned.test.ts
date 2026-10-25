@@ -116,9 +116,9 @@ describe("chunking stage: scanned-PDF guard", () => {
   });
 
   it("isRetryableBookError: file problems are not retryable, everything else is", async () => {
-    const { isRetryableBookError, SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage, NO_KEY_MESSAGE, MONTHLY_CAP_MESSAGE, GLOBAL_CAP_MESSAGE } = await import("../failure-messages");
+    const { isRetryableBookError, SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage, NO_KEY_MESSAGE, MONTHLY_CAP_MESSAGE } = await import("../failure-messages");
     // An AI block is about the account, not the file: a key can be added or a month can pass, so Try again stays offered.
-    for (const m of [NO_KEY_MESSAGE, MONTHLY_CAP_MESSAGE, GLOBAL_CAP_MESSAGE]) {
+    for (const m of [NO_KEY_MESSAGE, MONTHLY_CAP_MESSAGE]) {
       expect(typeof m).toBe("string"); // isRetryableBookError(undefined) is true too, so prove the message exists first
       expect(isRetryableBookError(m)).toBe(true);
     }
