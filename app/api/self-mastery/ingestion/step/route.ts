@@ -10,6 +10,7 @@ import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
 import type { IngestStage } from "@/lib/self-mastery/types";
 import { runStepLoop, type StepOutcome } from "@/lib/self-mastery/ingestion/step-loop";
+import { AI_BLOCK_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";
 import { HOP_HEADER, kickNextHop, parseHop } from "@/lib/self-mastery/ingestion/step-chain";
 
 /**
@@ -274,6 +275,23 @@ async function runStep(supabase: ReturnType<typeof createServiceRoleClient>): Pr
     // Same "[object Object]" bug as telemetry.ts's own bracketStage catch --
     // a thrown Supabase PostgrestError isn't `instanceof Error`. Shared fix.
     const errorMessage = describeError(e);
+
+    // A refusal that is about the ACCOUNT (no key, this user's monthly budget, the shared budget) cannot succeed on a retry
+    // a few minutes later: fail the book NOW, on attempt 1, with a message that says what to do. These stay retryable from
+    // the library ("Try again") once the key is added or the budget clears. The signal is the gateway's typed flag, never
+    // the message text. Only deterministic blocks take this path; a timeout or empty reply keeps the retry/skip logic below.
+    if (e instanceof GatewayCallFailedError && e.blockKind) {
+      const failed = await failBook(supabase, {
+        jobId: job.id,
+        bookId: job.book_id,
+        jobErrorMessage: `${expectedStage} (chunk ${expectedChunkIndex}): ${e.blockKind} -- ${errorMessage}`,
+        bookErrorMessage: AI_BLOCK_MESSAGE[e.blockKind],
+      });
+      return halt(
+        { ok: false, reason: "ai_blocked", blockKind: e.blockKind, stage: expectedStage, chunkIndex: expectedChunkIndex, error: errorMessage, bookMarkedFailed: failed.ok },
+        { status: 500 },
+      );
+    }
 
     // GATE 5: max_attempts enforced at the cursor. claim_ingestion_job's
     // own WHERE clause (109) already excludes `cursor_attempt >=

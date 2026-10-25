@@ -303,6 +303,50 @@ describe("POST /api/self-mastery/ingestion/step", () => {
     expect(booksUpdate?.values).toMatchObject({ status: "failed" });
   });
 
+  describe("deterministic AI blocks fail the book on the FIRST attempt with a specific, retryable message (2b)", () => {
+    it.each([
+      ["no_key", /Add an API key in Settings, then tap Try again/],
+      ["monthly_cap", /month's AI budget/],
+      ["global_cap", /shared AI budget/],
+    ] as const)("%s: attempt 1 of 3 already marks the job and the book failed, and the loop halts", async (blockKind, message) => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: {
+          extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- blocked", undefined, blockKind === "global_cap", blockKind === "no_key" || blockKind === "monthly_cap" ? blockKind : undefined)),
+        },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({
+        claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 1, max_attempts: 3, book_id: "book-1" },
+      });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+
+      expect(res.status).toBe(500);
+      expect(await res.json()).toMatchObject({ ok: false, reason: "ai_blocked", blockKind, loop: { stoppedBy: "halt" } });
+      expect(mock.updateCalls.find((c) => c.table === "ingestion_jobs")?.values).toMatchObject({ stage: "failed" });
+      const bookUpdate = mock.updateCalls.find((c) => c.table === "books")?.values as { status: string; error_message: string };
+      expect(bookUpdate.status).toBe("failed");
+      expect(bookUpdate.error_message).toMatch(message);
+    });
+
+    it("a timeout is NOT a deterministic block: with attempts left it stays retryable, nothing marked failed", async () => {
+      const GatewayCallFailedError = await loadGatewayCallFailedError();
+      vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
+        STAGE_HANDLERS: { extracting_lessons: vi.fn().mockRejectedValue(new GatewayCallFailedError("gateway call failed -- timed out", "timeout")) },
+      }));
+      const { createServiceRoleClient } = await import("@/lib/supabase/service-role");
+      const mock = makeMockSupabase({ claimedJob: { id: "job-1", stage: "extracting_lessons", cursor_chunk_index: 0, cursor_attempt: 1, max_attempts: 3, book_id: "book-1" } });
+      vi.mocked(createServiceRoleClient).mockReturnValue(mock as never);
+      const { POST } = await import("../route");
+      const res = await POST(new Request("http://x", { method: "POST", headers: { authorization: `Bearer ${SECRET}` } }));
+      expect((await res.json()).reason).toBe("stage_work_failed");
+      expect(mock.updateCalls.find((c) => c.table === "ingestion_jobs")).toBeUndefined();
+    });
+  });
+
   it("does NOT mark the job failed when attempts remain -- stays retryable, only the heartbeat is written", async () => {
     vi.doMock("@/lib/self-mastery/ingestion/worker-stages", () => ({
       STAGE_HANDLERS: {
@@ -539,7 +583,11 @@ describe("POST /api/self-mastery/ingestion/step", () => {
       const body = await res.json();
 
       expect(res.status).toBe(500);
-      expect(body.reason).toBe("attempts_exhausted");
+      // 2b: a spend-cap refusal is a typed, deterministic block, so it now fails the book on the FIRST attempt as
+      // "ai_blocked" (this test ran it at the last attempt and expected "attempts_exhausted"). What it exists to prove is
+      // unchanged: the position is never skipped past, and the book fails with the real reason.
+      expect(body).toMatchObject({ reason: "ai_blocked", blockKind: "global_cap" });
+      expect(mock.updateCalls.find((c) => c.table === "ingestion_jobs")?.values).toMatchObject({ stage: "failed" });
       expect(mock.rpcCalls.some((c) => c.fn === "skip_ingestion_cursor_position")).toBe(false);
     });
 

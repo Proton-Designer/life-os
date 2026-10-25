@@ -104,6 +104,29 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     ).rejects.toThrow(/gateway call failed/);
   });
 
+  it("a deterministic gateway block surfaces as a TYPED blockKind on GatewayCallFailedError (no message matching): no key, per-user monthly cap, shared cap", async () => {
+    const { DevShimProvider } = await import("../llm/dev-shim-provider");
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
+    const { gatewayChat } = await import("@/lib/ai/gateway");
+    const { GatewayCallFailedError } = await import("../llm/deepseek-provider");
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+    const supabase = makeSupabaseWithLessons([{ id: "l1", core_claim: "claim", provenance_quote: "quote" }]);
+    const run = () =>
+      STAGE_HANDLERS.verifying_grounding!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+
+    for (const [result, kind] of [
+      [{ ok: false, message: "whatever words", noKey: true }, "no_key"],
+      [{ ok: false, message: "whatever words", monthlyCapBlocked: true }, "monthly_cap"],
+      [{ ok: false, message: "whatever words", capBlocked: true }, "global_cap"],
+      [{ ok: false, message: "provider timed out", errorKind: "timeout" }, undefined],
+    ] as const) {
+      vi.mocked(gatewayChat).mockResolvedValue(result as never);
+      const error = await run().catch((e) => e);
+      expect(error).toBeInstanceOf(GatewayCallFailedError);
+      expect((error as InstanceType<typeof GatewayCallFailedError>).blockKind).toBe(kind);
+    }
+  });
+
   it("does NOT call checkEntailment at all when no provider is available -- the refusal happens before any check attempt", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     const checkEntailment = vi.fn();

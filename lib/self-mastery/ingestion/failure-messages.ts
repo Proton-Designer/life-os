@@ -10,6 +10,15 @@ export const UNREADABLE_PDF_MESSAGE = "We couldn't read this PDF. It may be dama
 export const tooManyPagesMessage = (pageCount: number, maxPages: number) =>
   `This book has ${pageCount} pages, which is over the ${maxPages}-page limit. Upload a shorter file or split it into parts.`;
 
+/**
+ * An AI block is about the ACCOUNT, not the file, and it can clear (a key is added, a month turns over, the shared budget is
+ * topped up), so these stay retryable: they are deliberately NOT in FILE_PROBLEM_PATTERNS.
+ */
+export const NO_KEY_MESSAGE = "AI isn't set up for your account yet. Add an API key in Settings, then tap Try again.";
+export const MONTHLY_CAP_MESSAGE = "You've used this month's AI budget, so this book couldn't be processed. Tap Try again once it resets or is raised.";
+export const GLOBAL_CAP_MESSAGE = "The shared AI budget is used up for now. Tap Try again later, or add your own API key in Settings.";
+export const AI_BLOCK_MESSAGE = { no_key: NO_KEY_MESSAGE, monthly_cap: MONTHLY_CAP_MESSAGE, global_cap: GLOBAL_CAP_MESSAGE } as const;
+
 const FILE_PROBLEM_PATTERNS = [/^This PDF looks like scanned images/, /^This PDF is password-protected/, /^We couldn't read this PDF/, /^This book has \d+ pages, which is over/];
 
 /** Retrying the same file can't help when the failure is about the file itself. Any other failure (provider, timeout, our bug) may. */

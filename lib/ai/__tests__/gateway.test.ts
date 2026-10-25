@@ -65,6 +65,7 @@ describe("gatewayChat()", () => {
     const store = new FakeUsageStore();
     const result = await gatewayChat(fakeClient, "u1", "test_feature", [{ role: "user", content: "hi" }], { usageStore: store, now: OFF_PEAK });
     expect(result.ok).toBe(false);
+    expect(result.noKey).toBe(true); // a typed signal, so callers never have to match the message text
     expect(fetchMock).not.toHaveBeenCalled();
     expect(store.entries).toHaveLength(0);
   });

@@ -216,14 +216,25 @@ const ENTAILMENT_SYSTEM_PROMPT =
  * decide "is this a content-shaped failure (safe to skip this one chunk)
  * or an infrastructure/budget failure (must not be silently skipped past)."
  */
+export type AiBlockKind = "no_key" | "monthly_cap" | "global_cap";
+
 export class GatewayCallFailedError extends Error {
+  /**
+   * Set when the gateway refused the call for a reason that is about the ACCOUNT, not the content: no key at all, this
+   * user's monthly budget, or the shared budget. Taken from the gateway's typed flags (never the message text). Retrying
+   * the same call cannot succeed until something outside changes, so the route fails the book at once instead.
+   */
+  public readonly blockKind?: AiBlockKind;
+
   constructor(
     message: string,
     public readonly errorKind?: ChatResult["errorKind"],
     public readonly capBlocked?: boolean,
+    aiBlock?: "no_key" | "monthly_cap",
   ) {
     super(message);
     this.name = "GatewayCallFailedError";
+    this.blockKind = capBlocked ? "global_cap" : aiBlock;
   }
 }
 
@@ -309,6 +320,7 @@ export class DeepSeekProvider implements LlmProvider {
         `DeepSeekProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`,
         result.errorKind,
         result.capBlocked,
+        result.noKey ? "no_key" : result.monthlyCapBlocked ? "monthly_cap" : undefined,
       );
     }
     try {

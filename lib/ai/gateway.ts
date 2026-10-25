@@ -92,6 +92,8 @@ export interface GatewayChatResult extends ChatResult {
   capBlocked?: boolean;
   /** True only when THIS user's own monthly budget (lib/ai/monthly-spend-cap.ts) — separate from the shared-key `capBlocked` above — is why this call didn't happen. */
   monthlyCapBlocked?: boolean;
+  /** True only when no API key resolved for this user at all (no key of their own and not on the shared-key allowlist): deterministic until a key is added, so callers can fail fast instead of retrying. */
+  noKey?: boolean;
 }
 
 export async function gatewayChat(
@@ -125,7 +127,7 @@ export async function gatewayChat(
   if (!resolved) {
     // NULL IS THE NORMAL RESULT (resolve-key.ts's own rule) — no key
     // configured for this user, nothing to log, nothing wrong.
-    return { ok: false, message: "AI features aren't enabled for this account." };
+    return { ok: false, message: "AI features aren't enabled for this account.", noKey: true };
   }
 
   const model = PROVIDERS[provider].models[tier];
