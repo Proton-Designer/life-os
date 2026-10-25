@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDateTime12 } from "@/lib/date-utils";
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +29,9 @@ import { icsFeedDisplaySource } from "@/lib/canvas/ics-feed-display";
  * timezone/locale, then re-run on the client with the browser's, producing a
  * hydration mismatch. Slicing the ISO string is deterministic across both.
  */
-function formatSyncedAt(iso: string): string {
-  return `${iso.replace("T", " ").slice(0, 16)} UTC`;
+/** A date and 12-hour time in the account's own time zone ("10/25/2026, 1:05 PM"), never a raw UTC ISO string. */
+function formatSyncedAt(iso: string, timezone: string | undefined): string {
+  return formatDateTime12(new Date(iso), timezone ?? "UTC");
 }
 
 type CanvasPath = "token" | "no_token";
@@ -261,7 +263,7 @@ export function CanvasSettings({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            {status.lastSyncedAt ? `Last synced ${formatSyncedAt(status.lastSyncedAt)}` : "Never synced yet."}
+            {status.lastSyncedAt ? `Last synced ${formatSyncedAt(status.lastSyncedAt, status.timezone)}` : "Never synced yet."}
           </p>
           {status.lastSyncError ? <p className="text-xs text-destructive">{status.lastSyncError}</p> : null}
 
@@ -405,8 +407,13 @@ export function CanvasSettings({
               <span className="font-mono text-xs text-muted-foreground">feed connected · ····{status.icsFeedLast4}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              {status.lastIcsReconcileAt ? `Last reconciled ${formatSyncedAt(status.lastIcsReconcileAt)}` : "Never reconciled yet."}
+              {status.lastIcsReconcileAt ? `Last checked ${formatSyncedAt(status.lastIcsReconcileAt, status.timezone)}` : "Not checked yet."} Checked automatically about every 6 hours.
             </p>
+            {status.icsError ? (
+              <p role="alert" data-testid="ics-error" className="text-xs text-destructive">
+                {status.icsError}
+              </p>
+            ) : null}
             <div>
               <Button size="sm" variant="outline" disabled={isPending} onClick={handleReconcileIcs}>
                 Reconcile now

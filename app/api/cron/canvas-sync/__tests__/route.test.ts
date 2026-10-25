@@ -15,6 +15,9 @@ vi.mock("@/lib/canvas/sync-core", () => ({
   syncCanvasGradesCore: (...args: unknown[]) => syncCanvasGradesCoreMock(...args),
 }));
 
+const reconcileDueIcsFeedsMock = vi.fn();
+vi.mock("@/lib/canvas/ics-auto-reconcile", () => ({ reconcileDueIcsFeeds: (...args: unknown[]) => reconcileDueIcsFeedsMock(...args) }));
+
 type Resp = { data: unknown; error: unknown };
 function makeServiceClient(responses: Record<string, Resp>) {
   const from = vi.fn((table: string) => {
@@ -50,6 +53,7 @@ beforeEach(() => {
   syncCanvasGradesCoreMock.mockReset();
   syncCanvasAnnouncementsCoreMock.mockResolvedValue({ ok: true, staged: 0 });
   syncCanvasGradesCoreMock.mockResolvedValue({ ok: true, graded: 0, staged: 0 });
+  reconcileDueIcsFeedsMock.mockReset().mockResolvedValue({ checked: 0, reconciled: 0, failed: 0, newlyStaged: 0 });
   afterCallback = null;
   serviceClient = makeServiceClient({});
 });
@@ -107,5 +111,25 @@ describe("POST /api/cron/canvas-sync", () => {
     const { POST } = await import("../route");
     await POST(request({ Authorization: "Bearer test-secret" }));
     await expect(afterCallback!()).resolves.toBeUndefined();
+  });
+});
+
+describe("POST /api/cron/canvas-sync — calendar-feed (ICS) users", () => {
+  it("also refreshes ICS feeds, even when NO account has a token connection (the ICS-only case)", async () => {
+    serviceClient = makeServiceClient({ canvas_connections: { data: [], error: null } });
+    const { POST } = await import("../route");
+    await POST(request({ Authorization: "Bearer test-secret" }));
+    await afterCallback!();
+    expect(reconcileDueIcsFeedsMock).toHaveBeenCalledTimes(1);
+    expect(syncCanvasGradesCoreMock).not.toHaveBeenCalled();
+  });
+
+  it("a failing ICS pass does not take the token sync down (and vice versa): the run still completes", async () => {
+    reconcileDueIcsFeedsMock.mockRejectedValue(new Error("db blip"));
+    serviceClient = makeServiceClient({ canvas_connections: { data: [{ user_id: "u1" }], error: null }, canvas_course_mappings: { data: [{ user_id: "u1" }], error: null }, profiles: { data: [{ user_id: "u1", timezone: "UTC" }], error: null } });
+    const { POST } = await import("../route");
+    await POST(request({ Authorization: "Bearer test-secret" }));
+    await expect(afterCallback!()).resolves.toBeUndefined();
+    expect(syncCanvasGradesCoreMock).toHaveBeenCalledTimes(1);
   });
 });

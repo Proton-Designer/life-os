@@ -74,6 +74,8 @@ export function makeFakeDb(
       const preds = expr.split(",").map((part) => {
         const [col, op, ...rest] = part.split(".");
         if (op === "neq") return (r: Row) => r[col!] !== rest.join(".");
+        if (op === "is" && rest.join(".") === "null") return (r: Row) => (r[col!] ?? null) === null;
+        if (op === "lt") return (r: Row) => r[col!] != null && String(r[col!]) < rest.join(".");
         if (op === "not" && rest.join(".") === "is.null") return (r: Row) => r[col!] != null;
         throw new Error(`fake or(): unsupported ${part}`);
       });

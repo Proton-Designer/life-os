@@ -6,6 +6,7 @@ import { encryptSecret, decryptSecret, isKeyStorageConfigured, last4 } from "@/l
 import { verifyCanvasToken, fetchCanvasCourses, fetchConcludedCanvasCourses, fetchCanvasIcsFeed } from "@/lib/canvas/client";
 import { resolveCanvasConnectionCore, recordCanvasSyncOutcomeCore } from "@/lib/canvas/connection-core";
 import { reconcileCanvasIcsCore, type IcsReconcileResult } from "@/lib/canvas/ics-reconcile-core";
+import { recordIcsOutcome, ICS_ERROR_PREFIX } from "@/lib/canvas/ics-auto-reconcile";
 import { autoImportCanvasCoursesAsClassesCore, type AutoImportCoursesResult } from "@/lib/canvas/course-auto-import-core";
 import { checkUrlSyntax, resolveSafeOutboundUrl, safeOrigin } from "@/lib/net/safe-outbound-url";
 import { getProfile } from "@/lib/supabase/auth";
@@ -30,6 +31,10 @@ export interface CanvasConnectionStatus {
   icsFeedConnected: boolean;
   icsFeedLast4: string | null;
   lastIcsReconcileAt: string | null;
+  /** The calendar feed's own last failure (stored with a prefix in `last_sync_error`, shown under the feed rather than under the token). Null when the last check worked. */
+  icsError?: string | null;
+  /** The account's time zone, so "Last checked" is a 12-hour time in it. */
+  timezone?: string;
 }
 
 export interface CanvasActionResult {
@@ -60,6 +65,7 @@ export interface LocalClassOption {
 
 export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatus> {
   const { supabase, userId } = await requireUser();
+  const timezone = (await getProfile())?.timezone ?? "UTC";
   const { data } = await supabase
     .from("canvas_connections")
     .select("instance_url, token_last4, canvas_user_name, token_status, last_synced_at, last_sync_error, ics_feed_url_last4, last_ics_reconcile_at")
@@ -77,6 +83,7 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
       icsFeedConnected: false,
       icsFeedLast4: null,
       lastIcsReconcileAt: null,
+      timezone,
     };
   }
   return {
@@ -93,10 +100,12 @@ export async function getCanvasConnectionStatus(): Promise<CanvasConnectionStatu
     canvasUserName: data.canvas_user_name,
     tokenStatus: data.token_status as "ok" | "expired",
     lastSyncedAt: data.last_synced_at,
-    lastSyncError: data.last_sync_error,
+    lastSyncError: data.last_sync_error?.startsWith(ICS_ERROR_PREFIX) ? null : data.last_sync_error,
+    icsError: data.last_sync_error?.startsWith(ICS_ERROR_PREFIX) ? data.last_sync_error.slice(ICS_ERROR_PREFIX.length) : null,
     icsFeedConnected: data.ics_feed_url_last4 !== null,
     icsFeedLast4: data.ics_feed_url_last4,
     lastIcsReconcileAt: data.last_ics_reconcile_at,
+    timezone,
   };
 }
 
@@ -523,7 +532,12 @@ export async function reconcileCanvasIcs(): Promise<IcsReconcileActionResult> {
   }
 
   const fetchRes = await fetchCanvasIcsFeed(feedUrl);
-  if (!fetchRes.ok) return { ok: false, message: fetchRes.message };
+  if (!fetchRes.ok) {
+    // A visible error in Settings (and a "last checked" stamp), same as the automatic refresh records.
+    await recordIcsOutcome(supabase, userId, { ok: false, message: fetchRes.message }, new Date()).catch(() => {});
+    revalidatePath("/settings");
+    return { ok: false, message: fetchRes.message };
+  }
 
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
@@ -535,7 +549,7 @@ export async function reconcileCanvasIcs(): Promise<IcsReconcileActionResult> {
     return { ok: false, message: "Reconciliation failed unexpectedly. Try again." };
   }
 
-  await supabase.from("canvas_connections").update({ last_ics_reconcile_at: new Date().toISOString() }).eq("user_id", userId);
+  await recordIcsOutcome(supabase, userId, { ok: true }, new Date());
   revalidatePath("/settings");
   revalidatePath("/school");
 

@@ -15,7 +15,7 @@ import type { CanvasCourseSummary } from "@/lib/canvas/client";
 
 function makeChain(resolvedValue: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
-  for (const method of ["select", "eq", "update", "upsert", "delete"]) chain[method] = vi.fn(() => chain);
+  for (const method of ["select", "eq", "update", "upsert", "delete", "like"]) chain[method] = vi.fn(() => chain);
   chain.maybeSingle = vi.fn(async () => resolvedValue);
   chain.then = (resolve: (v: typeof resolvedValue) => void) => resolve(resolvedValue);
   return chain as Record<string, ReturnType<typeof vi.fn>>;

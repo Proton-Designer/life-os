@@ -83,7 +83,7 @@ describe("CanvasSettings -- ICS calendar-feed reconciliation (P3-13)", () => {
   it("once a feed is connected, shows 'Reconcile now' instead of the paste form", () => {
     render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);
     expect(screen.getByRole("button", { name: "Reconcile now" })).toBeInTheDocument();
-    expect(screen.getByText("Never reconciled yet.")).toBeInTheDocument();
+    expect(screen.getByText(/Not checked yet/)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/feeds\/calendars/)).not.toBeInTheDocument();
   });
 
@@ -352,5 +352,39 @@ describe("CanvasSettings -- post-disconnect state reflects a surviving ICS feed 
 
     await waitFor(() => expect(screen.getByText("Couldn't disconnect. Try again.")).toBeInTheDocument());
     expect(getCanvasConnectionStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe("CanvasSettings -- the calendar feed's automatic refresh", () => {
+  it("shows 'Last checked' as a 12-hour time in the account's zone (never 24-hour, never a raw UTC string) and says it is automatic", () => {
+    render(
+      <CanvasSettings
+        initialStatus={{ ...CONNECTED_WITH_FEED, connected: false, instanceUrl: null, lastIcsReconcileAt: "2026-10-25T18:05:00Z", timezone: "America/Chicago" }}
+        initialMappings={[]}
+        localClasses={[]}
+        storageConfigured
+      />,
+    );
+    expect(screen.getByText(/Last checked 10\/25\/2026, 1:05 PM/)).toBeInTheDocument();
+    expect(screen.getByText(/about every 6 hours/)).toBeInTheDocument();
+    expect(screen.queryByText(/UTC/)).not.toBeInTheDocument();
+  });
+
+  it("a feed that failed (404 / reset) shows a visible error under the feed", () => {
+    render(
+      <CanvasSettings
+        initialStatus={{ ...CONNECTED_WITH_FEED, connected: false, instanceUrl: null, lastIcsReconcileAt: "2026-10-25T18:05:00Z", timezone: "America/Chicago", icsError: "The calendar feed returned an error (HTTP 404). Your feed link may have been reset in Canvas: paste a new one." }}
+        initialMappings={[]}
+        localClasses={[]}
+        storageConfigured
+      />,
+    );
+    expect(screen.getByTestId("ics-error")).toHaveTextContent(/HTTP 404/);
+  });
+
+  it("with no error there is no alert", () => {
+    render(<CanvasSettings initialStatus={{ ...CONNECTED_WITH_FEED, connected: false, instanceUrl: null }} initialMappings={[]} localClasses={[]} storageConfigured />);
+    expect(screen.queryByTestId("ics-error")).not.toBeInTheDocument();
+    expect(screen.getByText(/Not checked yet/)).toBeInTheDocument();
   });
 });

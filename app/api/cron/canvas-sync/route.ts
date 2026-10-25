@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { syncCanvasAnnouncementsCore, syncCanvasGradesCore } from "@/lib/canvas/sync-core";
+import { reconcileDueIcsFeeds } from "@/lib/canvas/ics-auto-reconcile";
 
 /**
  * P2-21 poll target. Auth idiom copied byte-for-byte from
@@ -69,7 +70,7 @@ async function getEligibleUsers(supabase: ReturnType<typeof createServiceRoleCli
   return (profiles ?? []).map((p) => ({ userId: p.user_id as string, timezone: (p.timezone as string | null) ?? "UTC" }));
 }
 
-async function runSync(): Promise<{ users: number; announcementsStaged: number; gradesUpdated: number; assignmentsStaged: number }> {
+async function runSync(): Promise<{ users: number; announcementsStaged: number; gradesUpdated: number; assignmentsStaged: number; ics: { checked: number; reconciled: number; failed: number; newlyStaged: number } }> {
   const supabase = createServiceRoleClient();
   const users = await getEligibleUsers(supabase);
   const now = new Date();
@@ -89,7 +90,17 @@ async function runSync(): Promise<{ users: number; announcementsStaged: number; 
     }
   }
 
-  return { users: users.length, announcementsStaged, gradesUpdated, assignmentsStaged };
+  // Calendar-feed (ICS) users: some schools block Canvas tokens, so the feed is the only path and the token sync above never sees them.
+  // Each connected feed is checked at most every 6 hours, with a per-run cap (lib/canvas/ics-auto-reconcile.ts). Its failure must not
+  // cost the token sync its result, so it is caught here.
+  let ics = { checked: 0, reconciled: 0, failed: 0, newlyStaged: 0 };
+  try {
+    ics = await reconcileDueIcsFeeds(supabase, now);
+  } catch (err) {
+    console.error("[canvas-sync] ICS pass failed", err);
+  }
+
+  return { users: users.length, announcementsStaged, gradesUpdated, assignmentsStaged, ics };
 }
 
 export async function POST(request: Request) {
