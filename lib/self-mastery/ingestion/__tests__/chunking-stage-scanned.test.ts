@@ -7,8 +7,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
  */
 
 const extractPagesMock = vi.fn();
-vi.mock("../pdf", () => ({
-  loadPdf: vi.fn(async () => ({})),
+const loadPdfMock = vi.fn();
+vi.mock("../pdf", async () => ({
+  ...(await vi.importActual<typeof import("../pdf")>("../pdf")), // the real error classes the stage matches on
+  loadPdf: (...a: unknown[]) => loadPdfMock(...a),
   extractPages: (...a: unknown[]) => extractPagesMock(...a),
   extractOutline: vi.fn(async () => []),
 }));
@@ -52,6 +54,7 @@ describe("chunking stage: scanned-PDF guard", () => {
   beforeEach(() => {
     vi.resetModules();
     extractPagesMock.mockReset();
+    loadPdfMock.mockReset().mockResolvedValue({});
   });
 
   it("fails a scanned PDF immediately with a clear message, before writing any sections or chunks", async () => {
@@ -79,5 +82,44 @@ describe("chunking stage: scanned-PDF guard", () => {
     expect(result.nextStage).not.toBe("failed");
     expect(bookUpdates.filter((u) => u.status === "failed")).toHaveLength(0);
     expect(tablesTouched).toContain("source_chunks");
+  });
+
+  describe("a problem with the file itself fails the book on the first attempt with a specific message", () => {
+    const cases: [string, (pdf: typeof import("../pdf")) => Error, RegExp][] = [
+      ["a password-protected PDF", (pdf) => new pdf.EncryptedPdfError(), /password/i],
+      ["a damaged PDF", (pdf) => new pdf.UnreadablePdfError(new Error("bad xref")), /couldn't read this PDF/i],
+      ["a PDF over the page limit", (pdf) => new pdf.TooManyPagesError(2400), /2400 pages.*1500-page limit/],
+    ];
+    it.each(cases)("%s", async (_name, makeError, message) => {
+      const pdf = await import("../pdf");
+      loadPdfMock.mockRejectedValue(makeError(pdf));
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, tablesTouched, bookUpdates } = makeSupabase();
+
+      const result = await STAGE_HANDLERS.chunking!(ctxFor(supabase));
+
+      expect(result.nextStage).toBe("failed");
+      expect(bookUpdates).toHaveLength(1);
+      expect(bookUpdates[0]).toMatchObject({ status: "failed" });
+      expect(String(bookUpdates[0]!.error_message)).toMatch(message);
+      expect(tablesTouched).not.toContain("book_sections");
+    });
+
+    it("an unrelated error is still thrown (so the route's retry/fail handling sees it), not swallowed as a file problem", async () => {
+      loadPdfMock.mockRejectedValue(new Error("network blip"));
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, bookUpdates } = makeSupabase();
+
+      await expect(STAGE_HANDLERS.chunking!(ctxFor(supabase))).rejects.toThrow("network blip");
+      expect(bookUpdates).toHaveLength(0);
+    });
+  });
+
+  it("isRetryableBookError: file problems are not retryable, everything else is", async () => {
+    const { isRetryableBookError, SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage } = await import("../failure-messages");
+    for (const m of [SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage(2000, 1500)]) expect(isRetryableBookError(m)).toBe(false);
+    expect(isRetryableBookError("Something went wrong while processing this book. Please try uploading it again.")).toBe(true);
+    expect(isRetryableBookError("The AI provider kept timing out while processing this book. Please try again later.")).toBe(true);
+    expect(isRetryableBookError(null)).toBe(true);
   });
 });

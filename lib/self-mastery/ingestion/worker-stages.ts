@@ -55,8 +55,9 @@ import { DeepSeekProvider, BATCH_SIZE_EXTRACT, BATCH_SIZE_CARDS } from "./llm/de
 import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
 import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/types";
 import { getUserEmbeddings, embeddingModelTag } from "@/lib/ai/embeddings";
-import { loadPdf, extractPages, extractOutline } from "./pdf";
-import { detectScannedPdf } from "./guards";
+import { loadPdf, extractPages, extractOutline, EncryptedPdfError, UnreadablePdfError, TooManyPagesError } from "./pdf";
+import { detectScannedPdf, MAX_PAGE_COUNT } from "./guards";
+import { SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage } from "./failure-messages";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
@@ -270,9 +271,6 @@ async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: 
  * re-download/page-range-matching machinery this file's own author
  * couldn't verify anyway (no Storage access from here).
  */
-const SCANNED_PDF_MESSAGE =
-  "This PDF looks like scanned images with no text we can read. Upload a version with selectable text (or run it through OCR first) and try again.";
-
 async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   const { data: book, error: bookError } = await ctx.supabase
     .from("books")
@@ -287,7 +285,25 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
     .download(book.file_path);
   if (downloadError) throw downloadError;
 
-  const pdf = await loadPdf(new Uint8Array(await fileBlob.arrayBuffer()));
+  // A problem with the FILE itself (password, damaged, too long, scanned) fails the same way every time, so it fails the
+  // book now with a message that says what to do, instead of burning every retry and ending in "Something went wrong".
+  const failBookForFile = async (message: string): Promise<StageWorkResult> => {
+    const { error: fileFailError } = await ctx.supabase.from("books").update({ status: "failed", error_message: message }).eq("id", ctx.job.book_id);
+    if (fileFailError) throw fileFailError;
+    return { nextStage: "failed", nextChunkIndex: null };
+  };
+
+  let pdf;
+  let rawPages;
+  try {
+    pdf = await loadPdf(new Uint8Array(await fileBlob.arrayBuffer()));
+    rawPages = await extractPages(pdf);
+  } catch (e) {
+    if (e instanceof EncryptedPdfError) return failBookForFile(ENCRYPTED_PDF_MESSAGE);
+    if (e instanceof UnreadablePdfError) return failBookForFile(UNREADABLE_PDF_MESSAGE);
+    if (e instanceof TooManyPagesError) return failBookForFile(tooManyPagesMessage(e.pageCount, MAX_PAGE_COUNT));
+    throw e;
+  }
   // text-repair.ts's own header (ULM L6 §3 finding): a NUL byte (U+0000) in
   // extracted PDF text makes Postgres reject the insert outright
   // ("unsupported Unicode escape sequence") on EVERY source_chunks/
@@ -301,17 +317,10 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
   // chunking both see the same repaired text (so section titles/chunk text
   // stay consistent with each other, not repaired in one place and raw in
   // the other).
-  const pages = repairExtractedPages(await extractPages(pdf));
+  const pages = repairExtractedPages(rawPages);
   // A scanned/image-only PDF has no text layer, so every later stage would run on nothing and the book would only
   // fail at the very end ("couldn't find teachable lessons"). Stop here, once, saying what is wrong.
-  if (detectScannedPdf(pages).isLikelyScanned) {
-    const { error: scannedFailError } = await ctx.supabase
-      .from("books")
-      .update({ status: "failed", error_message: SCANNED_PDF_MESSAGE })
-      .eq("id", ctx.job.book_id);
-    if (scannedFailError) throw scannedFailError;
-    return { nextStage: "failed", nextChunkIndex: null };
-  }
+  if (detectScannedPdf(pages).isLikelyScanned) return failBookForFile(SCANNED_PDF_MESSAGE);
   const outline = await extractOutline(pdf);
   const sections = parseStructure(pages, outline);
   const chunks = chunkBook(pages, sections);
