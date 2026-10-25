@@ -341,6 +341,6 @@ Write:
     throw new Error("DevShimProvider.gradeAnswer: not implemented -- out of item 7's scope, delegates to the heuristic keyword-overlap grader elsewhere.");
   }
   summarizeSection(_input: SummarizeSectionInput): Promise<SummarizeSectionResult> {
-    throw new Error("DevShimProvider.summarizeSection: not implemented -- R6 assigns batch summarization to DeepSeekProvider (lib/self-mastery/ingestion/llm/deepseek-provider.ts), not the dev shim's tools-disabled path.");
+    throw new Error("DevShimProvider.summarizeSection: not implemented -- R6 assigns batch summarization to GatewayLlmProvider (lib/self-mastery/ingestion/llm/gateway-provider.ts), not the dev shim's tools-disabled path.");
   }
 }

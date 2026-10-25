@@ -22345,16 +22345,16 @@
       {
         "name": "NOT_IMPLEMENTED",
         "kind": "const",
-        "file": "lib/self-mastery/ingestion/llm/deepseek-provider.ts",
+        "file": "lib/self-mastery/ingestion/llm/gateway-provider.ts",
         "line": 39,
         "exported": false,
         "service": "self-mastery",
         "doc": "arch.dependency-graph"
       },
       {
-        "name": "DeepSeekProvider",
+        "name": "GatewayLlmProvider",
         "kind": "class",
-        "file": "lib/self-mastery/ingestion/llm/deepseek-provider.ts",
+        "file": "lib/self-mastery/ingestion/llm/gateway-provider.ts",
         "line": 42,
         "exported": true,
         "service": "self-mastery",

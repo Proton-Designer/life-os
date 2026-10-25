@@ -113,7 +113,7 @@ export interface EntailmentCheckResult {
  * the batch-summarization ENGINE (R6's own ruling — metered, high-volume,
  * not a chat-context call); this is the one method it implements for real.
  * `triageChunk`/`extractLessons`/etc. stay Ollama/Heuristic/DevShim's job —
- * DeepSeekProvider throws "not implemented" for all of those, same
+ * GatewayLlmProvider throws "not implemented" for all of those, same
  * established pattern DevShimProvider already uses for methods genuinely
  * out of its own scope (mergeLessons/gradeAnswer).
  */
@@ -131,7 +131,7 @@ export interface SummarizeSectionResult {
 /**
  * P2-14: batch-mode ingestion's combined-call variants of `extractLessons`/
  * `generateCards` -- OPTIONAL on the interface, deliberately, because only a
- * provider with a real gateway-routed transport (`DeepSeekProvider`) has
+ * provider with a real gateway-routed transport (`GatewayLlmProvider`) has
  * anything to gain from combining N passages/lessons into one call; the dev
  * shim and the heuristic path have no such benefit and are not required to
  * implement these. The result array is the SAME LENGTH AND ORDER as the

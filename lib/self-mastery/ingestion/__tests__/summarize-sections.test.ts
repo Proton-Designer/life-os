@@ -13,7 +13,7 @@ import type { LlmProvider } from "../llm/types";
  * sent), idempotent skip of already-summarized sections, per-section
  * failure isolation, and that a failed call never writes a placeholder.
  * What it does NOT and CANNOT prove: that a real DeepSeek call round-trips
- * correctly against production — see deepseek-provider.test.ts's own
+ * correctly against production — see gateway-provider.test.ts's own
  * header for that half.
  */
 

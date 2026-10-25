@@ -37,11 +37,13 @@
  * is configured (and `NODE_ENV !== "production"`, checked inside
  * `getDevProviderBaseUrl()` itself); every other case (production, or dev
  * without a shim) falls through to the real, gateway-routed
- * `DeepSeekProvider` instead. There is no longer a "no real provider at
+ * `GatewayLlmProvider` instead. That one is provider-agnostic: it runs on whichever
+ * provider (DeepSeek, Claude, OpenAI, Gemini, Kimi, Grok) the BOOK'S OWNER chose, on
+ * the owner's own key (gateway.ts resolves it from the owner's saved preference). There is no longer a "no real provider at
  * all" branch to throw from at SELECTION time -- but the fail-closed
  * guarantee this comment describes is UNCHANGED, just relocated: a missing
  * key, a spend-cap refusal, or a genuine provider failure now throws from
- * INSIDE the call itself (`DeepSeekProvider`'s `chatJson`, via
+ * INSIDE the call itself (`GatewayLlmProvider`'s `chatJson`, via
  * `gatewayChat`'s `ok:false` path) rather than from a pre-flight
  * `if (!provider)` check here. Either way, a stage that can't get a real
  * verdict/extraction/card set throws, `bracketStage` records a genuine
@@ -51,7 +53,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { DevShimProvider } from "./llm/dev-shim-provider";
-import { DeepSeekProvider, BATCH_SIZE_EXTRACT, BATCH_SIZE_CARDS } from "./llm/deepseek-provider";
+import { GatewayLlmProvider, BATCH_SIZE_EXTRACT, BATCH_SIZE_CARDS } from "./llm/gateway-provider";
 import { HeuristicProvider, type Embedder } from "./llm/heuristic-provider";
 import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/types";
 import { getUserEmbeddings, embeddingModelTag } from "@/lib/ai/embeddings";
@@ -97,7 +99,7 @@ export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
  * returns `null` in production (checked first, unconditionally) or when
  * `SELF_MASTERY_DEV_PROVIDER_URL` is unset, so this function does not
  * re-implement that gate -- it just says what to do on EITHER null case:
- * fall through to the real, gateway-routed, spend-capped `DeepSeekProvider`,
+ * fall through to the real, gateway-routed, spend-capped `GatewayLlmProvider`,
  * using `ctx.job.user_id` (the book's owner, set by `set_user_id_from_book`
  * at job-creation time -- migration 074) so `gatewayChat` resolves that
  * user's own key for their chosen provider (there is no shared fallback
@@ -105,14 +107,14 @@ export type StageHandler = (ctx: StageContext) => Promise<StageWorkResult>;
  *
  * Typed as the concrete union, not the `LlmProvider` interface: both
  * concrete classes expose their own `lastUsage` (DevShimProvider's
- * long-standing convention; DeepSeekProvider's new one, Phase 1 item 3) for
+ * long-standing convention; GatewayLlmProvider's new one, Phase 1 item 3) for
  * real-call telemetry, but `LlmProvider` itself declares no such member --
  * every call site below reads `provider.lastUsage` for `StageWorkResult`'s
  * `tokensIn`/`tokensOut`, which only typechecks against the union of the
  * two concrete classes, not the shared interface.
  */
-function resolveIngestionProvider(ctx: StageContext): DevShimProvider | DeepSeekProvider {
-  return DevShimProvider.fromEnv() ?? new DeepSeekProvider(ctx.supabase, ctx.job.user_id);
+function resolveIngestionProvider(ctx: StageContext): DevShimProvider | GatewayLlmProvider {
+  return DevShimProvider.fromEnv() ?? new GatewayLlmProvider(ctx.supabase, ctx.job.user_id);
 }
 
 /**
@@ -191,7 +193,7 @@ function groupInOrder<T>(items: readonly T[], size: number): T[][] {
  * changes how many items can be IN FLIGHT AT ONCE when one fails (up to
  * `limit - 1` siblings may already be mid-call and are left to finish
  * rather than cancelled -- there is no cancellation signal threaded through
- * `DeepSeekProvider`/`gatewayChat`, and adding one is out of this task's
+ * `GatewayLlmProvider`/`gatewayChat`, and adding one is out of this task's
  * scope), but never changes whether a failure can produce a partial WRITE:
  * a sibling's already-in-flight result is computed and then discarded,
  * exactly like never having called `fn` on it, because this function never
@@ -505,7 +507,7 @@ async function embeddingStage(ctx: StageContext): Promise<StageWorkResult> {
  * is never in this call path at all (see `resolveIngestionProvider`).
  *
  * Write-time gates applied inside the active provider's own `extractLessons`
- * (`DevShimProvider` in dev, `DeepSeekProvider` otherwise -- see
+ * (`DevShimProvider` in dev, `GatewayLlmProvider` otherwise -- see
  * `resolveIngestionProvider`; grounding, language sanity, claim-not-quote,
  * ported identically into both) -- not duplicated here.
  * `passesTitleClaimRelevance` and the merge-time claim/provenance cosine
@@ -589,7 +591,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
   // chunkRows' own order regardless of which group's call finishes first --
   // see that function's own header for why this is the part most likely to
   // go wrong. Each group gets its OWN provider instance (resolved inside
-  // runExtractionGroup, not hoisted above this loop): DeepSeekProvider/
+  // runExtractionGroup, not hoisted above this loop): GatewayLlmProvider/
   // DevShimProvider both report token usage via a single mutable
   // `lastUsage` field set by the most recently settled call, so two groups
   // sharing one instance while running concurrently could attribute one
@@ -616,7 +618,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
     }));
 
     const groupCandidates: CandidateLesson[][] = [];
-    if (batchSize > 1 && chunkGroup.length > 1 && provider instanceof DeepSeekProvider) {
+    if (batchSize > 1 && chunkGroup.length > 1 && provider instanceof GatewayLlmProvider) {
       // P2-14: ONE combined call for the whole group. A `null` slot (a
       // malformed or wrong-length response, per extractLessonsBatch's own
       // header) falls back to the single-item call for exactly that chunk --
@@ -924,7 +926,7 @@ async function generatingCardsStage(ctx: StageContext): Promise<StageWorkResult>
     }));
 
     const groupCards: GeneratedCard[][] = [];
-    if (batchSize > 1 && lessonGroup.length > 1 && provider instanceof DeepSeekProvider) {
+    if (batchSize > 1 && lessonGroup.length > 1 && provider instanceof GatewayLlmProvider) {
       // P2-14: ONE combined call for the whole group. A `null` slot falls
       // back to the single-item call (with its own free_recall/cloze
       // guarantee) for exactly that lesson -- never silently dropped. This
@@ -1199,7 +1201,7 @@ async function verifyGroundingStage(ctx: StageContext): Promise<StageWorkResult>
   // FAIL CLOSED (R43) is enforced by `resolveIngestionProvider` + the
   // provider itself now, not by a pre-flight null check here: there is no
   // "no real provider" case left to guard against (dev shim, or
-  // gateway-routed DeepSeekProvider, always). What R43 actually forbids --
+  // gateway-routed GatewayLlmProvider, always). What R43 actually forbids --
   // silently falling back to a trivially-always-SUPPORTS check -- still
   // cannot happen: `HeuristicProvider` is never in this call path at all.
   const provider = resolveIngestionProvider(ctx);

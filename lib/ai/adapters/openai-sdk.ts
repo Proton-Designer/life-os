@@ -69,6 +69,8 @@ export interface OpenAiSdkChatOpts {
   timeoutMs?: number;
   /** Normalized 3-level reasoning control, translated to `reasoning_effort` for providers whose QUIRKS entry confirms support -- silently unsent otherwise, never a guessed param name. */
   effort?: "low" | "medium" | "high";
+  /** Ask for a JSON object (`response_format: json_object`). OpenAI, Kimi and Grok all accept it; the prompt must still say "JSON". */
+  json?: boolean;
 }
 
 function clientFor(provider: "openai" | "moonshot" | "xai", apiKey: string, timeoutMs: number): OpenAI {
@@ -165,6 +167,9 @@ export async function openAiSdkChat(
   }
   if (quirks.supportsReasoningEffort && opts.effort) {
     params.reasoning_effort = opts.effort;
+  }
+  if (opts.json) {
+    params.response_format = { type: "json_object" };
   }
 
   try {

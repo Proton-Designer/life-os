@@ -44,6 +44,13 @@ export interface ChatOpts {
   thinking?: boolean;
   /** Normalized 3-level reasoning control for the SDK-backed adapters (openai-sdk.ts, and anthropic.ts once it lands) — ignored by DeepSeek's raw-fetch path, which keeps its own `thinking` boolean instead. */
   effort?: "low" | "medium" | "high";
+  /**
+   * The caller needs a strict JSON object back (book ingestion). Turned into the provider's own JSON mode where one exists:
+   * `response_format: json_object` (OpenAI, Kimi, Grok), `responseMimeType: application/json` (Gemini). Claude has no
+   * equivalent and DeepSeek's raw-fetch path is deliberately left byte-for-byte as it was, so both ignore it; the caller
+   * strips fences and prose either way.
+   */
+  json?: boolean;
 }
 
 export async function chat(

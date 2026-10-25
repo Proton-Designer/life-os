@@ -65,6 +65,8 @@ export interface AnthropicChatOpts {
   timeoutMs?: number;
   /** Translated to `output_config.effort` — see this file's own header for why this, not `thinking`. */
   effort?: "low" | "medium" | "high";
+  /** Accepted for signature parity and ignored: the Messages API has no JSON mode that is safe to send here (no assistant prefill on this model family). The caller strips fences and prose. */
+  json?: boolean;
 }
 
 function splitMessages(messages: { role: "system" | "user"; content: string }[]): {

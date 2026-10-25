@@ -7,7 +7,7 @@ import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-ava
 import { sweepStuckBooks } from "@/lib/self-mastery/ingestion/stuck-sweep";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
-import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
+import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/gateway-provider";
 import type { IngestStage } from "@/lib/self-mastery/types";
 import { runStepLoop, type StepOutcome } from "@/lib/self-mastery/ingestion/step-loop";
 import { AI_BLOCK_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";

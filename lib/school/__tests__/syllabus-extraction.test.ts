@@ -4,7 +4,7 @@ import { extractDeliverablesFromText } from "../syllabus-extraction";
 import * as gatewayModule from "@/lib/ai/gateway";
 import type { GatewayChatResult } from "@/lib/ai/gateway";
 
-// Same mocking posture as deepseek-provider.test.ts: mock gatewayChat itself, zero
+// Same mocking posture as gateway-provider.test.ts: mock gatewayChat itself, zero
 // network, zero spend, and never assume which provider answered (Opus Lead ruling —
 // this module calls only through gatewayChat, never a provider client directly).
 const FAKE_SUPABASE = {} as unknown as SupabaseClient;

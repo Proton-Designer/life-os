@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DeepSeekProvider } from "../deepseek-provider";
+import { GatewayLlmProvider } from "../gateway-provider";
 import * as gatewayModule from "@/lib/ai/gateway";
 import type { GatewayChatResult } from "@/lib/ai/gateway";
 
 /**
- * Phase 1 item 3: DeepSeekProvider now routes every call through
+ * Phase 1 item 3: GatewayLlmProvider now routes every call through
  * `gatewayChat()` (lib/ai/gateway.ts), never `lib/ai/client.ts`'s `chat()`
  * and never `fetch` directly -- every test here mocks `gatewayChat` itself,
  * zero network, zero spend, matching the "mock-backed first" posture the
@@ -45,10 +45,10 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("DeepSeekProvider.summarizeSection", () => {
+describe("GatewayLlmProvider.summarizeSection", () => {
   it("calls gatewayChat with the right feature name, thinking disabled, and a prompt naming the book/section/excerpts", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("A short summary."));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const result = await provider.summarizeSection({
       bookTitle: "Actionable Gamification",
@@ -82,14 +82,14 @@ describe("DeepSeekProvider.summarizeSection", () => {
 
   it("trims the returned content", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("  padded summary  \n"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] });
     expect(result.summary).toBe("padded summary");
   });
 
   it("THROWS rather than returning a fabricated summary when the gateway call fails", async () => {
     gatewayChatSpy.mockResolvedValue(failResult("The shared AI budget cap has been reached"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await expect(provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] })).rejects.toThrow(
       /budget cap/i,
     );
@@ -97,7 +97,7 @@ describe("DeepSeekProvider.summarizeSection", () => {
 
   it("sets lastUsage from the gateway's real usage/cost, not a guess", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("ok", { promptTokens: 321, completionTokens: 44 }));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await provider.summarizeSection({ bookTitle: "B", sectionTitle: "S", chunkTexts: ["x"] });
     expect(provider.lastUsage).toEqual({
       promptTokens: 321,
@@ -129,10 +129,10 @@ function validExtractJson(overrides: Partial<Record<string, string>> = {}): stri
   });
 }
 
-describe("DeepSeekProvider.extractLessons", () => {
+describe("GatewayLlmProvider.extractLessons", () => {
   it("returns a grounded, gate-passing candidate from a valid first-attempt response", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(validExtractJson()));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const candidates = await provider.extractLessons({
       chunkText: CHUNK_TEXT,
@@ -152,13 +152,15 @@ describe("DeepSeekProvider.extractLessons", () => {
     // shared call site, which extractLessons/generateCards/checkEntailment
     // all go through, must request the budget tier too.
     expect(opts?.tier).toBe("cheap");
+    // Strict-JSON calls ask the gateway for the provider's JSON mode (and its reasoning headroom on non-DeepSeek providers).
+    expect(opts?.json).toBe(true);
   });
 
   it("drops a candidate whose provenance_quote is not a verbatim substring of the chunk (isGrounded firewall survives the port)", async () => {
     gatewayChatSpy.mockResolvedValue(
       okResult(validExtractJson({ provenance_quote: "This sentence was never in the source chunk at all." })),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const candidates = await provider.extractLessons({
       chunkText: CHUNK_TEXT,
@@ -181,7 +183,7 @@ describe("DeepSeekProvider.extractLessons", () => {
       )
       .mockResolvedValueOnce(okResult(validExtractJson()));
 
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const candidates = await provider.extractLessons({
       chunkText: CHUNK_TEXT,
       pageStart: 1,
@@ -197,7 +199,7 @@ describe("DeepSeekProvider.extractLessons", () => {
 
   it("returns an empty array (never throws) when every attempt returns unparseable JSON", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const candidates = await provider.extractLessons({
       chunkText: CHUNK_TEXT,
       pageStart: 1,
@@ -210,7 +212,7 @@ describe("DeepSeekProvider.extractLessons", () => {
 
   it("THROWS immediately on a genuine gateway failure -- never silently degrades to an empty candidate list", async () => {
     gatewayChatSpy.mockResolvedValue(failResult("DeepSeek says you're out of quota or rate-limited."));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await expect(
       provider.extractLessons({ chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-1" }),
     ).rejects.toThrow(/quota or rate-limited/i);
@@ -220,9 +222,38 @@ describe("DeepSeekProvider.extractLessons", () => {
     expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["a prose lead-in before a fenced block", (j: string) => "Sure! Here is the JSON you asked for:\n\n```json\n" + j + "\n```\n\nLet me know if you'd like more."],
+    ["a bare fence with trailing commentary", (j: string) => "```\n" + j + "\n```\nThese were the strongest ideas."],
+    ["prose around unfenced JSON", (j: string) => "Here is the result: " + j + " -- done."],
+    ["a fence with an uppercase language tag and Windows line endings", (j: string) => "```JSON\r\n" + j + "\r\n```"],
+  ])("recovers the JSON object from %s (the budget models of other providers do this)", async (_name, wrap) => {
+    gatewayChatSpy.mockResolvedValue(okResult(wrap(validExtractJson())));
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
+    const candidates = await provider.extractLessons({ chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-1" });
+    expect(candidates).toHaveLength(1);
+  });
+
+  it("still treats a reply with no JSON object at all as unparseable (null path), never as an empty success", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult("I could not find a lesson in this passage."));
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
+    const candidates = await provider.extractLessons({ chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-1" });
+    expect(candidates).toEqual([]);
+    expect(gatewayChatSpy.mock.calls.length).toBeGreaterThan(1); // retried like any unparseable reply
+  });
+
+  it("an EPUB/TXT/MD passage is cited by its location label, not 'page N', in the prompt", async () => {
+    gatewayChatSpy.mockResolvedValue(okResult(validExtractJson()));
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
+    await provider.extractLessons({ chunkText: CHUNK_TEXT, pageStart: 7, pageEnd: 7, sourceChunkId: "chunk-1", locationLabel: 'section "Chapter 3"' });
+    const userMessage = gatewayChatSpy.mock.calls[0]![3].find((m: { role: string }) => m.role === "user")!;
+    expect(userMessage.content).toContain('Passage (section "Chapter 3"):');
+    expect(userMessage.content).not.toContain("page 7");
+  });
+
   it("strips a markdown code fence around the JSON before parsing", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("```json\n" + validExtractJson() + "\n```"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const candidates = await provider.extractLessons({
       chunkText: CHUNK_TEXT,
       pageStart: 1,
@@ -233,7 +264,7 @@ describe("DeepSeekProvider.extractLessons", () => {
   });
 });
 
-describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
+describe("GatewayLlmProvider.extractLessonsBatch (P2-14)", () => {
   const CHUNK_A = { chunkText: CHUNK_TEXT, pageStart: 1, pageEnd: 1, sourceChunkId: "chunk-a" };
   const CHUNK_B = {
     chunkText: "Deep work is the ability to focus without distraction on a cognitively demanding task.",
@@ -243,7 +274,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
   };
 
   it("returns an empty array for zero inputs without calling the gateway", async () => {
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([]);
     expect(result).toEqual({ perChunk: [] });
     expect(gatewayChatSpy).not.toHaveBeenCalled();
@@ -251,7 +282,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
 
   it("degrades to the plain single-item call for exactly one input", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(validExtractJson()));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([CHUNK_A]);
     expect(result.perChunk).toHaveLength(1);
     expect(result.perChunk[0]).toHaveLength(1);
@@ -290,7 +321,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
 
@@ -306,7 +337,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
 
   it("THE REGRESSION GUARD: a malformed response (no results array) falls back to null for EVERY chunk, not an empty-lessons guess", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
     expect(result.perChunk).toEqual([null, null]);
     expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // no strictness-note retry loop for the batch call itself
@@ -314,7 +345,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
 
   it("a wrong-length results array (partial response) also falls back to null for every chunk -- never misaligns indices", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(JSON.stringify({ results: [{ lessons: [] }] }))); // 1 entry for 2 chunks
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
     expect(result.perChunk).toEqual([null, null]);
   });
@@ -340,7 +371,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
     expect(result.perChunk[0]).toBeNull();
     expect(result.perChunk[1]).toHaveLength(1);
@@ -367,7 +398,7 @@ describe("DeepSeekProvider.extractLessonsBatch (P2-14)", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.extractLessonsBatch([CHUNK_A, CHUNK_B]);
     expect(result.perChunk[0]).toEqual([]); // dropped by the grounding firewall, not a fallback case
     expect(result.perChunk[1]).toEqual([]);
@@ -399,10 +430,10 @@ function validCardsJson(overrides: Partial<Record<string, string>> = {}): string
   return JSON.stringify(validCardsJsonFields(overrides));
 }
 
-describe("DeepSeekProvider.generateCards", () => {
+describe("GatewayLlmProvider.generateCards", () => {
   it("returns free_recall, application, why, and a cloze card from a valid response", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(validCardsJson()));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const cards = await provider.generateCards({ lesson: LESSON });
 
@@ -422,7 +453,7 @@ describe("DeepSeekProvider.generateCards", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const cards = await provider.generateCards({ lesson: LESSON });
 
@@ -432,7 +463,7 @@ describe("DeepSeekProvider.generateCards", () => {
 
   it("THROWS immediately on a genuine gateway failure", async () => {
     gatewayChatSpy.mockResolvedValue(failResult("DeepSeek returned an error (HTTP 500)."));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await expect(provider.generateCards({ lesson: LESSON })).rejects.toThrow(/HTTP 500/);
   });
 });
@@ -448,9 +479,9 @@ const LESSON_B = {
   sourceChunkId: "chunk-b",
 };
 
-describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
+describe("GatewayLlmProvider.generateCardsBatch (P2-14)", () => {
   it("returns an empty array for zero inputs without calling the gateway", async () => {
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.generateCardsBatch([]);
     expect(result).toEqual({ perLesson: [] });
     expect(gatewayChatSpy).not.toHaveBeenCalled();
@@ -458,7 +489,7 @@ describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
 
   it("degrades to the plain single-item call (with its free_recall/cloze guarantee) for exactly one input", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(validCardsJson()));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.generateCardsBatch([{ lesson: LESSON }]);
     expect(result.perLesson).toHaveLength(1);
     expect(result.perLesson[0]!.some((c) => c.promptType === "free_recall")).toBe(true);
@@ -475,7 +506,7 @@ describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
 
@@ -492,7 +523,7 @@ describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
 
   it("THE REGRESSION GUARD: a malformed response falls back to null for EVERY lesson, never a silently-empty deck", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("not json at all"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
     expect(result.perLesson).toEqual([null, null]);
     expect(gatewayChatSpy).toHaveBeenCalledTimes(1);
@@ -500,7 +531,7 @@ describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
 
   it("a wrong-length results array also falls back to null for every lesson", async () => {
     gatewayChatSpy.mockResolvedValue(okResult(JSON.stringify({ results: [validCardsJsonFields()] }))); // 1 entry for 2 lessons
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
     expect(result.perLesson).toEqual([null, null]);
   });
@@ -513,19 +544,19 @@ describe("DeepSeekProvider.generateCardsBatch (P2-14)", () => {
         }),
       ),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.generateCardsBatch([{ lesson: LESSON }, { lesson: LESSON_B }]);
     expect(result.perLesson[0]).toBeNull();
     expect(result.perLesson[1]!.some((c) => c.promptType === "free_recall")).toBe(true);
   });
 });
 
-describe("DeepSeekProvider.checkEntailment", () => {
+describe("GatewayLlmProvider.checkEntailment", () => {
   it("returns SUPPORTS from a valid response, in exactly one call", async () => {
     gatewayChatSpy.mockResolvedValue(
       okResult(JSON.stringify({ passage_point: "x", verdict: "SUPPORTS", reason: "matches" })),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
 
     const result = await provider.checkEntailment({ claim: "c", quote: "q" });
 
@@ -539,7 +570,7 @@ describe("DeepSeekProvider.checkEntailment", () => {
     gatewayChatSpy.mockResolvedValue(
       okResult(JSON.stringify({ passage_point: "x", verdict: "CONTRADICTS", reason: "opposite" })),
     );
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     expect(await provider.checkEntailment({ claim: "c", quote: "q" })).toEqual({
       verdict: "CONTRADICTS",
       reason: "opposite",
@@ -548,7 +579,7 @@ describe("DeepSeekProvider.checkEntailment", () => {
 
   it("FAILS CLOSED to UNRELATED, not a throw, when a successful call returns an unparseable/invalid-shape response", async () => {
     gatewayChatSpy.mockResolvedValue(okResult("not valid json"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     const result = await provider.checkEntailment({ claim: "c", quote: "q" });
     expect(result.verdict).toBe("UNRELATED");
     expect(gatewayChatSpy).toHaveBeenCalledTimes(1); // no retry loop for entailment -- one call per lesson
@@ -556,14 +587,14 @@ describe("DeepSeekProvider.checkEntailment", () => {
 
   it("THROWS (does not fail closed to a verdict) when the gateway call itself fails -- an infra failure is not a real judgment", async () => {
     gatewayChatSpy.mockResolvedValue(failResult("The shared AI budget cap has been reached"));
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await expect(provider.checkEntailment({ claim: "c", quote: "q" })).rejects.toThrow(/budget cap/i);
   });
 });
 
-describe("DeepSeekProvider — mergeLessons/triageChunk/gradeAnswer are verified dead, not implemented", () => {
+describe("GatewayLlmProvider — mergeLessons/triageChunk/gradeAnswer are verified dead, not implemented", () => {
   it("throws a clear pointer for each, never a silent wrong answer", async () => {
-    const provider = new DeepSeekProvider(FAKE_SUPABASE, USER_ID);
+    const provider = new GatewayLlmProvider(FAKE_SUPABASE, USER_ID);
     await expect(provider.triageChunk({ chunkText: "x" })).rejects.toThrow(/not implemented/);
     await expect(provider.mergeLessons({ candidates: [], targetCount: { min: 1, max: 2 } })).rejects.toThrow(
       /not implemented/,

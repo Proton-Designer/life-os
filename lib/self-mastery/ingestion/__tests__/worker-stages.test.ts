@@ -10,12 +10,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * PHASE 1 ITEM 3 UPDATE: `resolveIngestionProvider()` (worker-stages.ts) no
  * longer throws a "no real provider available" error itself when
  * `DevShimProvider.fromEnv()` returns null -- it falls through to a real,
- * gateway-routed `DeepSeekProvider` instead (absence, not a guarded
+ * gateway-routed `GatewayLlmProvider` instead (absence, not a guarded
  * presence, same as `DevShimProvider.fromEnv()`'s own null-in-production
  * behavior). The fail-closed OUTCOME this suite exists to prove is
  * unchanged -- a chunk/lesson still can't silently "pass" without a real
  * provider actually running a check -- but the MECHANISM moved: it is now
- * `DeepSeekProvider`'s own call, through `gatewayChat`, failing closed (no
+ * `GatewayLlmProvider`'s own call, through `gatewayChat`, failing closed (no
  * key / spend cap / provider error -> throws), not a pre-flight
  * `if (!provider)` check here. `gatewayChat` is mocked below so these tests
  * can force that failure deterministically, without depending on any real
@@ -87,7 +87,7 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     vi.clearAllMocks();
   });
 
-  it("THROWS when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no marked pass either way", async () => {
+  it("THROWS when DevShimProvider.fromEnv() returns null AND the GatewayLlmProvider fallback's own gateway call fails -- no marked pass either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
     const { gatewayChat } = await import("@/lib/ai/gateway");
@@ -108,7 +108,7 @@ describe("verifying_grounding stage — fail-closed on no real provider (R43)", 
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
     const { gatewayChat } = await import("@/lib/ai/gateway");
-    const { GatewayCallFailedError } = await import("../llm/deepseek-provider");
+    const { GatewayCallFailedError } = await import("../llm/gateway-provider");
     const { STAGE_HANDLERS } = await import("../worker-stages");
     const supabase = makeSupabaseWithLessons([{ id: "l1", core_claim: "claim", provenance_quote: "quote" }]);
     const run = () =>
@@ -444,7 +444,7 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
     };
   }
 
-  it("throws when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
+  it("throws when DevShimProvider.fromEnv() returns null AND the GatewayLlmProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
     const { gatewayChat } = await import("@/lib/ai/gateway");
@@ -650,7 +650,7 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
 
   it("a book in batch mode with 2 available chunks makes ONE combined gatewayChat call and advances the cursor by 2, not 1", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
-    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real DeepSeekProvider, so `instanceof DeepSeekProvider` is true and the batch branch actually engages
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real GatewayLlmProvider, so `instanceof GatewayLlmProvider` is true and the batch branch actually engages
     const { gatewayChat } = await import("@/lib/ai/gateway");
     vi.mocked(gatewayChat).mockResolvedValue({
       ok: true,
@@ -906,7 +906,7 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
     source_chunk_id: "c1",
   };
 
-  it("throws when DevShimProvider.fromEnv() returns null AND the DeepSeekProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
+  it("throws when DevShimProvider.fromEnv() returns null AND the GatewayLlmProvider fallback's own gateway call fails -- no HeuristicProvider fallback either way", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
     vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null);
     const { gatewayChat } = await import("@/lib/ai/gateway");
@@ -1128,7 +1128,7 @@ describe("generating_cards stage — fail-closed on no real provider, per-lesson
 
   it("a book in batch mode with 2 available lessons makes ONE combined gatewayChat call and advances the cursor by 2, not 1", async () => {
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
-    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real DeepSeekProvider so `instanceof DeepSeekProvider` is true
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // forces the real GatewayLlmProvider so `instanceof GatewayLlmProvider` is true
     const { gatewayChat } = await import("@/lib/ai/gateway");
     vi.mocked(gatewayChat).mockResolvedValue({
       ok: true,
@@ -1469,7 +1469,7 @@ describe("PERF-1: bounded concurrency (extracting_lessons, generating_cards)", (
     }
 
     const { DevShimProvider } = await import("../llm/dev-shim-provider");
-    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // force the real DeepSeekProvider so batching engages
+    vi.mocked(DevShimProvider.fromEnv).mockReturnValue(null); // force the real GatewayLlmProvider so batching engages
     const { gatewayChat } = await import("@/lib/ai/gateway");
     vi.mocked(gatewayChat).mockImplementation(async (..._args: unknown[]) => {
       const messages = _args[3] as { role: string; content: string }[];

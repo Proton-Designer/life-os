@@ -5,11 +5,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // top-level import. `afterEach` here calls `vi.resetModules()`, so a
 // static import resolved once at file-load time would end up a DIFFERENT
 // class instance than the one route.ts's own (dynamically re-resolved)
-// import of deepseek-provider.ts sees on any test after the first reset --
+// import of gateway-provider.ts sees on any test after the first reset --
 // `instanceof` silently fails across that boundary. Matches this file's
 // own existing pattern for createServiceRoleClient below, for the same reason.
 async function loadGatewayCallFailedError() {
-  const { GatewayCallFailedError } = await import("@/lib/self-mastery/ingestion/llm/deepseek-provider");
+  const { GatewayCallFailedError } = await import("@/lib/self-mastery/ingestion/llm/gateway-provider");
   return GatewayCallFailedError;
 }
 

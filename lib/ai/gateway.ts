@@ -48,7 +48,7 @@ export interface GatewayChatOptions {
    * Same reversal as `provider` above, resolved from the SAME preference
    * lookup when omitted (one query serves both, not two). 'cheap' = the
    * resolved provider's own budget model; 'capable' = its flagship.
-   * Ingestion (deepseek-provider.ts) passes this explicitly as "cheap" —
+   * Ingestion (gateway-provider.ts) passes this explicitly as "cheap" —
    * Addition A, the Lead: bulk book processing must NEVER ride a user's
    * chosen flagship tier, which would spend real money per book. That
    * explicit override wins regardless of what the user's own tier
@@ -65,12 +65,20 @@ export interface GatewayChatOptions {
    * Overrides client.ts's TIMEOUT_MS default (20s) for this call. Found
    * necessary live, 2026-09-14: self-mastery's ingestion extraction calls
    * (larger chunks, up to 1000 output tokens) timed out at 20s in
-   * production — see deepseek-provider.ts's own call sites for the values
+   * production — see gateway-provider.ts's own call sites for the values
    * chosen and why. Every OTHER caller (answer feedback, verifyKey, etc.)
    * omits this and keeps the unchanged 20s default; this is additive, not
    * a global timeout change.
    */
   timeoutMs?: number;
+  /**
+   * A bulk structured-JSON call (book ingestion). Does two things for every provider except DeepSeek: asks for the
+   * provider's JSON mode (see client.ts's ChatOpts.json), and ADDS REASONING_HEADROOM_TOKENS to the token limit. The budget
+   * models are reasoning models whose hidden thinking is billed against the same limit as the answer, so a 600-token
+   * budget that is plenty for DeepSeek (thinking off) can come back empty or cut mid-JSON elsewhere. `maxTokens` stays the
+   * VISIBLE-output budget everywhere else (cost estimates, caps). DeepSeek's request is untouched.
+   */
+  json?: boolean;
   retry?: RetryOptions;
   /** Test seam — an in-memory FakeUsageStore in every gateway test, never Supabase. */
   usageStore?: UsageStore;
@@ -90,6 +98,9 @@ export interface GatewayChatResult extends ChatResult {
   /** True only when no API key resolved for this user at all (no key of their own and not on the shared-key allowlist): deterministic until a key is added, so callers can fail fast instead of retrying. */
   noKey?: boolean;
 }
+
+/** Extra room, over a caller's visible-output budget, for a non-DeepSeek reasoning model's thinking on a `json` call. */
+export const REASONING_HEADROOM_TOKENS = 1500;
 
 export async function gatewayChat(
   supabase: SupabaseClient,
@@ -156,12 +167,14 @@ export async function gatewayChat(
   const { result, attempts } = await withRetry(
     () =>
       chat(provider, resolved.key, messages, {
-        maxTokens,
+        // DeepSeek is called with thinking OFF, so its limit is all visible output; every other provider gets the headroom.
+        maxTokens: opts.json && provider !== "deepseek" ? maxTokens + REASONING_HEADROOM_TOKENS : maxTokens,
         temperature: opts.temperature,
         model,
         thinking,
         effort,
         timeoutMs: opts.timeoutMs,
+        ...(opts.json ? { json: true } : {}),
       }),
     opts.retry,
   );
@@ -206,7 +219,7 @@ export interface IngestionKeyCheck {
 
 /**
  * Book ingestion's own upload-gate check (2026-09-15, the Lead's fix,
- * Addition A's sibling): `deepseek-provider.ts`'s `chatJson` omits
+ * Addition A's sibling): `gateway-provider.ts`'s `chatJson` omits
  * `provider` on every call, so it now resolves to the book OWNER's saved
  * preference (this file's own reversal, above) -- which means the upload
  * gate must check THAT SAME resolution, not assume DeepSeek. Before this,

@@ -17,7 +17,7 @@
  * (`chunkBook`) and structure detector (`parseStructure`) the real
  * pipeline uses, so these numbers are representative of a real chunk's
  * token count/shape, not a synthetic stand-in), and calls
- * `DeepSeekProvider.extractLessons` / `checkEntailment` / `generateCards`
+ * `GatewayLlmProvider.extractLessons` / `checkEntailment` / `generateCards`
  * directly -- the three methods Phase 1 item 3 implemented -- through the
  * real gateway (`gatewayChat`), against the real, operator-funded
  * `DEEPSEEK_API_KEY`, with `thinking: false` on every call (the deliberate
@@ -36,7 +36,7 @@ import type { Database } from "../lib/supabase/database.types";
 import { loadPdf, extractPages, extractOutline } from "../lib/self-mastery/ingestion/pdf";
 import { parseStructure } from "../lib/self-mastery/ingestion/structure";
 import { chunkBook } from "../lib/self-mastery/ingestion/chunk";
-import { DeepSeekProvider, type DeepSeekUsage } from "../lib/self-mastery/ingestion/llm/deepseek-provider";
+import { GatewayLlmProvider, type DeepSeekUsage } from "../lib/self-mastery/ingestion/llm/gateway-provider";
 import type { CandidateLesson } from "../lib/self-mastery/ingestion/llm/types";
 
 const PDF_PATH = `${process.env.HOME}/mnt/Downloads/_OceanofPDF.com_Actionable_Gamification_-_Yu-kai_Chou.pdf`;
@@ -121,7 +121,7 @@ async function main() {
     `[item3-calibration] selected chunk sort_orders: ${selected.map((c) => c.sortOrder).join(", ")} (~${selected.map((c) => Math.ceil(c.text.length / 4)).join(", ")} est. tokens each)`,
   );
 
-  const provider = new DeepSeekProvider(supabase, userId);
+  const provider = new GatewayLlmProvider(supabase, userId);
   const calls: MeteredCall[] = [];
   const allCandidates: CandidateLesson[] = [];
 

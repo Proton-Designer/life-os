@@ -1,5 +1,5 @@
 /**
- * L9/R6's engine, EXTENDED (2026-09-13, Phase 1 item 3): R6's original
+ * The ingestion LLM provider adapter. L9/R6's engine, EXTENDED (2026-09-13, Phase 1 item 3): R6's original
  * ruling drew a hard line at "DeepSeek is the bulk-text summarization
  * engine, not a second lesson-extraction backend" -- true when this file
  * had no funded key and no spend-controlled gateway to call through. The
@@ -45,17 +45,20 @@
  * copied-not-restated claim, a title that drifted topic), which no amount
  * of network-level retry can fix.
  *
- * PROVIDER-AGNOSTIC DESPITE THE NAME, as of the multi-provider gateway
- * reversal (2026-09-15, the Lead): this class no longer picks DeepSeek by
- * being called -- `gatewayChat` resolves the book owner's own saved
- * provider preference itself (lib/ai/preferences.ts) whenever a call site
- * here omits `provider`, which every call site in this file does. `tier` is
- * the one thing still pinned explicitly, to `"cheap"` (Addition A, below) --
- * the PROVIDER a book gets processed on follows its owner's own choice.
- * The class keeps its original name because renaming it is a bigger,
- * separate change than this reversal needs (confirmed with the Lead as
- * sufficient); read it as "the ingestion LLM provider adapter," not "the
- * adapter that only talks to DeepSeek."
+ * PROVIDER-AGNOSTIC (renamed from `DeepSeekProvider`, 2026-10-25, to say what it already did): this class talks to
+ * `gatewayChat`, which resolves the BOOK OWNER'S own saved provider preference (lib/ai/preferences.ts) and that provider's
+ * key whenever a call site here omits `provider`, which every call site in this file does. So a book is processed by
+ * whichever of DeepSeek, Claude, OpenAI, Gemini, Kimi or Grok its owner chose, on their own key. Only `tier` is pinned,
+ * to "cheap" (Addition A, below): bulk ingestion never rides a user's flagship tier.
+ *
+ * WHAT A NON-DEEPSEEK PROVIDER NEEDS FROM THIS CLASS (verified per adapter in lib/ai/__tests__/ingestion-provider-shapes.test.ts):
+ * every call asks for `json: true`, which the gateway turns into the provider's JSON mode where one exists (OpenAI / Kimi /
+ * Grok `response_format`, Gemini `responseMimeType`) and into extra token headroom for the hidden reasoning of those
+ * providers' budget models. DeepSeek's request is unchanged (thinking off, no JSON mode). Replies are parsed with a
+ * tolerant extractor (`stripJsonFence`) because the cheap models differ in manners: fences, a lead-in sentence, a sign-off.
+ * Claude has no JSON-mode field and relies on that extractor alone. Cheap-model QUALITY differs by provider too; the
+ * grounding firewall (verbatim quote + entailment) is what protects the output, not the model, so a weaker extractor shows
+ * up as fewer lessons, not wrong ones.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
@@ -184,15 +187,24 @@ export interface DeepSeekUsage {
   costUsd: number;
 }
 
-/** Strips a ```json ... ``` (or bare ```) fence if the model wrapped its
- * JSON in one despite being asked not to -- chat/completions has no
- * Ollama-style `format:"json"` hard guarantee, so this is cheap insurance
- * before JSON.parse, not a substitute for the retry-on-invalid-shape loop
- * below. */
+/**
+ * Pulls the JSON out of a model reply. chat/completions has no hard "JSON only" guarantee, and the cheap models of the
+ * different providers disagree about manners: some wrap the object in a fence, some add a sentence before it ("Here is the
+ * JSON:"), some add a sign-off after the fence. This is cheap insurance before JSON.parse, not a substitute for the
+ * retry-on-invalid-shape loop below. Order: (1) a fenced block anywhere in the reply, with any language tag and either
+ * line ending; (2) otherwise the span from the first `{` (or `[`) to the last matching closer; (3) otherwise the trimmed
+ * text unchanged, which then fails JSON.parse exactly as before (a reply with no JSON at all stays "unparseable").
+ */
 function stripJsonFence(raw: string): string {
   const trimmed = raw.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return fenced ? fenced[1]!.trim() : trimmed;
+  const fenced = trimmed.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);
+  const inner = (fenced ? fenced[1]! : trimmed).trim();
+  if (inner.startsWith("{") || inner.startsWith("[")) return inner;
+  const firstBrace = inner.search(/[{[]/);
+  if (firstBrace === -1) return inner;
+  const closer = inner[firstBrace] === "{" ? "}" : "]";
+  const last = inner.lastIndexOf(closer);
+  return last > firstBrace ? inner.slice(firstBrace, last + 1) : inner;
 }
 
 const EXTRACT_LESSONS_SYSTEM_PROMPT =
@@ -236,7 +248,7 @@ export class GatewayCallFailedError extends Error {
   }
 }
 
-export class DeepSeekProvider implements LlmProvider {
+export class GatewayLlmProvider implements LlmProvider {
   constructor(
     private readonly supabase: SupabaseClient,
     private readonly userId: string,
@@ -302,7 +314,7 @@ export class DeepSeekProvider implements LlmProvider {
       // without ingestion cost silently changing with it. The grounding
       // quality gate (verifyGroundingStage), not model size, is what
       // protects extraction quality -- see the Lead's own reasoning.
-      { maxTokens, thinking: false, tier: "cheap", timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
+      { maxTokens, thinking: false, tier: "cheap", json: true, timeoutMs: callOpts?.timeoutMs, retry: callOpts?.retry },
     );
     if (result.usage) {
       this.lastUsage = {
@@ -315,7 +327,7 @@ export class DeepSeekProvider implements LlmProvider {
     }
     if (!result.ok) {
       throw new GatewayCallFailedError(
-        `DeepSeekProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`,
+        `GatewayLlmProvider(${feature}): gateway call failed -- ${result.message ?? "unknown error"}`,
         result.errorKind,
         result.noKey ? "no_key" : result.monthlyCapBlocked ? "monthly_cap" : undefined,
       );
@@ -369,7 +381,7 @@ export class DeepSeekProvider implements LlmProvider {
       };
     }
     if (!result.ok || !result.content) {
-      throw new Error(`DeepSeekProvider.summarizeSection: ${result.message ?? "the call failed"}`);
+      throw new Error(`GatewayLlmProvider.summarizeSection: ${result.message ?? "the call failed"}`);
     }
     return { summary: result.content.trim() };
   }
@@ -790,12 +802,12 @@ Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verd
   }
 
   async triageChunk(_input: ChunkTriageInput): Promise<ChunkTriageResult> {
-    throw new Error(`DeepSeekProvider.triageChunk: ${DEAD_METHOD}`);
+    throw new Error(`GatewayLlmProvider.triageChunk: ${DEAD_METHOD}`);
   }
   async mergeLessons(_input: MergeLessonsInput): Promise<CandidateLesson[]> {
-    throw new Error(`DeepSeekProvider.mergeLessons: ${DEAD_METHOD}`);
+    throw new Error(`GatewayLlmProvider.mergeLessons: ${DEAD_METHOD}`);
   }
   async gradeAnswer(_input: GradeAnswerInput): Promise<GradeAnswerResult> {
-    throw new Error(`DeepSeekProvider.gradeAnswer: ${DEAD_METHOD}`);
+    throw new Error(`GatewayLlmProvider.gradeAnswer: ${DEAD_METHOD}`);
   }
 }

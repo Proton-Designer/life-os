@@ -28,7 +28,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { resolveApiKeyWithSource, PROVIDERS } from "@/lib/ai/resolve-key";
 import { HeuristicProvider } from "@/lib/self-mastery/ingestion/llm/heuristic-provider";
-import { DeepSeekProvider } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
+import { GatewayLlmProvider } from "@/lib/self-mastery/ingestion/llm/gateway-provider";
 import { summarizeBookSections } from "@/lib/self-mastery/ingestion/summarize-sections";
 import type { LlmProvider } from "@/lib/self-mastery/ingestion/llm/types";
 
@@ -94,14 +94,14 @@ async function main() {
       );
       process.exit(1);
     }
-    // UPDATED, Phase 1 item 3 (2026-09-13): DeepSeekProvider is now routed
+    // UPDATED, Phase 1 item 3 (2026-09-13): GatewayLlmProvider is now routed
     // through lib/ai/gateway.ts's `gatewayChat()` for every call it makes,
     // including `summarizeSection` -- the constructor no longer takes a raw
     // key at all (the gateway resolves it internally, same
     // user-key-then-server-key order as `resolveApiKeyWithSource` below),
     // and every server-key call is now subject to the gateway's own hard
     // spend cap (lib/ai/spend-cap.ts). The comment this replaces argued for
-    // refusing a fallback-to-shared-key run here BECAUSE DeepSeekProvider
+    // refusing a fallback-to-shared-key run here BECAUSE GatewayLlmProvider
     // had no cap of its own -- that specific reason is gone. The refusal
     // below is kept anyway, deliberately more conservative than the
     // gateway's own cap requires: this script can still burn many calls
@@ -122,10 +122,10 @@ async function main() {
       );
       process.exit(1);
     }
-    provider = new DeepSeekProvider(untyped, (book as { user_id: string }).user_id);
+    provider = new GatewayLlmProvider(untyped, (book as { user_id: string }).user_id);
     summarizedBy = "model";
     summaryModel = PROVIDERS.deepseek.defaultModel;
-    console.log(`summarize-book-sections: using DeepSeekProvider (${summaryModel}).`);
+    console.log(`summarize-book-sections: using GatewayLlmProvider (${summaryModel}).`);
   }
 
   const outcomes = await summarizeBookSections(untyped, bookId, provider, summarizedBy, summaryModel, { force });

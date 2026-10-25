@@ -422,6 +422,6 @@ Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verd
     // established pattern DevShimProvider already uses for methods
     // genuinely out of its own scope (mergeLessons/gradeAnswer) --
     // throwing with a clear pointer, not a silent wrong answer.
-    throw new Error("OllamaProvider.summarizeSection: not implemented -- R6 assigns batch summarization to DeepSeekProvider (lib/self-mastery/ingestion/llm/deepseek-provider.ts), not the lesson-extraction path.");
+    throw new Error("OllamaProvider.summarizeSection: not implemented -- R6 assigns batch summarization to GatewayLlmProvider (lib/self-mastery/ingestion/llm/gateway-provider.ts), not the lesson-extraction path.");
   }
 }

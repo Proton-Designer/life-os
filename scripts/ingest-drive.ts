@@ -76,7 +76,7 @@ async function fetchDeepSeekBalance(apiKey: string): Promise<unknown> {
 async function checkProviderSelection(): Promise<void> {
   const devUrl = getDevProviderBaseUrl();
   if (!devUrl) {
-    console.log(`[ingest-drive] PROVIDER: DeepSeekProvider (real, gateway-routed, spend-capped) -- SELF_MASTERY_DEV_PROVIDER_URL is unset or NODE_ENV=production.`);
+    console.log(`[ingest-drive] PROVIDER: GatewayLlmProvider (real, gateway-routed, spend-capped) -- SELF_MASTERY_DEV_PROVIDER_URL is unset or NODE_ENV=production.`);
     return;
   }
 

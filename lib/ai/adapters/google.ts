@@ -67,6 +67,8 @@ export interface GoogleChatOpts {
   timeoutMs?: number;
   /** Maps directly to `thinkingConfig.thinkingLevel` -- see this file's own header, quirk 2. */
   effort?: "low" | "medium" | "high";
+  /** Ask for JSON back (`responseMimeType: application/json`). */
+  json?: boolean;
 }
 
 function splitMessages(messages: { role: "system" | "user"; content: string }[]): {
@@ -157,6 +159,7 @@ export async function googleChat(
         ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
         ...(systemInstruction !== undefined ? { systemInstruction } : {}),
         ...(opts.effort ? { thinkingConfig: { thinkingLevel: EFFORT_TO_THINKING_LEVEL[opts.effort] } } : {}),
+        ...(opts.json ? { responseMimeType: "application/json" } : {}),
       },
     });
     const usage = parseUsage(response.usageMetadata);
