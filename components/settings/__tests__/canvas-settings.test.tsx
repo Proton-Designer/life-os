@@ -91,7 +91,7 @@ describe("CanvasSettings -- ICS calendar-feed reconciliation (P3-13)", () => {
     vi.mocked(reconcileCanvasIcs).mockResolvedValue({
       ok: true,
       message: "Found 2 new assignments from your calendar feed, staged for your review.",
-      summary: { parsedAssignmentEvents: 5, alreadyCovered: 3, linkedToExisting: 0, unmapped: 0, newlyStaged: 2, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } },
+      summary: { parsedAssignmentEvents: 5, alreadyCovered: 3, linkedToExisting: 0, unmapped: 0, newlyStaged: 2, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } },
     });
     const user = userEvent.setup();
     render(<CanvasSettings initialStatus={CONNECTED_WITH_FEED} initialMappings={[]} localClasses={[]} storageConfigured={true} />);

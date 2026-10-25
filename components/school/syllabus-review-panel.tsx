@@ -9,6 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ClassCardData } from "@/lib/school/get-class-cards";
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-10-30" -> "Oct 30". A plain calendar date, never run through a Date (no time zone shift). */
+function formatMonthDay(dateStr: string): string {
+  const [, m, d] = dateStr.split("-");
+  return m && d ? `${MONTHS[Number(m) - 1] ?? m} ${Number(d)}` : dateStr;
+}
+
 type PendingBatch = NonNullable<ClassCardData["pendingStagingBatch"]>;
 type DraftDeliverable = { id: string; name: string; type: AssessmentType; date: string };
 
@@ -161,6 +168,11 @@ export function SyllabusReviewPanel({ batch }: { batch: PendingBatch }) {
                   {!d.date && "No date — won't be confirmed until you add one."}
                   {!d.date && lowConfidence && " "}
                   {lowConfidence && "Low confidence — please check this item."}
+                </p>
+              )}
+              {original.movesFrom && (
+                <p data-testid={`syllabus-review-moves-${d.id}`} className="text-xs text-muted-foreground">
+                  Moves your existing item from {formatMonthDay(original.movesFrom)} (changed in Canvas). Nothing changes until you confirm.
                 </p>
               )}
               {original.sourceSnippet && <p className="truncate text-xs text-muted-foreground italic">&ldquo;{original.sourceSnippet}&rdquo;</p>}

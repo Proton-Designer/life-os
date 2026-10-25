@@ -33,6 +33,8 @@ export interface ExtractedItem {
    * not the model's real confidence in that case, a deliberate "needs review" flag. */
   confidence: number;
   sourceSnippet: string | null;
+  /** Set only for a CHANGE proposed to an assessment the person already has (a due date that moved in Canvas): confirming it updates that assessment instead of creating a new one (migration 282). */
+  replacesAssessmentId?: string;
 }
 
 export type ExtractionOutcome =

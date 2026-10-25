@@ -192,6 +192,8 @@ describe("reconcileCanvasIcs -- course-import summary (CANVAS-LITE-04)", () => {
       linkedToExisting: 0,
       unmapped: 0,
       newlyStaged: 2,
+      rescheduleStaged: 0,
+      stagedDateUpdated: 0,
       courseImport: { created: 1, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 },
     });
 
@@ -212,6 +214,8 @@ describe("reconcileCanvasIcs -- course-import summary (CANVAS-LITE-04)", () => {
       linkedToExisting: 0,
       unmapped: 0,
       newlyStaged: 0,
+      rescheduleStaged: 0,
+      stagedDateUpdated: 0,
       courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 },
     });
 

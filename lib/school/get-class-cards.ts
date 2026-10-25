@@ -1,3 +1,4 @@
+import { untypedFrom } from "@/lib/self-mastery/untyped-from";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
 import { weekDatesFrom } from "@/lib/date-utils";
@@ -152,6 +153,8 @@ export type ClassCardData = {
       date: string | null;
       confidence: number;
       sourceSnippet: string | null;
+      /** Set when this row is a CHANGE to an assessment the person already has (a Canvas due date that moved): the date it has now. Confirming moves it instead of adding a second one. */
+      movesFrom?: string | null;
     }[];
   } | null;
   /** P3-14 -- this class's lecture recordings, most recent first. Actual
@@ -302,15 +305,24 @@ export async function getClassCards(
   const pendingBatchIds = [...pendingBatchIdByClass.values()];
   const { data: deliverableRows, error: deliverableError } =
     pendingBatchIds.length === 0
-      ? { data: [] as { id: string; batch_id: string; name: string; type: string; date: string | null; confidence: number; source_snippet: string | null }[], error: null }
-      : await supabase
-          .from("staged_deliverables")
-          .select("id, batch_id, name, type, date, confidence, source_snippet")
+      ? { data: [] as { id: string; batch_id: string; name: string; type: string; date: string | null; confidence: number; source_snippet: string | null; replaces_assessment_id?: string | null }[], error: null }
+      : // replaces_assessment_id (migration 282) is not in the generated types yet, so this one read goes through the untyped helper.
+        await untypedFrom(supabase, "staged_deliverables")
+          .select("id, batch_id, name, type, date, confidence, source_snippet, replaces_assessment_id")
           .eq("user_id", userId)
           .in("batch_id", pendingBatchIds)
           .is("committed_assessment_id", null)
-          .order("created_at", { ascending: true });
+          .order("created_at", { ascending: true })
+          .returns<{ id: string; batch_id: string; name: string; type: string; date: string | null; confidence: number; source_snippet: string | null; replaces_assessment_id?: string | null }[]>();
   if (deliverableError) throw deliverableError;
+
+  // The current date of every assessment a pending change would move, so the review can say "moves from <date>".
+  const replacedIds = [...new Set((deliverableRows ?? []).map((d) => d.replaces_assessment_id).filter((id): id is string => !!id))];
+  const movesFromById = new Map<string, string>();
+  if (replacedIds.length > 0) {
+    const { data: replacedRows } = await supabase.from("class_assessments").select("id, date").eq("user_id", userId).in("id", replacedIds);
+    for (const r of (replacedRows ?? []) as { id: string; date: string }[]) movesFromById.set(r.id, r.date);
+  }
 
   type PendingDeliverable = NonNullable<ClassCardData["pendingStagingBatch"]>["deliverables"][number];
   const deliverablesByBatch = new Map<string, PendingDeliverable[]>();
@@ -323,6 +335,7 @@ export async function getClassCards(
       date: d.date,
       confidence: d.confidence,
       sourceSnippet: d.source_snippet,
+      movesFrom: d.replaces_assessment_id ? (movesFromById.get(d.replaces_assessment_id) ?? null) : null,
     });
     deliverablesByBatch.set(d.batch_id, list);
   }

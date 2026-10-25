@@ -103,7 +103,10 @@ export function makeFakeDb(
       }
       return {
         then: (resolve: (v: unknown) => void) => resolve({ data: null, error: null }),
-        select: () => ({ then: (resolve: (v: unknown) => void) => resolve({ data: inserted, error: null }) }),
+        select: () => ({
+          then: (resolve: (v: unknown) => void) => resolve({ data: inserted, error: null }),
+          single: async () => ({ data: inserted[0] ?? null, error: null }),
+        }),
       };
     });
     chain.maybeSingle = vi.fn(async () => {

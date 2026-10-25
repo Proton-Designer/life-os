@@ -66,16 +66,16 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
     const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [], error: null }] });
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "10", summary: "Essay 2", dtstart: "20261005T235900Z" }]));
 
-    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 1, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 1, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
     expect(createStagingBatchCoreMock).toHaveBeenCalledWith(client, "user-1", "class-1", "canvas_assignment", undefined, undefined, "42");
     expect(createStagedDeliverablesCoreMock).toHaveBeenCalledWith(client, "user-1", "batch-new", [{ name: "Essay 2", type: "homework_assignment", date: "2026-10-05", confidence: 1, sourceSnippet: null }]);
   });
 
   it("an assignment already LINKED (class_assessments.canvas_assignment_id) is skipped, not re-staged", async () => {
-    const { client } = makeClient({ class_assessments: [{ data: [{ canvas_assignment_id: "42" }], error: null }], staging_batches: [{ data: [], error: null }] });
+    const { client } = makeClient({ class_assessments: [{ data: [{ canvas_assignment_id: "42", date: "2026-10-05" }], error: null }], staging_batches: [{ data: [], error: null }] });
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "10", summary: "Essay 2", dtstart: "20261005T235900Z" }]));
 
-    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 1, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 1, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
     expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
   });
 
@@ -83,7 +83,7 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
     const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [{ canvas_assignment_id: "42" }], error: null }] });
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "10", summary: "Essay 2", dtstart: "20261005T235900Z" }]));
 
-    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 1, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 1, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
     expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
   });
 
@@ -91,7 +91,7 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
     const { client } = makeClient({ class_assessments: [{ data: [], error: null }], staging_batches: [{ data: [], error: null }] });
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "20", summary: "Essay 2", dtstart: "20261005T235900Z" }]));
 
-    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 0, unmapped: 1, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 0, unmapped: 1, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
     expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
   });
 
@@ -180,14 +180,14 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
     const feed = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Guest lecture\r\nURL:https://school.instructure.com/courses/10/calendar_events/99\r\nEND:VEVENT\r\nEND:VCALENDAR";
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feed);
 
-    expect(result).toEqual({ parsedAssignmentEvents: 0, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 0, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } });
     expect(getMappedCoursesMock).not.toHaveBeenCalled();
   });
 
   it("an empty feed produces a zeroed result with no DB queries at all", async () => {
     const { client } = makeClient({});
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, "BEGIN:VCALENDAR\r\nEND:VCALENDAR");
-    expect(result).toEqual({ parsedAssignmentEvents: 0, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 0, alreadyCovered: 0, linkedToExisting: 0, unmapped: 0, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 0, skippedDismissed: 0 } });
     expect(getMappedCoursesMock).not.toHaveBeenCalled();
   });
 
@@ -205,7 +205,7 @@ describe("reconcileCanvasIcsCore (P3-13)", () => {
     });
     const result = await reconcileCanvasIcsCore(client, "user-1", tz, feedWith([{ assignmentId: "42", courseId: "10", summary: "essay 2", dtstart: "20261005T235900Z" }]));
 
-    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 1, unmapped: 0, newlyStaged: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
+    expect(result).toEqual({ parsedAssignmentEvents: 1, alreadyCovered: 0, linkedToExisting: 1, unmapped: 0, newlyStaged: 0, rescheduleStaged: 0, stagedDateUpdated: 0, courseImport: { created: 0, adopted: 0, alreadyLinked: 1, skippedDismissed: 0 } });
     expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
   });
 

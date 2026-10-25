@@ -344,8 +344,22 @@ describe("getClassCards", () => {
       expect(result[0]!.pendingStagingBatch).toEqual({
         id: "b1",
         source: "syllabus",
-        deliverables: [{ id: "d1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, sourceSnippet: "Midterm: Oct 1" }],
+        deliverables: [{ id: "d1", name: "Midterm", type: "exam", date: "2026-10-01", confidence: 0.9, sourceSnippet: "Midterm: Oct 1", movesFrom: null }],
       });
+    });
+
+    it("a pending CHANGE (replaces_assessment_id) carries the date of the assessment it would move", async () => {
+      const supabase = makeFakeSupabase({
+        classes: [classRow("c1")],
+        tasks: [],
+        class_assessments: [{ id: "a1", class_id: "c1", name: "Homework 4", type: "homework_assignment", date: "2026-10-30" }],
+        staging_batches: [{ id: "b1", class_id: "c1", source: "announcement", status: "pending", created_at: "2026-08-20T00:00:00Z" }],
+        staged_deliverables: [
+          { id: "d1", batch_id: "b1", name: "Homework 4", type: "homework_assignment", date: "2026-11-02", confidence: 1, source_snippet: null, committed_assessment_id: null, replaces_assessment_id: "a1" },
+        ],
+      });
+      const result = await getClassCards(supabase as never, "user-1", "2026-08-24", "2026-08-26");
+      expect(result[0]!.pendingStagingBatch!.deliverables[0]).toMatchObject({ date: "2026-11-02", movesFrom: "2026-10-30" });
     });
 
     it("P2-07 — surfaces an announcement-sourced pending batch's source field", async () => {

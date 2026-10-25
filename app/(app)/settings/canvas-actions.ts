@@ -555,6 +555,7 @@ export async function reconcileCanvasIcs(): Promise<IcsReconcileActionResult> {
 
   const parts: string[] = [];
   if (summary.newlyStaged > 0) parts.push(`${summary.newlyStaged} new assignment${summary.newlyStaged === 1 ? "" : "s"} staged for your review`);
+  if (summary.rescheduleStaged > 0) parts.push(`${summary.rescheduleStaged} due date change${summary.rescheduleStaged === 1 ? "" : "s"} staged for your review`);
   if (summary.linkedToExisting > 0) parts.push(`${summary.linkedToExisting} matched to an assessment you already entered`);
   // CANVAS-LITE-04: the SAME honest course-import summary the token path's
   // connectCanvas/refreshCanvasCourses already show -- a no-token student

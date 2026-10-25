@@ -266,6 +266,63 @@ describe("confirmStagingBatchCore", () => {
   });
 });
 
+describe("confirmStagingBatchCore — a staged CHANGE to an assessment the person already has (a Canvas due date that moved; migration 282)", () => {
+  function seedAssessment(tables: ReturnType<typeof createFakeDb>["tables"], overrides: Row = {}): Row {
+    const row = { id: "a1", user_id: "user-1", class_id: "class-1", name: "Homework 4", type: "homework_assignment", date: "2026-10-30", task_id: "t1", ...overrides };
+    tables.class_assessments.push(row);
+    tables.tasks.push({ id: "t1", user_id: "user-1", title: "Homework 4", due_date: "2026-10-30" });
+    return row;
+  }
+
+  it("confirming moves the EXISTING assessment (and its task) to the new date, creates no second assessment, and finalizes the batch", async () => {
+    const { client, tables, insertCounts } = createFakeDb();
+    seedBatch(tables, { source: "announcement" });
+    seedAssessment(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Homework 4", type: "homework_assignment", date: "2026-11-02", replaces_assessment_id: "a1" });
+
+    const result = await confirmStagingBatchCore(client as never, "user-1", "batch-1");
+
+    expect(result).toMatchObject({ status: "confirmed", committedCount: 1, remaining: [] });
+    expect(tables.class_assessments).toHaveLength(1);
+    expect(tables.class_assessments[0]!.date).toBe("2026-11-02");
+    expect(tables.tasks[0]!.due_date).toBe("2026-11-02");
+    expect(insertCounts.class_assessments).toBe(0);
+    expect(tables.staged_deliverables[0]!.committed_assessment_id).toBe("a1");
+  });
+
+  it("the person's edit to the staged date before confirming is what lands", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables, { source: "announcement" });
+    seedAssessment(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Homework 4", type: "homework_assignment", date: "2026-11-03", replaces_assessment_id: "a1" });
+    await confirmStagingBatchCore(client as never, "user-1", "batch-1");
+    expect(tables.class_assessments[0]!.date).toBe("2026-11-03");
+  });
+
+  it("a change and an ordinary new item in the same batch both land correctly", async () => {
+    const { client, tables, insertCounts } = createFakeDb();
+    seedBatch(tables, { source: "announcement" });
+    seedAssessment(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Homework 4", type: "homework_assignment", date: "2026-11-02", replaces_assessment_id: "a1" });
+    seedDeliverable(tables, { id: "sd-2", name: "Quiz 9", type: "quiz", date: "2026-11-09" });
+    const result = await confirmStagingBatchCore(client as never, "user-1", "batch-1");
+    expect(result.committedCount).toBe(2);
+    expect(tables.class_assessments).toHaveLength(2);
+    expect(insertCounts.class_assessments).toBe(1);
+  });
+
+  it("confirming twice does not change anything the second time", async () => {
+    const { client, tables } = createFakeDb();
+    seedBatch(tables, { source: "announcement" });
+    seedAssessment(tables);
+    seedDeliverable(tables, { id: "sd-1", name: "Homework 4", type: "homework_assignment", date: "2026-11-02", replaces_assessment_id: "a1" });
+    await confirmStagingBatchCore(client as never, "user-1", "batch-1");
+    const again = await confirmStagingBatchCore(client as never, "user-1", "batch-1");
+    expect(again.committedCount).toBe(0);
+    expect(tables.class_assessments).toHaveLength(1);
+  });
+});
+
 describe("updateStagedDeliverableCore", () => {
   it("corrects a staged item's name/type/date before confirm", async () => {
     const { client, tables } = createFakeDb();

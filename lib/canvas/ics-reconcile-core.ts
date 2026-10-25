@@ -39,6 +39,10 @@ export interface IcsReconcileResult {
   linkedToExisting: number;
   unmapped: number;
   newlyStaged: number;
+  /** A due date that moved in Canvas for an assessment the person already has: a CHANGE staged for them to confirm (never an overwrite). */
+  rescheduleStaged: number;
+  /** A date that moved for something still PENDING in staging: the staged date was updated in place. */
+  stagedDateUpdated: number;
   /**
    * CANVAS-LITE-04: a course seen ONLY through the ICS feed (never
    * token-connected, never agent-imported) now goes through the SAME
@@ -98,6 +102,8 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
     linkedToExisting: 0,
     unmapped: 0,
     newlyStaged: 0,
+    rescheduleStaged: 0,
+    stagedDateUpdated: 0,
     courseImport: EMPTY_COURSE_IMPORT,
   };
   if (parsedEvents.length === 0) return result;
@@ -139,9 +145,10 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
   const classIdByCourseId = new Map(courses.map((c) => [c.canvasCourseId, c.classId]));
 
   const assignmentIds = parsedEvents.map((e) => e.canvasAssignmentId);
-  const { data: stagedRows, error: stagedError } = await supabase.from("staging_batches").select("canvas_assignment_id").eq("user_id", userId).in("canvas_assignment_id", assignmentIds);
+  const { data: stagedRows, error: stagedError } = await supabase.from("staging_batches").select("id, canvas_assignment_id").eq("user_id", userId).in("canvas_assignment_id", assignmentIds);
   if (stagedError) throw stagedError;
   const stagedIds = new Set((stagedRows ?? []).map((r) => r.canvas_assignment_id as string));
+  const stagedBatchByAssignment = new Map((stagedRows ?? []).map((r) => [r.canvas_assignment_id as string, r.id as string]));
 
   const eventsByClassId = new Map<string, ParsedAssignmentEvent[]>();
   for (const event of parsedEvents) {
@@ -155,7 +162,7 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
   }
 
   for (const [classId, events] of eventsByClassId) {
-    const { data: rows, error: assessmentsError } = await supabase.from("class_assessments").select("id, canvas_assignment_id, name, date, points_earned, points_source").eq("user_id", userId).eq("class_id", classId);
+    const { data: rows, error: assessmentsError } = await supabase.from("class_assessments").select("id, canvas_assignment_id, name, date, type, points_earned, points_source").eq("user_id", userId).eq("class_id", classId);
     if (assessmentsError) throw assessmentsError;
 
     const assessments: LocalAssessment[] = (rows ?? []).map((r) => ({
@@ -166,11 +173,22 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
       pointsEarned: r.points_earned as number | null,
       pointsSource: r.points_source as string | null,
     }));
+    const typeById = new Map((rows ?? []).map((r) => [r.id as string, (r.type as string | null) ?? "homework_assignment"]));
     const byCanvasId = new Map(assessments.filter((a) => a.canvasAssignmentId).map((a) => [a.canvasAssignmentId as string, a]));
     let unlinked = assessments.filter((a) => !a.canvasAssignmentId);
 
     for (const event of events) {
-      if (byCanvasId.has(event.canvasAssignmentId) || stagedIds.has(event.canvasAssignmentId)) {
+      const linked = byCanvasId.get(event.canvasAssignmentId);
+      if (linked) {
+        // The assignment is already the person's own assessment, so a date that moved in Canvas is a CHANGE for them to confirm.
+        if (event.dateStr && linked.date && event.dateStr !== linked.date) await stageReschedule(supabase, userId, classId, linked, typeById.get(linked.id) ?? "homework_assignment", event.dateStr, result);
+        result.alreadyCovered++;
+        continue;
+      }
+      if (stagedIds.has(event.canvasAssignmentId)) {
+        // Still pending in staging: the staged date follows the feed (a confirmed one is already an assessment, handled above).
+        const batchId = stagedBatchByAssignment.get(event.canvasAssignmentId);
+        if (batchId && event.dateStr) await updatePendingStagedDate(supabase, userId, batchId, event.dateStr, result);
         result.alreadyCovered++;
         continue;
       }
@@ -198,4 +216,67 @@ export async function reconcileCanvasIcsCore(supabase: SupabaseClient, userId: s
   }
 
   return result;
+}
+
+/** A date that moved for an item still waiting in a pending batch: update the staged row in place. Rows already committed to an assessment are never touched. */
+async function updatePendingStagedDate(supabase: SupabaseClient, userId: string, batchId: string, newDate: string, result: IcsReconcileResult): Promise<void> {
+  const { data, error } = await supabase.from("staged_deliverables").select("id, date").eq("user_id", userId).eq("batch_id", batchId).is("committed_assessment_id", null);
+  if (error) throw error;
+  for (const row of (data ?? []) as { id: string; date: string | null }[]) {
+    if (row.date === newDate) continue;
+    const { error: updateError } = await supabase.from("staged_deliverables").update({ date: newDate }).eq("id", row.id).eq("user_id", userId).is("committed_assessment_id", null);
+    if (updateError) throw updateError;
+    result.stagedDateUpdated++;
+  }
+}
+
+/**
+ * A due date moved in Canvas for an assessment the person already has: stage a CHANGE (a staged deliverable that REPLACES that assessment,
+ * migration 282) in a batch they review and confirm, the way an announcement's "rescheduled" is staged. The stored date is never overwritten
+ * silently. A change already waiting for this assessment follows the feed in place; a change proposed before (the batch persists after a
+ * confirm or a reject, with the exact text below) is not proposed again.
+ */
+async function stageReschedule(
+  supabase: SupabaseClient,
+  userId: string,
+  classId: string,
+  assessment: LocalAssessment,
+  type: string,
+  newDate: string,
+  result: IcsReconcileResult,
+): Promise<void> {
+  const { data: pending, error: pendingError } = await supabase
+    .from("staged_deliverables")
+    .select("id, date")
+    .eq("user_id", userId)
+    .eq("replaces_assessment_id", assessment.id)
+    .is("committed_assessment_id", null);
+  if (pendingError) throw pendingError;
+  const waiting = (pending ?? []) as { id: string; date: string | null }[];
+  if (waiting.length > 0) {
+    for (const row of waiting) {
+      if (row.date === newDate) continue;
+      const { error } = await supabase.from("staged_deliverables").update({ date: newDate }).eq("id", row.id).eq("user_id", userId).is("committed_assessment_id", null);
+      if (error) throw error;
+      result.stagedDateUpdated++;
+    }
+    return;
+  }
+
+  const marker = `Canvas calendar: "${assessment.name}" moved from ${assessment.date} to ${newDate} (change ${assessment.id})`;
+  const { data: proposedBefore, error: seenError } = await supabase.from("staging_batches").select("id").eq("user_id", userId).eq("raw_text", marker).limit(1);
+  if (seenError) throw seenError;
+  if ((proposedBefore ?? []).length > 0) return;
+
+  const batchId = await createStagingBatchCore(supabase, userId, classId, "announcement", marker);
+  const item: ExtractedItem = {
+    name: assessment.name,
+    type: type as ExtractedItem["type"],
+    date: newDate,
+    confidence: 1,
+    sourceSnippet: null,
+    replacesAssessmentId: assessment.id,
+  };
+  await createStagedDeliverablesCore(supabase, userId, batchId, [item]);
+  result.rescheduleStaged++;
 }

@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { addClassAssessmentCore, type AssessmentType } from "@/lib/school/actions-core";
+import { addClassAssessmentCore, updateClassAssessmentCore, type AssessmentType } from "@/lib/school/actions-core";
 import type { ExtractedItem } from "@/lib/school/syllabus-extraction";
 
 export type StagingBatchSource = "syllabus" | "announcement" | "canvas_assignment";
@@ -87,7 +87,7 @@ export async function confirmStagingBatchCore(
 
   const { data: uncommitted, error: rowsError } = await supabase
     .from("staged_deliverables")
-    .select("id, name, type, date")
+    .select("id, name, type, date, replaces_assessment_id")
     .eq("batch_id", batchId)
     .eq("user_id", userId)
     .is("committed_assessment_id", null);
@@ -102,6 +102,21 @@ export async function confirmStagingBatchCore(
       continue;
     }
     try {
+      // A CHANGE to an assessment the person already has (a Canvas due date that moved): update that assessment, never create a second one.
+      if (row.replaces_assessment_id) {
+        await updateClassAssessmentCore(supabase, userId, row.replaces_assessment_id as string, { name: row.name, type: row.type as AssessmentType, date: row.date });
+        const { data: stampedChange, error: stampChangeError } = await supabase
+          .from("staged_deliverables")
+          .update({ committed_assessment_id: row.replaces_assessment_id })
+          .eq("id", row.id)
+          .eq("user_id", userId)
+          .is("committed_assessment_id", null)
+          .select("id");
+        if (stampChangeError) throw stampChangeError;
+        // Lost a race with a concurrent confirm: the update above was identical and idempotent, and there is nothing orphaned to clean up.
+        if (stampedChange && stampedChange.length > 0) committedCount++;
+        continue;
+      }
       const { assessmentId, taskId } = await addClassAssessmentCore(
         supabase,
         userId,
@@ -230,6 +245,8 @@ export async function createStagedDeliverablesCore(
       date: item.date,
       confidence: item.confidence,
       source_snippet: item.sourceSnippet,
+      // Only sent when set: every other caller keeps working against a database that predates migration 282.
+      ...(item.replacesAssessmentId ? { replaces_assessment_id: item.replacesAssessmentId } : {}),
     }))
   );
   if (error) throw error;

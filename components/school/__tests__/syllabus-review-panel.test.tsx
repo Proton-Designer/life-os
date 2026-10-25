@@ -122,4 +122,18 @@ describe("SyllabusReviewPanel", () => {
     expect(await screen.findByText(/still needs a date/i)).toBeInTheDocument();
     expect(refreshMock).not.toHaveBeenCalled();
   });
+
+  describe("a CHANGE to an assessment the person already has (a due date moved in Canvas)", () => {
+    it("says it moves the existing item from its current date, and that nothing changes until confirmed", () => {
+      render(<SyllabusReviewPanel batch={batch([deliverable({ id: "c1", name: "Homework 4", type: "homework_assignment", date: "2026-11-02", movesFrom: "2026-10-30" })], "announcement")} />);
+      expect(screen.getByTestId("syllabus-review-moves-c1")).toHaveTextContent("Moves your existing item from Oct 30");
+      expect(screen.getByTestId("syllabus-review-moves-c1")).toHaveTextContent(/until you confirm/i);
+      expect(screen.getByLabelText("Date for Homework 4")).toHaveValue("2026-11-02");
+    });
+
+    it("an ordinary new item has no 'moves' line", () => {
+      render(<SyllabusReviewPanel batch={batch([deliverable()])} />);
+      expect(screen.queryByTestId("syllabus-review-moves-d1")).not.toBeInTheDocument();
+    });
+  });
 });
