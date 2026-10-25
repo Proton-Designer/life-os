@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import { Minus, Sunrise } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Panel } from "@/components/ui/panel";
 import { useOptimisticItem } from "@/lib/client/use-optimistic-item";
 import { setMorningBriefCollapsed } from "@/app/(app)/morning-brief-actions";
+import { briefNeedsClamp, briefParagraphs } from "@/lib/morning-brief/brief-source";
 
 type BriefState = { hasBrief: boolean; collapsed: boolean; error: string | null; setCollapsed: (next: boolean) => void };
 const BriefContext = createContext<BriefState>({ hasBrief: false, collapsed: false, error: null, setCollapsed: () => {} });
@@ -44,9 +45,12 @@ export function MorningBriefProvider({
 }
 
 /** The brief panel: shown while expanded, with a minimize button top-right; renders nothing while folded. */
-export function MorningBriefPanel({ text }: { text: string }) {
+export function MorningBriefPanel({ text, sourceLabel }: { text: string; sourceLabel?: string | null }) {
   const { collapsed, error, setCollapsed } = useContext(BriefContext);
+  const [expanded, setExpanded] = useState(false);
   if (collapsed) return null;
+  const clampable = briefNeedsClamp(text);
+  const clamped = clampable && !expanded;
   return (
     <Panel
       title="Your morning brief"
@@ -57,7 +61,24 @@ export function MorningBriefPanel({ text }: { text: string }) {
         </Button>
       }
     >
-      <p className="whitespace-pre-line text-sm text-muted-foreground">{text}</p>
+      {/* Plain text only: React escapes it, and nothing here uses dangerouslySetInnerHTML (an agent wrote this text). */}
+      <div data-testid="brief-body" data-clamped={clamped ? "true" : "false"} className={clamped ? "max-h-40 space-y-2 overflow-hidden text-sm text-muted-foreground" : "space-y-2 text-sm text-muted-foreground"}>
+        {briefParagraphs(text).map((paragraph, i) => (
+          <p key={i} data-brief-paragraph className="whitespace-pre-line">
+            {paragraph}
+          </p>
+        ))}
+      </div>
+      {clampable ? (
+        <Button type="button" variant="ghost" size="sm" className="mt-1 -ml-2 h-7 px-2 text-xs" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Show less" : "Show more"}
+        </Button>
+      ) : null}
+      {sourceLabel ? (
+        <p data-testid="brief-source" className="mt-2 text-xs text-muted-foreground/80">
+          {sourceLabel}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-xs text-destructive">
           {error}

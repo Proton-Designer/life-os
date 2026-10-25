@@ -17,7 +17,7 @@ describe("Home morning-brief wiring", () => {
     const actions = page.slice(start, page.indexOf("</>", start));
     expect(actions.indexOf("<MorningBriefToggle")).toBeGreaterThan(-1);
     expect(actions.indexOf("<MorningBriefToggle")).toBeLessThan(actions.indexOf("<WidgetManagerButton"));
-    expect(page).toContain("<MorningBriefPanel text={morningBrief} />");
+    expect(page).toContain("<MorningBriefPanel text={morningBrief.text} sourceLabel={briefSourceLabel(morningBrief.provider, morningBrief.model)} />");
   });
   it("positive control: a header with the toggle AFTER the edit button would fail the order check", () => {
     const wrong = "<WidgetManagerButton /><MorningBriefToggle />";

@@ -28,6 +28,16 @@ describe("registry", () => {
     expect(entity!.filterableColumns).toEqual([]);
   });
 
+  it("home.morning_brief reads ai_morning_briefs, newest day first, and says where each brief came from", () => {
+    const entity = getEntity("home", "morning_brief");
+    expect(entity).not.toBeNull();
+    expect(entity!.table).toBe("ai_morning_briefs");
+    expect(entity!.summaryColumns).toEqual(expect.arrayContaining(["brief_date", "brief_text", "provider", "model"]));
+    expect(entity!.orderBy[0]).toEqual({ column: "brief_date", ascending: false });
+    expect(entity!.updatedAtColumn).toBe("generated_at");
+    expect(entity!.fullColumns).toEqual(expect.arrayContaining(entity!.summaryColumns));
+  });
+
   it("getDomain returns null for an unregistered domain, never throws", () => {
     expect(getDomain("nonexistent_domain")).toBeNull();
   });

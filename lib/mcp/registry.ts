@@ -1611,8 +1611,23 @@ export const REGISTRY: Record<string, DomainDef> = {
   },
   home: {
     domain: "home",
-    description: "The Home dashboard. Aggregation only, no tables of its own -- every number it shows is read through some other domain's own entity.",
-    entities: {},
+    description: "The Home dashboard. Almost all of it is aggregation, read through other domains' entities; its one table of its own is the Morning Brief (morning_brief), which an agent can write with write(day, morning_brief, write).",
+    entities: {
+      morning_brief: {
+        entity: "morning_brief",
+        table: "ai_morning_briefs",
+        description: "The Morning Brief shown on Home, one per local day: brief_text, and where it came from (provider 'mcp' = written by a connected agent, model = that client's name; anything else = the built-in nightly brief). Recent days first.",
+        idColumn: "id",
+        updatedAtColumn: "generated_at",
+        updatedAtVerification:
+          "generated_at is set by both write paths: the nightly cron's fillBriefSlot (lib/ai/morning-brief.ts) and write_agent_morning_brief (migration 274, now() on every upsert). It is NULL only on the cron's momentary claim row, which holds no text yet.",
+        summaryColumns: ["brief_date", "brief_text", "provider", "model"],
+        fullColumns: ["brief_date", "brief_text", "provider", "model", "generated_at", "created_at"],
+        filterableColumns: ["brief_date", "provider"],
+        rangeFilterableColumns: ["brief_date"],
+        orderBy: [{ column: "brief_date", ascending: false }],
+      },
+    },
   },
   widgets: {
     domain: "widgets",

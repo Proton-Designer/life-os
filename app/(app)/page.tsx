@@ -62,6 +62,7 @@ import { selectNextActionPerDomain } from "@/lib/home/next-actions";
 import { buildCandidatesFromPriorityItems, buildSelfMasteryCandidate } from "@/lib/home/build-candidates";
 import { rankCandidates } from "@/lib/home/arbiter";
 import { getMorningBriefForToday } from "@/lib/ai/morning-brief";
+import { briefSourceLabel } from "@/lib/morning-brief/brief-source";
 import { loadHomeWindDown } from "@/lib/home/wind-down-home";
 import { WindDownCard } from "@/components/home/wind-down-card";
 import { getMyMorningRoutineChecklist } from "@/app/(app)/morning-routine/actions";
@@ -370,7 +371,7 @@ export default async function HomePage() {
       ) : null}
 
       <LayoutSlot layout={layoutMap} widgetKey="morning_brief">
-        {morningBrief ? <MorningBriefPanel text={morningBrief} /> : null}
+        {morningBrief ? <MorningBriefPanel text={morningBrief.text} sourceLabel={briefSourceLabel(morningBrief.provider, morningBrief.model)} /> : null}
       </LayoutSlot>
 
       <LayoutSlot layout={layoutMap} widgetKey="rhythm">

@@ -283,14 +283,23 @@ export async function dispatchNightlyMorningBriefs(supabase: SupabaseClient, now
  * indistinguishable-by-design reason: not yet generated today, no key,
  * cap hit, or a provider failure -- Home renders nothing in all of them.
  */
-export async function getMorningBriefForToday(supabase: SupabaseClient, userId: string, now: Date, timezone: string): Promise<string | null> {
+export interface MorningBriefView {
+  text: string;
+  /** 'mcp' = written by a connected agent; anything else is the built-in nightly brief. */
+  provider: string | null;
+  /** For an agent brief, the connecting token's name (or 'agent'). */
+  model: string | null;
+}
+
+export async function getMorningBriefForToday(supabase: SupabaseClient, userId: string, now: Date, timezone: string): Promise<MorningBriefView | null> {
   const todayStr = localDateString(now, timezone);
   const { data, error } = await untypedFrom(supabase, "ai_morning_briefs")
-    .select("brief_text")
+    .select("brief_text, provider, model")
     .eq("user_id", userId)
     .eq("brief_date", todayStr)
     .maybeSingle()
-    .returns<{ brief_text: string | null } | null>();
-  if (error || !data) return null;
-  return data.brief_text;
+    .returns<{ brief_text: string | null; provider: string | null; model: string | null } | null>();
+  // A claim row with no text yet (the cron mid-generation) reads as no brief, same as before.
+  if (error || !data || !data.brief_text) return null;
+  return { text: data.brief_text, provider: data.provider, model: data.model };
 }

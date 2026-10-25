@@ -340,9 +340,20 @@ describe("getMorningBriefForToday()", () => {
   }
 
   it("returns the stored brief text for today", async () => {
-    const client = makeClient({ data: { brief_text: "a\nb\nc" }, error: null });
+    const client = makeClient({ data: { brief_text: "a\nb\nc", provider: "user", model: "" }, error: null });
     const result = await getMorningBriefForToday(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "America/Chicago");
-    expect(result).toBe("a\nb\nc");
+    expect(result).toEqual({ text: "a\nb\nc", provider: "user", model: "" });
+  });
+
+  it("carries an agent brief's source (provider 'mcp' + the client's name)", async () => {
+    const client = makeClient({ data: { brief_text: "Hello", provider: "mcp", model: "Claude" }, error: null });
+    const result = await getMorningBriefForToday(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "America/Chicago");
+    expect(result).toEqual({ text: "Hello", provider: "mcp", model: "Claude" });
+  });
+
+  it("an empty claim row (no text yet) is no brief", async () => {
+    const client = makeClient({ data: { brief_text: null, provider: null, model: null }, error: null });
+    expect(await getMorningBriefForToday(client, "user-1", new Date("2026-09-15T13:00:00.000Z"), "America/Chicago")).toBeNull();
   });
 
   it("returns null when no row exists for today (not yet generated, no key, cap hit, or failure -- indistinguishable by design)", async () => {
