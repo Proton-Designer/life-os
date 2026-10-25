@@ -30,6 +30,15 @@
  *   even mentioned there). `grok-4.3` is the same numbered flagship family
  *   as `grok-4.6` at a cheaper point release, with no specialized naming —
  *   the safer bet for a GENERAL-purpose budget model.
+ *
+ * STALENESS CHECK 2026-10-25 (against each provider's own docs): updated above where the replacement id AND price were
+ * verified (Anthropic -> Claude 5.5 family, OpenAI budget -> gpt-6-luna, xAI flagship -> grok-4.7). STILL STALE, left alone
+ * because the replacement could not be verified: (1) google flagship `gemini-2.5-pro` is two generations back (newer:
+ * gemini-3.1-pro-preview, gemini-3.8-flash, gemini-4-argon; Argon's price was not found); google budget
+ * `gemini-3.5-flash-lite` is labelled previous-generation but available. (2) moonshot budget `kimi-k2.6`: the K2 series is
+ * closed to NEWLY REGISTERED users from 2026-10-31 and retired by the end of December 2026; the replacement line (kimi-k3,
+ * kimi-k3.1-pro) always thinks (no way to disable) and costs several times more, kimi-k3.1-pro's price was not found; the
+ * flagship `kimi-k3` is previous-generation. A new Kimi user after 2026-10-31 will fail "Test key" on kimi-k2.6.
  */
 
 export interface CatalogModel {
@@ -58,15 +67,19 @@ export const MODEL_CATALOG: Record<string, CatalogEntry> = {
     budget: { id: "deepseek-flash", inputUsdPer1M: 0.15, outputUsdPer1M: 0.6, source: "https://api-docs.deepseek.com/quick_start/pricing", fetchedAt: "2026-09-13" },
   },
   anthropic: {
-    // IDs and prices from the Phase-1 Opus lead's message directly (Ayman's
-    // own reference), not independently re-fetched by this file's author.
-    flagship: { id: "claude-opus-5", inputUsdPer1M: 5, outputUsdPer1M: 25, source: "Anthropic's current model reference, via the Phase-1 lead", fetchedAt: "2026-09-14" },
-    budget: { id: "claude-haiku-4-5", inputUsdPer1M: 1, outputUsdPer1M: 5, source: "Anthropic's current model reference, via the Phase-1 lead", fetchedAt: "2026-09-14" },
-    mid: { id: "claude-sonnet-5", inputUsdPer1M: 2, outputUsdPer1M: 10, source: "Anthropic's current model reference, via the Phase-1 lead", fetchedAt: "2026-09-14" },
+    // UPDATED 2026-10-25 to the Claude 5.5 generation (ids and prices from the current Anthropic API model reference).
+    // The old entries (claude-opus-5 $5/$25, claude-sonnet-5 $2/$10, claude-haiku-4-5 $1/$5) are all still served, just not current.
+    // Haiku 5.5's list price steps up for prompts over 100K tokens ($0.50 / $2.50): this flat rate is right for ingestion
+    // (a few thousand tokens a call) and would under-estimate a very long prompt.
+    flagship: { id: "claude-opus-5-5", inputUsdPer1M: 4, outputUsdPer1M: 20, source: "Anthropic API model reference (Claude Opus 5.5)", fetchedAt: "2026-10-25" },
+    budget: { id: "claude-haiku-5-5", inputUsdPer1M: 0.1, outputUsdPer1M: 0.5, source: "Anthropic API model reference (Claude Haiku 5.5, prompts up to 100K tokens)", fetchedAt: "2026-10-25" },
+    mid: { id: "claude-sonnet-5-5", inputUsdPer1M: 2, outputUsdPer1M: 10, source: "Anthropic API model reference (Claude Sonnet 5.5)", fetchedAt: "2026-10-25" },
   },
   openai: {
     flagship: { id: "gpt-6-astra", inputUsdPer1M: 10, outputUsdPer1M: 50, source: "https://developers.openai.com/api/docs/pricing", fetchedAt: "2026-09-14" },
-    budget: { id: "gpt-5-nano", inputUsdPer1M: 0.05, outputUsdPer1M: 0.4, source: "https://developers.openai.com/api/docs/pricing", fetchedAt: "2026-09-14" },
+    // UPDATED 2026-10-25: gpt-5-nano (and gpt-5.4-nano) are marked Deprecated on OpenAI's all-models page; their stated
+    // replacement for cost-sensitive high-volume work is GPT-6 Luna (gpt-6-luna, $0.10 / $0.50 per 1M, reasoning none..max).
+    budget: { id: "gpt-6-luna", inputUsdPer1M: 0.1, outputUsdPer1M: 0.5, source: "https://developers.openai.com/api/docs/models", fetchedAt: "2026-10-25" },
   },
   google: {
     // gemini-2.5-pro chosen over the newer gemini-3.1-pro-preview -- see
@@ -81,7 +94,8 @@ export const MODEL_CATALOG: Record<string, CatalogEntry> = {
   xai: {
     // grok-build-0.1 deliberately NOT used as budget -- see this file's own
     // header for why.
-    flagship: { id: "grok-4.6", inputUsdPer1M: 2, outputUsdPer1M: 6, source: "https://docs.x.ai/docs/models", fetchedAt: "2026-09-14" },
+    // UPDATED 2026-10-25: grok-4.7 is xAI's current flagship at the same price as grok-4.6 ($2 / $6, under 200k prompt tokens).
+    flagship: { id: "grok-4.7", inputUsdPer1M: 2, outputUsdPer1M: 6, source: "https://docs.x.ai/developers/pricing", fetchedAt: "2026-10-25" },
     budget: { id: "grok-4.3", inputUsdPer1M: 1.25, outputUsdPer1M: 2.5, source: "https://docs.x.ai/docs/models", fetchedAt: "2026-09-14" },
   },
 };
