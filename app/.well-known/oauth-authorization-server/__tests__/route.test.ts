@@ -12,7 +12,7 @@ describe("GET /.well-known/oauth-authorization-server", () => {
     expect(body.registration_endpoint).toBe("https://lifeos.example.com/api/mcp/oauth/register");
     expect(body.code_challenge_methods_supported).toEqual(["S256"]);
     expect(body.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
-    expect(body.scopes_supported).toEqual(["read", "write"]);
+    expect(body.scopes_supported).toEqual(["read", "write", "jobs"]);
   });
 
   it("derives the origin from proxy-forwarding headers, not a hardcoded host", async () => {
