@@ -13,8 +13,15 @@ export const tooManyPagesMessage = (pageCount: number, maxPages: number) =>
 /**
  * An AI block is about the ACCOUNT, not the file, and it can clear (a key is added, a month turns over), so these stay retryable: they are deliberately NOT in FILE_PROBLEM_PATTERNS.
  */
-export const NO_KEY_MESSAGE = "AI isn't set up for your account yet. Add an API key in Settings, then tap Try again.";
+export const NO_KEY_MESSAGE =
+  "AI isn't set up for your account yet. Add an API key in Settings, or connect an agent (Claude or ChatGPT) under Settings > Connector so it can do this for you, then tap Try again.";
 export const MONTHLY_CAP_MESSAGE = "You've used this month's AI budget, so this book couldn't be processed. Tap Try again once it resets or is raised.";
+/** Book steps done by the owner's connected agent (agent work queue). Retryable like any AI block: they are not about the file. */
+export const AGENT_CANCELLED_MESSAGE = "You cancelled your agent's work on this book. Tap Try again to start it over.";
+export const AGENT_TIMEOUT_MESSAGE = "Your agent didn't finish a step of this book in time. Check that its scheduled task is running, then tap Try again.";
+export const agentUnitFailedMessage = (reason: string | null | undefined) =>
+  `Your agent couldn't finish a step of this book${reason ? ` (${reason.replace(/\s+/g, " ").trim().slice(0, 160)})` : ""}. Tap Try again.`;
+
 export const AI_BLOCK_MESSAGE = { no_key: NO_KEY_MESSAGE, monthly_cap: MONTHLY_CAP_MESSAGE } as const;
 
 export const EMPTY_DOCUMENT_MESSAGE = "We couldn't find any readable text in this file. Check that it isn't empty or only images, then upload it again.";

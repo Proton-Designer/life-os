@@ -57,8 +57,8 @@ export async function claimAgentJobsCore(supabase: SupabaseClient, args: { kind?
       untrusted_input: r.input,
       attempts: r.attempts,
       lease_until: r.lease_until,
-      instructions: `${def.task}\n\n${JOB_INPUT_IS_DATA}`,
-      output_schema: def.outputSchema,
+      instructions: `${typeof def.task === "function" ? def.task(r.input) : def.task}\n\n${JOB_INPUT_IS_DATA}`,
+      output_schema: typeof def.outputSchema === "function" ? def.outputSchema(r.input) : def.outputSchema,
     };
   });
 }

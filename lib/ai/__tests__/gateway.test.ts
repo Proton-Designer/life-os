@@ -489,11 +489,11 @@ describe("gatewayChat()", () => {
 
   describe("ingestionNoKeyMessage", () => {
     it("names the resolved provider when one is known", () => {
-      expect(ingestionNoKeyMessage("Claude")).toBe("Add an API key for Claude in Settings to process books.");
+      expect(ingestionNoKeyMessage("Claude")).toBe("Add an API key for Claude in Settings, or connect an agent under Settings > Connector, to process books.");
     });
 
     it("falls back to a generic message when no provider could be resolved", () => {
-      expect(ingestionNoKeyMessage(undefined)).toBe("Add an AI provider key in Settings to process books.");
+      expect(ingestionNoKeyMessage(undefined)).toBe("Add an AI provider key in Settings, or connect an agent under Settings > Connector, to process books.");
     });
   });
 });

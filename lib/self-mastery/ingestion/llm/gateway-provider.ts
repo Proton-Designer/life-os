@@ -195,7 +195,7 @@ export interface DeepSeekUsage {
  * line ending; (2) otherwise the span from the first `{` (or `[`) to the last matching closer; (3) otherwise the trimmed
  * text unchanged, which then fails JSON.parse exactly as before (a reply with no JSON at all stays "unparseable").
  */
-function stripJsonFence(raw: string): string {
+export function stripJsonFence(raw: string): string {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);
   const inner = (fenced ? fenced[1]! : trimmed).trim();
@@ -207,13 +207,13 @@ function stripJsonFence(raw: string): string {
   return last > firstBrace ? inner.slice(firstBrace, last + 1) : inner;
 }
 
-const EXTRACT_LESSONS_SYSTEM_PROMPT =
+export const EXTRACT_LESSONS_SYSTEM_PROMPT =
   "You extract teachable lessons from book passages. Respond entirely in English regardless of the source language.";
 
-const GENERATE_CARDS_SYSTEM_PROMPT =
+export const GENERATE_CARDS_SYSTEM_PROMPT =
   "You write retrieval-practice study questions from a lesson, without revealing the answer in the question.";
 
-const ENTAILMENT_SYSTEM_PROMPT =
+export const ENTAILMENT_SYSTEM_PROMPT =
   "You are checking whether a source passage backs up a claim that was derived from it as a paraphrase or generalization. The claim is normally NOT a verbatim restatement of the passage. Only mark it down if the passage's actual point is a DIFFERENT specific idea than the claim, or the OPPOSITE of the claim.";
 
 /**
@@ -255,6 +255,65 @@ export class GatewayLlmProvider implements LlmProvider {
   ) {}
 
   public lastUsage: DeepSeekUsage | null = null;
+
+  /** The user prompt of one extractLessons call (the same text the in-app path sends). Exported through the class so the agent work queue can hand an agent the identical rules. */
+  static extractLessonsUserPrompt(input: ExtractLessonsInput, strictnessNote = ""): string {
+    return `Extract up to 2 distinct teachable lessons from this passage.
+
+Rules:
+- FIRST identify the ONE sentence (or short span) in the passage that the lesson is actually about. "provenance_quote" MUST be that exact span, copied verbatim (same words, same order, same punctuation) -- it is the specific sentence you are restating, not just any true/interesting sentence elsewhere in the passage. If you cannot point to the specific sentence a claim comes from, do not include that lesson.
+- "core_claim" restates THAT SAME sentence's specific point in SUBSTANTIALLY DIFFERENT WORDS -- different vocabulary and sentence structure, not the quote with one or two words swapped. A claim that shares its structure or most of its phrasing with the quote will be rejected outright, even if it is otherwise accurate.
+- "mechanism" must actually explain WHY the claim is true, staying on the same topic as the claim.
+- "title" must be short and imperative where natural (e.g. "Use the two-minute rule", not "On starting"), AND must be about the exact same specific point as core_claim.
+- "action_template" must be a specific, concrete action tied to this exact claim, not generic advice.
+- If the passage has no extractable lesson, return an empty lessons array.${strictnessNote}
+
+Passage (${input.locationLabel ?? `page ${input.pageStart}`}):
+"""
+${input.chunkText}
+"""
+
+Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mechanism": "...", "action_template": "...", "provenance_quote": "..."}]}`;
+  }
+
+  /** The user prompt of one generateCards call (the same text the in-app path sends). */
+  static generateCardsUserPrompt(lesson: CandidateLesson, strictnessNote = ""): string {
+    return `Given this lesson, write retrieval-practice questions that do NOT reveal or restate the answer in the question itself -- the reader must recall it from memory.
+
+Lesson title: ${lesson.title}
+Core claim: ${lesson.coreClaim}
+Mechanism: ${lesson.mechanism}
+Action: ${lesson.actionTemplate}
+
+Write:
+1. free_recall_prompt -- names the general topic/subject (so the reader knows which lesson this is) WITHOUT quoting or hinting at the claim's specific content words.
+2. application_prompt -- a concrete, situational "you're in situation Y" question, specific enough that answering it requires applying THIS lesson.
+3. application_answer -- a 1-2 sentence answer specific to the scenario just described, not a restatement of the generic action_template.
+4. why_prompt -- asks the reader to explain the mechanism in their own words, without revealing it.${strictnessNote}
+
+Return ONLY strict JSON: {"free_recall_prompt": "...", "application_prompt": "...", "application_answer": "...", "why_prompt": "..."}`;
+  }
+
+  /** The user prompt of one checkEntailment call (the same text the in-app path sends). */
+  static entailmentUserPrompt(input: EntailmentCheckInput): string {
+    return `The claim is normally NOT a verbatim restatement of the passage -- it's a summary or a drawn-out implication, written in different words, sometimes about a specific instance of what the passage says more generally (or vice versa). That is expected and should still count as SUPPORTS. Only mark it down if the passage's actual point is a DIFFERENT specific idea than the claim, or the OPPOSITE of the claim.
+
+Example 1 (SUPPORTS): Claim: "Practicing gratitude improves mood." Passage: "Every evening she wrote down three things she was thankful for, and noticed she felt lighter and more at ease by the end of the week." -- SUPPORTS, because the passage is a concrete instance of gratitude practice leading to improved mood, even though it never uses the words "gratitude", "improves", or "mood".
+
+Example 2 (CONTRADICTS): Claim: "Sacrifice motivated by love brings peace." Passage: "He gave up everything out of dread and terror, desperate to avoid punishment." -- CONTRADICTS, because the passage's actual motive is fear and dread, the opposite of the claim's stated motive of love.
+
+Example 3 (UNRELATED): Claim: "Recognizing your inner worth restores your health." Passage: "You are never stuck for good -- you can choose to leave despair behind, and once you commit to that choice, every resource you have will help carry you there." -- UNRELATED, because the passage is about the power of choosing to change one's situation, not about recognizing inner worth, and it never connects to health at all -- a thematically similar passage about self-belief is not evidence for THIS specific claim.
+
+Now judge this pair:
+
+Claim: "${input.claim}"
+
+Passage: "${input.quote}"
+
+First, in one short sentence, state the passage's own specific point in your own words. Then compare it to the claim and decide.
+
+Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verdict": "SUPPORTS" | "CONTRADICTS" | "UNRELATED", "reason": "<one short sentence>"}`;
+  }
 
   /**
    * The one place this class talks to the network, always through
@@ -405,7 +464,7 @@ export class GatewayLlmProvider implements LlmProvider {
    * whether the raw `lessons` array came from a single-passage call or one
    * slot of a combined batch call.
    */
-  private parseLessonCandidates(
+  static parseLessonCandidates(
     rawLessons: unknown[],
     evidenceStrength: EvidenceStrength,
     pageStart: number,
@@ -460,22 +519,7 @@ export class GatewayLlmProvider implements LlmProvider {
         attempt === 0
           ? ""
           : "\nIMPORTANT: a previous attempt's core_claim was rejected -- either it was too close to a copy of the quote (shared too much wording/structure), or its title drifted to a different topic than the claim itself. This time, express the claim in clearly different words and sentence structure, and make sure the title is about the SAME specific point as the claim, not just the same general subject.";
-      const userPrompt = `Extract up to 2 distinct teachable lessons from this passage.
-
-Rules:
-- FIRST identify the ONE sentence (or short span) in the passage that the lesson is actually about. "provenance_quote" MUST be that exact span, copied verbatim (same words, same order, same punctuation) -- it is the specific sentence you are restating, not just any true/interesting sentence elsewhere in the passage. If you cannot point to the specific sentence a claim comes from, do not include that lesson.
-- "core_claim" restates THAT SAME sentence's specific point in SUBSTANTIALLY DIFFERENT WORDS -- different vocabulary and sentence structure, not the quote with one or two words swapped. A claim that shares its structure or most of its phrasing with the quote will be rejected outright, even if it is otherwise accurate.
-- "mechanism" must actually explain WHY the claim is true, staying on the same topic as the claim.
-- "title" must be short and imperative where natural (e.g. "Use the two-minute rule", not "On starting"), AND must be about the exact same specific point as core_claim.
-- "action_template" must be a specific, concrete action tied to this exact claim, not generic advice.
-- If the passage has no extractable lesson, return an empty lessons array.${strictnessNote}
-
-Passage (${input.locationLabel ?? `page ${input.pageStart}`}):
-"""
-${input.chunkText}
-"""
-
-Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mechanism": "...", "action_template": "...", "provenance_quote": "..."}]}`;
+      const userPrompt = GatewayLlmProvider.extractLessonsUserPrompt(input, strictnessNote);
 
       const isValid = (obj: unknown): obj is { lessons: unknown[] } =>
         typeof obj === "object" && obj !== null && Array.isArray((obj as { lessons?: unknown }).lessons);
@@ -490,7 +534,7 @@ Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mec
       );
       if (!parsed) continue;
 
-      const { raw: rawCandidates, passing: passingCandidates } = this.parseLessonCandidates(
+      const { raw: rawCandidates, passing: passingCandidates } = GatewayLlmProvider.parseLessonCandidates(
         parsed.lessons,
         evidenceStrength,
         input.pageStart,
@@ -565,7 +609,7 @@ Return ONLY strict JSON: {"results": [{"lessons": [{"title": "...", "core_claim"
         if (typeof entry !== "object" || entry === null || !Array.isArray((entry as { lessons?: unknown }).lessons)) {
           return null;
         }
-        const { passing } = this.parseLessonCandidates(
+        const { passing } = GatewayLlmProvider.parseLessonCandidates(
           (entry as { lessons: unknown[] }).lessons,
           classifyEvidenceStrength(input.chunkText),
           input.pageStart,
@@ -586,7 +630,7 @@ Return ONLY strict JSON: {"results": [{"lessons": [{"title": "...", "core_claim"
    * card-text-sanity, which don't need one, both are.
    */
   /** Shared by `generateCards` and P2-14's `generateCardsBatch`. */
-  private buildCardCandidates(
+  static buildCardCandidates(
     fields: Record<string, string>,
     lesson: CandidateLesson,
   ): { candidateCards: GeneratedCard[]; passing: GeneratedCard[] } {
@@ -606,7 +650,7 @@ Return ONLY strict JSON: {"results": [{"lessons": [{"title": "...", "core_claim"
    * whether the passing cards came from a single-lesson call, one slot of
    * a combined batch call, or a per-lesson fallback after a malformed
    * batch response. */
-  private finalizeCards(passing: GeneratedCard[], lesson: CandidateLesson): GeneratedCard[] {
+  static finalizeCards(passing: GeneratedCard[], lesson: CandidateLesson): GeneratedCard[] {
     const cards: GeneratedCard[] = [...passing];
     if (!cards.some((c) => c.promptType === "free_recall")) {
       // Never ship without a free_recall card -- the generation effect is
@@ -630,20 +674,7 @@ Return ONLY strict JSON: {"results": [{"lessons": [{"title": "...", "core_claim"
         attempt === 0
           ? ""
           : "\nIMPORTANT: a previous attempt's free_recall_prompt failed one of two ways -- either it leaked the answer by reusing its specific words (rewrite so it shares NONE of the answer's key nouns/verbs), or it was so vague it didn't say what the lesson is even about. Name the general topic/subject of the lesson while withholding the specific claim itself.";
-      const userPrompt = `Given this lesson, write retrieval-practice questions that do NOT reveal or restate the answer in the question itself -- the reader must recall it from memory.
-
-Lesson title: ${lesson.title}
-Core claim: ${lesson.coreClaim}
-Mechanism: ${lesson.mechanism}
-Action: ${lesson.actionTemplate}
-
-Write:
-1. free_recall_prompt -- names the general topic/subject (so the reader knows which lesson this is) WITHOUT quoting or hinting at the claim's specific content words.
-2. application_prompt -- a concrete, situational "you're in situation Y" question, specific enough that answering it requires applying THIS lesson.
-3. application_answer -- a 1-2 sentence answer specific to the scenario just described, not a restatement of the generic action_template.
-4. why_prompt -- asks the reader to explain the mechanism in their own words, without revealing it.${strictnessNote}
-
-Return ONLY strict JSON: {"free_recall_prompt": "...", "application_prompt": "...", "application_answer": "...", "why_prompt": "..."}`;
+      const userPrompt = GatewayLlmProvider.generateCardsUserPrompt(lesson, strictnessNote);
 
       const isValid = (obj: unknown): obj is Record<string, string> =>
         typeof obj === "object" &&
@@ -663,13 +694,13 @@ Return ONLY strict JSON: {"free_recall_prompt": "...", "application_prompt": "..
       );
       if (!parsed) continue;
 
-      const { candidateCards, passing } = this.buildCardCandidates(parsed, lesson);
+      const { candidateCards, passing } = GatewayLlmProvider.buildCardCandidates(parsed, lesson);
       const hasFreeRecall = passing.some((c) => c.promptType === "free_recall");
       if (passing.length > bestPassing.length) bestPassing = passing;
       if (hasFreeRecall && passing.length === candidateCards.length) break;
     }
 
-    return this.finalizeCards(bestPassing, lesson);
+    return GatewayLlmProvider.finalizeCards(bestPassing, lesson);
   }
 
   /**
@@ -730,8 +761,8 @@ Return ONLY strict JSON: {"results": [{"free_recall_prompt": "...", "application
       perLesson: inputs.map((input, i) => {
         const entry = parsed.results[i];
         if (!isCardFields(entry)) return null;
-        const { passing } = this.buildCardCandidates(entry, input.lesson);
-        return this.finalizeCards(passing, input.lesson);
+        const { passing } = GatewayLlmProvider.buildCardCandidates(entry, input.lesson);
+        return GatewayLlmProvider.finalizeCards(passing, input.lesson);
       }),
     };
   }
@@ -759,23 +790,7 @@ Return ONLY strict JSON: {"results": [{"free_recall_prompt": "...", "application
    * verdict.
    */
   async checkEntailment(input: EntailmentCheckInput): Promise<EntailmentCheckResult> {
-    const userPrompt = `The claim is normally NOT a verbatim restatement of the passage -- it's a summary or a drawn-out implication, written in different words, sometimes about a specific instance of what the passage says more generally (or vice versa). That is expected and should still count as SUPPORTS. Only mark it down if the passage's actual point is a DIFFERENT specific idea than the claim, or the OPPOSITE of the claim.
-
-Example 1 (SUPPORTS): Claim: "Practicing gratitude improves mood." Passage: "Every evening she wrote down three things she was thankful for, and noticed she felt lighter and more at ease by the end of the week." -- SUPPORTS, because the passage is a concrete instance of gratitude practice leading to improved mood, even though it never uses the words "gratitude", "improves", or "mood".
-
-Example 2 (CONTRADICTS): Claim: "Sacrifice motivated by love brings peace." Passage: "He gave up everything out of dread and terror, desperate to avoid punishment." -- CONTRADICTS, because the passage's actual motive is fear and dread, the opposite of the claim's stated motive of love.
-
-Example 3 (UNRELATED): Claim: "Recognizing your inner worth restores your health." Passage: "You are never stuck for good -- you can choose to leave despair behind, and once you commit to that choice, every resource you have will help carry you there." -- UNRELATED, because the passage is about the power of choosing to change one's situation, not about recognizing inner worth, and it never connects to health at all -- a thematically similar passage about self-belief is not evidence for THIS specific claim.
-
-Now judge this pair:
-
-Claim: "${input.claim}"
-
-Passage: "${input.quote}"
-
-First, in one short sentence, state the passage's own specific point in your own words. Then compare it to the claim and decide.
-
-Respond with ONLY a JSON object: {"passage_point": "<one short sentence>", "verdict": "SUPPORTS" | "CONTRADICTS" | "UNRELATED", "reason": "<one short sentence>"}`;
+    const userPrompt = GatewayLlmProvider.entailmentUserPrompt(input);
 
     const isEntailmentResult = (obj: unknown): obj is EntailmentCheckResult => {
       if (typeof obj !== "object" || obj === null) return false;

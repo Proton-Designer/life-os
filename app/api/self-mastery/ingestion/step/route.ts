@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { bracketStage, describeError } from "@/lib/self-mastery/ingestion/telemetry";
-import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
+import { STAGE_HANDLERS, type StageWorkResult } from "@/lib/self-mastery/ingestion/worker-stages";
 import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-availability";
 import { sweepStuckBooks } from "@/lib/self-mastery/ingestion/stuck-sweep";
 import { drainPendingStorageDeletions } from "@/lib/self-mastery/ingestion/storage-drain";
 import { sweepAgentJobs } from "@/lib/agent-jobs/sweep";
+import { planAgentStage } from "@/lib/self-mastery/ingestion/agent-stage";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/gateway-provider";
@@ -261,12 +262,38 @@ async function runStep(supabase: ReturnType<typeof createServiceRoleClient>): Pr
   const expectedChunkIndex = job.cursor_chunk_index;
   const expectedAttempt = job.cursor_attempt;
 
+  // Book ingestion with no AI key (agent work queue): the three model stages are PLANNED first. With the owner's key (or no agent to hand work to)
+  // this is "inline" and nothing below changes. See lib/self-mastery/ingestion/agent-stage.ts.
+  let agentAdvance: StageWorkResult | null = null;
+  try {
+    const plan = await planAgentStage(supabase, { id: job.id, book_id: job.book_id, user_id: job.user_id, stage: job.stage });
+    if (plan.kind === "park") {
+      // Nothing was attempted: park the job (the lease is released, the claim's attempt is given back) until a result arrives or the sweep finds nothing left to wait for.
+      const { error: parkError } = await untypedRpc(supabase, "park_ingestion_job", {
+        p_job_id: job.id,
+        p_expected_stage: expectedStage,
+        p_expected_chunk_index: expectedChunkIndex,
+        p_expected_attempt: expectedAttempt,
+      });
+      if (parkError) return halt({ ok: false, reason: "park_failed", error: parkError.message }, { status: 500 });
+      return { kind: "advanced", status: 200, body: { ok: true, jobId: job.id, stage: expectedStage, reason: "parked_for_agent", waitingFor: plan.waitingFor } };
+    }
+    if (plan.kind === "fail") {
+      const failed = await failBook(supabase, { jobId: job.id, bookId: job.book_id, jobErrorMessage: plan.jobMessage, bookErrorMessage: plan.bookMessage });
+      return halt({ ok: false, reason: "agent_step_failed", stage: expectedStage, error: plan.jobMessage, bookMarkedFailed: failed.ok }, { status: 500 });
+    }
+    if (plan.kind === "advance") agentAdvance = { nextStage: plan.nextStage, nextChunkIndex: plan.nextChunkIndex };
+  } catch (e) {
+    // A planning failure is a transient infrastructure problem: leave the job for the next poll (its lease expires), do not fail the book.
+    return halt({ ok: false, reason: "agent_plan_failed", stage: expectedStage, error: describeError(e) }, { status: 500 });
+  }
+
   let work;
   try {
     work = await bracketStage(
       supabase,
       { jobId: job.id, stage: expectedStage, chunkIndex: expectedChunkIndex, attempt: expectedAttempt },
-      () => handler({ job, supabase }),
+      (): Promise<StageWorkResult> => (agentAdvance ? Promise.resolve(agentAdvance) : handler({ job, supabase })),
     );
   } catch (e) {
     // bracketStage already recorded this attempt as succeeded=false with

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
+import { hasAgentConnector } from "@/lib/agent-jobs/core";
 import { isRetryableBookError, NO_KEY_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";
 import { lessonSourceKind, type LessonSourceKind } from "@/lib/self-mastery/ingestion/documents";
 import { mimeForExtension, sourceKindForExtension } from "@/lib/reader/server/paths";
@@ -241,8 +242,10 @@ export async function finalizeBookUpload(bookId: string, path: string): Promise<
   // No usable key for this user's chosen provider: keep the book (and its PDF, so it is readable in the reader and a later
   // "Try again" has something to run), mark it failed with the retryable no-key message, and queue NO job. A queued job
   // with no key would only burn its attempts.
+  // No key but a connected agent: the book is queued as usual and the pipeline hands its model steps to the agent (lib/self-mastery/ingestion/agent-stage.ts).
   const keyCheck = await hasUsableIngestionKey(supabase, userId);
-  if (!keyCheck.usable) {
+  const agentWillDoIt = !keyCheck.usable && (await hasAgentConnector(supabase, userId, new Date()));
+  if (!keyCheck.usable && !agentWillDoIt) {
     const { error: noKeyError } = await untypedFrom(supabase, "books")
       .update({ file_path: path, status: "failed", error_message: NO_KEY_MESSAGE, file_size_bytes: sizeBytes })
       .eq("id", bookId);
@@ -335,7 +338,7 @@ export async function retryBookIngestion(bookId: string): Promise<{ ok: true } |
 
   if (!(await isIngestionAvailable())) return { ok: false, message: INGESTION_UNAVAILABLE_MESSAGE };
   const keyCheck = await hasUsableIngestionKey(supabase, userId);
-  if (!keyCheck.usable) return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
+  if (!keyCheck.usable && !(await hasAgentConnector(supabase, userId, new Date()))) return { ok: false, message: ingestionNoKeyMessage(keyCheck.providerLabel) };
 
   const { data, error } = await untypedRpc<string>(supabase, "retry_book_ingestion", { p_book_id: bookId });
   if (error) return { ok: false, message: "Couldn't restart this book. Please try again." };

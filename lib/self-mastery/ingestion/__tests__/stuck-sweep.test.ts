@@ -16,6 +16,7 @@ function fake(books: Book[], jobs: Job[]) {
     c.select = () => c;
     c.update = (p: Record<string, unknown>) => ((patch = p), c);
     c.eq = (col: string, v: unknown) => (filters.push((r) => r[col] === v), c);
+    c.is = (col: string, v: unknown) => (filters.push((r) => (r[col] ?? null) === v), c);
     c.in = (col: string, vs: unknown[]) => (filters.push((r) => vs.includes(r[col])), c);
     c.lt = (col: string, v: string) => (filters.push((r) => String(r[col]) < v), c);
     c.not = (col: string, _op: string, v: string) => {
@@ -57,7 +58,7 @@ describe("sweepStuckBooks", () => {
     const books: Book[] = [{ id: "b1", status: "processing", created_at: ago(NO_JOB_AFTER_MS + 60_000) }];
     const { supabase } = fake(books, []);
     const r = await sweepStuckBooks(supabase, NOW);
-    expect(r).toEqual({ failedNoJob: 1, failedStalled: 0 });
+    expect(r).toEqual({ failedNoJob: 1, failedStalled: 0, unparked: 0 });
     expect(books[0]).toMatchObject({ status: "failed", error_message: STUCK_BOOK_MESSAGE });
   });
 
@@ -68,7 +69,7 @@ describe("sweepStuckBooks", () => {
     ];
     const jobs: Job[] = [{ id: "j1", book_id: "busy", stage: "extracting_lessons", updated_at: ago(30_000) }];
     const { supabase } = fake(books, jobs);
-    expect(await sweepStuckBooks(supabase, NOW)).toEqual({ failedNoJob: 0, failedStalled: 0 });
+    expect(await sweepStuckBooks(supabase, NOW)).toEqual({ failedNoJob: 0, failedStalled: 0, unparked: 0 });
     expect(books.map((b) => b.status)).toEqual(["processing", "processing"]);
   });
 
@@ -116,7 +117,7 @@ describe("sweepStuckBooks", () => {
     const books: Book[] = [{ id: "b1", status: "processing", created_at: ago(2 * NO_JOB_AFTER_MS) }];
     const { supabase } = fake(books, []);
     await sweepStuckBooks(supabase, NOW);
-    expect(await sweepStuckBooks(supabase, NOW)).toEqual({ failedNoJob: 0, failedStalled: 0 });
+    expect(await sweepStuckBooks(supabase, NOW)).toEqual({ failedNoJob: 0, failedStalled: 0, unparked: 0 });
   });
 
   it("is bounded: every query is limited to SWEEP_LIMIT rows per poll", async () => {
@@ -129,7 +130,7 @@ describe("sweepStuckBooks", () => {
   it("never throws: housekeeping must not break the poll", async () => {
     const broken = { from: () => { throw new Error("db down"); } } as never;
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    await expect(sweepStuckBooks(broken, NOW)).resolves.toEqual({ failedNoJob: 0, failedStalled: 0 });
+    await expect(sweepStuckBooks(broken, NOW)).resolves.toEqual({ failedNoJob: 0, failedStalled: 0, unparked: 0 });
     spy.mockRestore();
   });
 });

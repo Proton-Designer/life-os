@@ -22,6 +22,8 @@ vi.mock("@/lib/self-mastery/ingestion-availability", () => ({
   INGESTION_UNAVAILABLE_MESSAGE: "driver down message",
 }));
 
+const hasAgentConnectorMock = vi.fn();
+vi.mock("@/lib/agent-jobs/core", () => ({ hasAgentConnector: (...a: unknown[]) => hasAgentConnectorMock(...a) }));
 const hasUsableIngestionKeyMock = vi.fn();
 vi.mock("@/lib/ai/gateway", () => ({
   hasUsableIngestionKey: (...args: unknown[]) => hasUsableIngestionKeyMock(...args),
@@ -79,6 +81,7 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
     fromResults = { books: { data: { id: "book-1" }, error: null } };
     isIngestionAvailableMock.mockResolvedValue(true);
     hasUsableIngestionKeyMock.mockResolvedValue({ usable: true, providerLabel: "DeepSeek" });
+    hasAgentConnectorMock.mockReset().mockResolvedValue(false);
     createSignedUploadUrlMock.mockResolvedValue({ data: { path: "unused", token: "upload-token-abc" }, error: null });
     listMock.mockResolvedValue({ data: [], error: null });
     removeMock.mockResolvedValue({ error: null });
@@ -336,7 +339,24 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
       expect(removeMock).not.toHaveBeenCalled(); // the PDF stays: the reader (and a later Try again) need it
       const bookChains = fromMock.mock.calls.map(([t], i) => ({ t, chain: fromMock.mock.results[i]!.value as { update: { mock: { calls: unknown[][] } } } })).filter((c) => c.t === "books");
       const patches = bookChains.flatMap((c) => c.chain.update.mock.calls.map((a) => a[0] as Record<string, unknown>));
-      expect(patches).toContainEqual(expect.objectContaining({ file_path: "user-1/book-1.pdf", status: "failed", error_message: expect.stringMatching(/Add an API key in Settings, then tap Try again/) }));
+      expect(patches).toContainEqual(expect.objectContaining({ file_path: "user-1/book-1.pdf", status: "failed", error_message: expect.stringMatching(/Add an API key in Settings, or connect an agent.*then tap Try again/) }));
+    });
+
+    it("with NO key but a CONNECTED AGENT: the book is queued like any other (processing + a job), because the agent will do the model steps", async () => {
+      listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "application/pdf" } }], error: null });
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "DeepSeek" });
+      hasAgentConnectorMock.mockResolvedValue(true);
+      fromResults.ingestion_jobs = { data: null, error: null };
+      const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+      const result = await finalizeBookUpload("book-1", "user-1/book-1.pdf");
+
+      expect(result).toEqual({ ok: true, bookId: "book-1" });
+      expect(fromMock).toHaveBeenCalledWith("ingestion_jobs");
+      const bookChains = fromMock.mock.calls.map(([t], i) => ({ t, chain: fromMock.mock.results[i]!.value as { update: { mock: { calls: unknown[][] } } } })).filter((c) => c.t === "books");
+      const patches = bookChains.flatMap((c) => c.chain.update.mock.calls.map((a) => a[0] as Record<string, unknown>));
+      expect(patches).toContainEqual(expect.objectContaining({ status: "processing" }));
+      expect(patches).not.toContainEqual(expect.objectContaining({ status: "failed" }));
     });
 
     describe("finalize for EPUB / TXT / Markdown", () => {

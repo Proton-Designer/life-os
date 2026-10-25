@@ -5,6 +5,9 @@ import { validateQuestionDrafts } from "@/lib/school/question-draft-generation";
 import { z } from "zod";
 import { describeZodIssues } from "@/lib/ai/zod-issues";
 import { stageItemsForJob } from "./stage-for-job";
+import { ApplyRejected } from "./apply-rejected";
+import { applyBookStageResult, bookStageInstructions, bookStageOutputSchema } from "./book-stage";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
 
 /**
  * The kinds of request-triggered AI work an agent can do through the queue (migration 277; design in
@@ -20,6 +23,7 @@ export const AGENT_JOB_KINDS = [
   "school.question_draft",
   "self_mastery.answer_feedback",
   "self_mastery.teach_back_grade",
+  "self_mastery.book_stage",
 ] as const;
 export type AgentJobKind = (typeof AGENT_JOB_KINDS)[number];
 
@@ -41,21 +45,20 @@ export interface AgentJobKindDef {
   kind: AgentJobKind;
   label: string;
   /** What the job is about (migration 280): the class a batch is staged for, the card or lesson a note attaches to. */
-  subjectType: "class" | "card" | "lesson";
+  subjectType: "class" | "card" | "lesson" | "book";
   /** The input field holding the person's text, whose length `maxInputChars` bounds. */
   textField: string;
   /** Largest `input_chars` accepted at enqueue (same caps the in-app paths already apply). */
   maxInputChars: number;
-  /** What the agent must do. */
-  task: string;
+  /** What the agent must do (a function of the job input for a kind whose task depends on it: a book step differs by stage). */
+  task: string | ((input: Record<string, unknown>) => string);
   /** The exact JSON the agent submits as `result`. */
-  outputSchema: string;
+  outputSchema: string | ((input: Record<string, unknown>) => string);
   /** Validates + applies a submitted result; returns what to keep as the job's `result` and a one-line summary. Throws `ApplyRejected` for a result that is not acceptable. */
   apply(supabase: SupabaseClient, userId: string, job: AgentJobRow, result: unknown): Promise<{ stored: Record<string, unknown>; summary: string }>;
 }
 
-/** A submitted result that failed validation; the message is safe to show the agent. */
-export class ApplyRejected extends Error {}
+export { ApplyRejected };
 
 const ITEM_SCHEMA = `[{ "name": string (e.g. "Midterm Exam 1"), "type": "quiz" | "exam" | "final_midterm" | "homework_assignment" | "project_paper", "date": "YYYY-MM-DD" or null, "confidence": number 0..1, "sourceSnippet": short verbatim quote from the text, or null }]  (at most 200 items; [] when there are no graded deliverables)`;
 const DATE_RULE = `If you are not confident of an exact date, set "date" to null. Never guess a date from a vague or relative reference ("week 8", "next week", "TBD"). Today's date is in untrusted_input as "today".`;
@@ -191,6 +194,20 @@ export const AGENT_JOB_KIND_DEFS: Record<AgentJobKind, AgentJobKindDef> = {
       if (!validated.ok) throw new ApplyRejected(validated.message);
       await applyFeedbackNote(supabase, job.id, validated.gapFeedback, null, validated.followUpQuestions);
       return { stored: { gapFeedback: validated.gapFeedback, followUpQuestions: validated.followUpQuestions }, summary: "attached teach-back feedback to a lesson" };
+    },
+  },
+  "self_mastery.book_stage": {
+    kind: "self_mastery.book_stage",
+    label: "Book step",
+    subjectType: "book",
+    textField: "text",
+    maxInputChars: 30_000,
+    task: (input) => bookStageInstructions(input),
+    outputSchema: (input) => bookStageOutputSchema(input),
+    async apply(supabase, userId, job, result) {
+      // One model call of a book's ingestion (lib/agent-jobs/book-stage.ts). The stage's output tables are written with the service client (as the
+      // stage handlers do); every id comes from this job, never from the agent's result.
+      return applyBookStageResult(createServiceRoleClient(), supabase, userId, job, result);
     },
   },
 };

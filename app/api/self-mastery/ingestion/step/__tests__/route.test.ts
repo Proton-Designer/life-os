@@ -33,6 +33,10 @@ vi.mock("@/lib/supabase/service-role", () => ({
 vi.mock("@/lib/self-mastery/ingestion/worker-stages", () => ({
   STAGE_HANDLERS: {},
 }));
+// The agent work queue's planner (book ingestion with no key) is its own subject (agent-stage.test.ts, route-agent-stage.test.ts); here every stage is "inline".
+vi.mock("@/lib/self-mastery/ingestion/agent-stage", () => ({
+  planAgentStage: vi.fn(async () => ({ kind: "inline" })),
+}));
 // bracketStage itself is gate 2's own subject, fully tested there
 // (telemetry.test.ts) against a real fake table -- re-mocked here as a
 // thin passthrough so THIS file can test the route's control flow (does
@@ -305,7 +309,7 @@ describe("POST /api/self-mastery/ingestion/step", () => {
 
   describe("deterministic AI blocks fail the book on the FIRST attempt with a specific, retryable message (2b)", () => {
     it.each([
-      ["no_key", /Add an API key in Settings, then tap Try again/],
+      ["no_key", /Add an API key in Settings, or connect an agent.*then tap Try again/],
       ["monthly_cap", /month's AI budget/],
     ] as const)("%s: attempt 1 of 3 already marks the job and the book failed, and the loop halts", async (blockKind, message) => {
       const GatewayCallFailedError = await loadGatewayCallFailedError();

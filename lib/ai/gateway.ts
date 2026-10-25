@@ -259,6 +259,6 @@ export async function hasUsableIngestionKey(supabase: SupabaseClient, userId: st
  */
 export function ingestionNoKeyMessage(providerLabel: string | undefined): string {
   return providerLabel
-    ? `Add an API key for ${providerLabel} in Settings to process books.`
-    : "Add an AI provider key in Settings to process books.";
+    ? `Add an API key for ${providerLabel} in Settings, or connect an agent under Settings > Connector, to process books.`
+    : "Add an AI provider key in Settings, or connect an agent under Settings > Connector, to process books.";
 }

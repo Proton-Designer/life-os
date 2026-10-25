@@ -18,10 +18,10 @@ export const STALLED_AFTER_MS = 60 * 60 * 1000;
 export const SWEEP_LIMIT = 25;
 export const STUCK_BOOK_MESSAGE = "This book stopped making progress while it was being processed. Tap Try again.";
 
-export type SweepResult = { failedNoJob: number; failedStalled: number };
+export type SweepResult = { failedNoJob: number; failedStalled: number; unparked: number };
 
 export async function sweepStuckBooks(supabase: SupabaseClient, now: Date = new Date()): Promise<SweepResult> {
-  const result: SweepResult = { failedNoJob: 0, failedStalled: 0 };
+  const result: SweepResult = { failedNoJob: 0, failedStalled: 0, unparked: 0 };
   try {
     // 1. processing books with no job row.
     const noJobCutoff = new Date(now.getTime() - NO_JOB_AFTER_MS).toISOString();
@@ -51,6 +51,9 @@ export async function sweepStuckBooks(supabase: SupabaseClient, now: Date = new 
       // poll, so a book uploaded behind a multi-hour book sits 'queued' with an untouched updated_at. Only a job that was
       // claimed once (it has a lease) can have stopped moving.
       .or("stage.neq.queued,leased_until.not.is.null")
+      // A job PARKED for the owner's agent (book ingestion with no key, migration 281) is waiting on work that takes hours; its updated_at does not move
+      // while it waits. Step 3 below decides when a parked job has nothing left to wait for.
+      .is("waiting_on_agent_since", null)
       .lt("updated_at", stalledCutoff)
       .order("updated_at", { ascending: true })
       .limit(SWEEP_LIMIT)
@@ -63,6 +66,30 @@ export async function sweepStuckBooks(supabase: SupabaseClient, now: Date = new 
       if (jobError) continue;
       await untypedFrom(supabase, "books").update({ status: "failed", error_message: STUCK_BOOK_MESSAGE }).eq("id", job.book_id).eq("status", "processing");
       result.failedStalled += 1;
+    }
+
+    // 3. parked jobs with nothing left to wait for. A parked job is only ever released by a submitted result; if the agent's steps are all gone
+    //    (finished, cancelled, expired) nobody would release it. Unpark it so the step route re-plans: it continues, or fails the book with the real
+    //    reason (the planner knows which step died). This sweep never fails a parked book itself.
+    const { data: parkedJobs } = await untypedFrom(supabase, "ingestion_jobs")
+      .select("id, book_id")
+      .not("waiting_on_agent_since", "is", null)
+      .not("stage", "in", "(done,failed)")
+      .order("updated_at", { ascending: true })
+      .limit(SWEEP_LIMIT)
+      .returns<{ id: string; book_id: string }[]>();
+    for (const job of parkedJobs ?? []) {
+      const { data: live } = await untypedFrom(supabase, "agent_jobs")
+        .select("id")
+        .eq("subject_id", job.book_id)
+        .eq("kind", "self_mastery.book_stage")
+        .in("status", ["pending", "claimed", "applying"])
+        .gt("expires_at", now.toISOString())
+        .limit(1)
+        .returns<{ id: string }[]>();
+      if ((live ?? []).length > 0) continue;
+      const { error: unparkError } = await untypedFrom(supabase, "ingestion_jobs").update({ waiting_on_agent_since: null }).eq("id", job.id).not("waiting_on_agent_since", "is", null);
+      if (!unparkError) result.unparked += 1;
     }
   } catch (e) {
     console.error("[self-mastery ingestion] stuck-book sweep failed", e instanceof Error ? e.message : e);
