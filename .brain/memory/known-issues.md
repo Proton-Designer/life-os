@@ -21,7 +21,8 @@ tokens_est: 2300
 
 ## Active
 
-### `pending_storage_deletions` has no sweep -- enqueuing a row deletes nothing
+### `pending_storage_deletions` has no sweep -- enqueuing a row deletes nothing  (RESOLVED 2026-10-25: drained by the ingestion step route, see below)
+**Resolution (2026-10-25):** `lib/self-mastery/ingestion/storage-drain.ts` runs once per ingestion poll (next to the stuck-book sweep): up to 25 rows, oldest first, one `books`-bucket remove, rows cleared on success (an already-missing object counts), attempts + `last_error` recorded on failure, rows at `max_attempts` left for a person, a path outside the row owner's folder is parked, never executed. Only active while the ingestion cron is polling. The text below is the history.
 **Area:** Storage cleanup (`pending_storage_deletions`, migration 081) · **Severity:** slows work, no data loss risk today
 **Symptom:** a row landing in `pending_storage_deletions` (e.g. a book PDF
 whose direct Storage delete failed -- `lib/self-mastery/ingestion/book-pdf-gc.ts`)

@@ -5,6 +5,7 @@ import { bracketStage, describeError } from "@/lib/self-mastery/ingestion/teleme
 import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
 import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-availability";
 import { sweepStuckBooks } from "@/lib/self-mastery/ingestion/stuck-sweep";
+import { drainPendingStorageDeletions } from "@/lib/self-mastery/ingestion/storage-drain";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/gateway-provider";
@@ -544,6 +545,8 @@ export async function POST(request: Request) {
   // Housekeeping before the claim: fail books that can never finish (no job, or a job silent for an hour) so the library
   // offers "Try again". Bounded, idempotent and never throws (stuck-sweep.ts); it must not cost the poll its real work.
   await sweepStuckBooks(supabase);
+  // Same slot, same rules: delete the stored files that earlier deletes could not (pending_storage_deletions had no drain).
+  await drainPendingStorageDeletions(supabase);
 
   // One poll now runs MANY steps (claim -> stage -> advance) until the time budget is spent, something other than a clean
   // advance happens, or nothing is left to claim. See step-loop.ts. Each step is the same code, with the same writes, as
