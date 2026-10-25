@@ -14,7 +14,9 @@ const prepareBookUploadMock = vi.fn(
 );
 const finalizeBookUploadMock = vi.fn(async (..._args: unknown[]): Promise<FinalizeOutcome> => ({ ok: true, bookId: "book-1" }));
 const cancelBookUploadMock = vi.fn(async (..._args: unknown[]) => {});
+const getBookProcessingRouteMock = vi.fn(async (): Promise<"inline" | "queue" | "none"> => "inline");
 vi.mock("@/app/(app)/personal/self-mastery-actions", () => ({
+  getBookProcessingRoute: () => getBookProcessingRouteMock(),
   prepareBookUpload: (...args: unknown[]) => prepareBookUploadMock(...args),
   finalizeBookUpload: (...args: unknown[]) => finalizeBookUploadMock(...args),
   cancelBookUpload: (...args: unknown[]) => cancelBookUploadMock(...args),
@@ -51,6 +53,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     pushMock.mockReset();
+    getBookProcessingRouteMock.mockReset().mockResolvedValue("inline");
     prepareBookUploadMock.mockReset().mockResolvedValue({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "tok-1", contentType: "application/pdf" });
     finalizeBookUploadMock.mockReset().mockResolvedValue({ ok: true, bookId: "book-1" });
     cancelBookUploadMock.mockReset().mockResolvedValue(undefined);
@@ -254,5 +257,47 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
       expect(uploadToSignedUrlMock).toHaveBeenCalledWith("user-1/book-1.epub", "tok-1", expect.any(File), { contentType: "application/epub+zip" });
       expect(finalizeBookUploadMock).toHaveBeenCalledWith("book-1", "user-1/book-1.epub");
     });
+  });
+});
+
+describe("UploadBookDialog -- books with no AI key (agent work queue)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getBookProcessingRouteMock.mockReset().mockResolvedValue("inline");
+  });
+
+  it("with a key (inline) nothing about an agent is shown", async () => {
+    await openAndPickFile(userEvent.setup());
+    await waitFor(() => expect(getBookProcessingRouteMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("agent-estimate")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("no-ai-warning")).not.toBeInTheDocument();
+  });
+
+  it("with no key but a connected agent it gives an honest estimate: about N steps, about M per run, over a few runs", async () => {
+    getBookProcessingRouteMock.mockResolvedValue("queue");
+    await openAndPickFile(userEvent.setup(), sizedFile(2_500_000));
+    const estimate = await screen.findByTestId("agent-estimate");
+    expect(estimate).toHaveTextContent(/About \d+ steps; your agent does about 30 per run, so this finishes over about \d+ runs/);
+    expect(estimate).toHaveTextContent(/exact number/i);
+  });
+
+  it("a small file says it should finish in one run", async () => {
+    getBookProcessingRouteMock.mockResolvedValue("queue");
+    await openAndPickFile(userEvent.setup(), sizedFile(40_000, "short.txt"));
+    expect(await screen.findByTestId("agent-estimate")).toHaveTextContent(/one run/);
+  });
+
+  it("with neither a key nor an agent it says the book will upload but needs one of them (no estimate)", async () => {
+    getBookProcessingRouteMock.mockResolvedValue("none");
+    await openAndPickFile(userEvent.setup());
+    expect(await screen.findByTestId("no-ai-warning")).toHaveTextContent(/key|agent/i);
+    expect(screen.queryByTestId("agent-estimate")).not.toBeInTheDocument();
+  });
+
+  it("if the check itself fails, the dialog behaves exactly as before (no estimate, no warning, upload still works)", async () => {
+    getBookProcessingRouteMock.mockRejectedValue(new Error("down"));
+    await openAndPickFile(userEvent.setup());
+    expect(await screen.findByLabelText("Title")).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-estimate")).not.toBeInTheDocument();
   });
 });

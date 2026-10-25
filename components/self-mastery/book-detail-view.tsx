@@ -13,6 +13,7 @@ import { hasAction } from "@/lib/promotions/types";
 import { getBookDetail } from "@/lib/self-mastery/get-book-detail";
 import { looksUnclaimed, processingLabel } from "@/lib/self-mastery/ingestion-stage";
 import { AutoRefreshWhileProcessing } from "./auto-refresh-while-processing";
+import { AgentWorkCard } from "./agent-work-card";
 
 // No "Start studying" button anywhere on this page — per D-003, the
 // session is entered from Home and interleaves across books and courses.
@@ -64,6 +65,12 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
             <RetryBookButton bookId={bookId} title={book.title} errorMessage={book.errorMessage} />
           </div>
         </div>
+      ) : book.status !== "ready" && book.agentWork ? (
+        <>
+          {/* A connected agent is doing this book's model steps (no AI key): the real count, not a spinner. Still polls, so a finished step shows. */}
+          <AutoRefreshWhileProcessing active />
+          <AgentWorkCard bookId={bookId} progress={book.agentWork} />
+        </>
       ) : book.status !== "ready" ? (
         (() => {
           // S6, 2026-09-14: a third real state, distinct from "never

@@ -167,6 +167,8 @@ export interface BookDetail {
    * never fabricated: false whenever there is no job row to check, or the
    * book is done/failed/ready. See get-book-detail.ts. */
   looksStalled: boolean;
+  /** Set only while a connected agent (not the owner's own key) is doing this book's model steps: how many of the current stage's steps are done. */
+  agentWork: import("./agent-book-progress").AgentBookProgress | null;
 }
 
 /** What kind of thing a library item is ("EPUB", "PDF", "Article", "Pasted text"), or null when it is not known. */

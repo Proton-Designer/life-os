@@ -22,6 +22,8 @@ vi.mock("@/lib/self-mastery/ingestion-availability", () => ({
   INGESTION_UNAVAILABLE_MESSAGE: "driver down message",
 }));
 
+const routeMock = vi.fn(async (..._a: unknown[]): Promise<string> => "inline");
+vi.mock("@/lib/agent-jobs/route", () => ({ routeAiRequest: (...a: unknown[]) => routeMock(...a) }));
 const hasAgentConnectorMock = vi.fn();
 vi.mock("@/lib/agent-jobs/core", () => ({ hasAgentConnector: (...a: unknown[]) => hasAgentConnectorMock(...a) }));
 const hasUsableIngestionKeyMock = vi.fn();
@@ -448,6 +450,38 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
 
       expect(result.ok).toBe(false);
       expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+    });
+  });
+
+  describe("retryBookIngestion — with a connected agent but no key", () => {
+    it("is allowed: the agent will do the model steps, so a missing key is not a reason to refuse", async () => {
+      fromResults.books = { data: { id: "book-1", status: "failed", error_message: "Your agent didn't finish a step of this book in time. Check that its scheduled task is running, then tap Try again." }, error: null };
+      hasUsableIngestionKeyMock.mockResolvedValue({ usable: false, providerLabel: "DeepSeek" });
+      hasAgentConnectorMock.mockResolvedValue(true);
+      const { retryBookIngestion } = await import("../self-mastery-actions");
+      expect(await retryBookIngestion("book-1")).toEqual({ ok: true });
+      expect(rpcMock).toHaveBeenCalledWith("retry_book_ingestion", { p_book_id: "book-1" });
+    });
+  });
+
+  describe("cancelAgentBookWork and getBookProcessingRoute", () => {
+    it("cancels through the owner-checked RPC and refreshes the book page and library", async () => {
+      const { cancelAgentBookWork } = await import("../self-mastery-actions");
+      expect(await cancelAgentBookWork("book-1")).toEqual({ ok: true });
+      expect(rpcMock).toHaveBeenCalledWith("cancel_book_agent_work", { p_book_id: "book-1" });
+      expect(revalidatePathMock).toHaveBeenCalledWith("/self-mastery/book-1");
+    });
+
+    it("an RPC error is reported, not swallowed", async () => {
+      rpcMock.mockResolvedValueOnce({ data: null, error: { message: "boom" } });
+      const { cancelAgentBookWork } = await import("../self-mastery-actions");
+      expect(await cancelAgentBookWork("book-1")).toEqual({ ok: false });
+    });
+
+    it("the processing route is the key-first router: key -> inline, agent only -> queue, neither -> none", async () => {
+      routeMock.mockResolvedValueOnce("queue");
+      const { getBookProcessingRoute } = await import("../self-mastery-actions");
+      expect(await getBookProcessingRoute()).toBe("queue");
     });
   });
 

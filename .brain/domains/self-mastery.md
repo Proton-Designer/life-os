@@ -89,6 +89,8 @@ Library reads `books`/`cards`/`card_states`, joined in memory for per-book progr
 
 **Still not built / degraded.** No OCR; no triage tier; de-dup needs an embeddings key (OpenAI/Google BYOK) — without one near-duplicates survive; rejected lessons are not back-filled; section summaries only via `scripts/summarize-book-sections.ts`; `lessons.embedding` is never written (semantic search reads `source_chunks`); no Batch API / cost target. See `.claude-scratch/ulm-gap-briefing.md`.
 
+**No AI key, connected agent (2026-10-25, migration 281):** the model stages hand their units (one chunk / one lesson per step) to the owner's agent through the agent work queue and the ingestion job is parked meanwhile; see `.brain/domains/mcp-connector.md` ("Book ingestion with no AI key"). The stage writes live in `lib/self-mastery/ingestion/stage-apply.ts` and are shared by the stage handlers and the agent path.
+
 ## Focus reader (2026-10-19)
 
 Every library book is readable in a focus reader (RSVP / page / listen) **independent of LLM ingestion** — reader imports never go through `prepareBookUpload`'s driver-heartbeat + AI-key gate. Design: `.claude/overnight/run-20261019-2250/DESIGN.md`.

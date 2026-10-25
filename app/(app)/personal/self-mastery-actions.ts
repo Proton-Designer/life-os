@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { hasAgentConnector } from "@/lib/agent-jobs/core";
+import { routeAiRequest } from "@/lib/agent-jobs/route";
 import { isRetryableBookError, NO_KEY_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";
 import { lessonSourceKind, type LessonSourceKind } from "@/lib/self-mastery/ingestion/documents";
 import { mimeForExtension, sourceKindForExtension } from "@/lib/reader/server/paths";
@@ -349,5 +350,24 @@ export async function retryBookIngestion(bookId: string): Promise<{ ok: true } |
   revalidatePath("/personal/self_mastery");
   revalidatePath("/self-mastery");
   revalidatePath("/");
+  return { ok: true };
+}
+
+/** How a book the person uploads would be processed: with their own key ("inline"), by a connected agent ("queue"), or not at all yet ("none"). Display-only. */
+export async function getBookProcessingRoute(): Promise<"inline" | "queue" | "none"> {
+  const { supabase, userId } = await requireUser();
+  return routeAiRequest(supabase, userId, new Date());
+}
+
+/**
+ * Cancels the agent's remaining work on a book that is still processing and fails the book RETRYABLY (migration 281's cancel_book_agent_work):
+ * the queued steps are cancelled and "Try again" starts the book over. Owner only (the function acts as the caller).
+ */
+export async function cancelAgentBookWork(bookId: string): Promise<{ ok: boolean }> {
+  const { supabase } = await requireUser();
+  const { error } = await untypedRpc<number>(supabase, "cancel_book_agent_work", { p_book_id: bookId });
+  if (error) return { ok: false };
+  revalidatePath("/personal/self_mastery");
+  revalidatePath(`/self-mastery/${bookId}`);
   return { ok: true };
 }

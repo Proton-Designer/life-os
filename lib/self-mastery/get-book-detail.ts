@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/supabase/auth";
 import { averageRetrievability, type CardStateForStrength } from "./memory-strength";
 import { untypedFrom } from "./untyped-from";
 import { looksStalled } from "./ingestion-stage";
+import { getAgentBookProgress } from "./agent-book-progress";
 import { canOpenInReader, safeOriginalUrl, toReadProgress, type BookDetail, type BookDetailLesson, type BookStatus, type EvidenceStrength, type IngestStage, type LessonCardState, type ReaderStatus } from "./types";
 
 interface BookRow {
@@ -241,5 +242,6 @@ export const getBookDetail = cache(async (bookId: string): Promise<BookDetail | 
     readProgress: toReadProgress(position ?? undefined, book.reader_word_count),
     lessons: detailLessons,
     looksStalled: looksStalled(book.stage, jobUpdatedAt, now),
+    agentWork: book.status === "processing" ? await getAgentBookProgress(supabase, userId, bookId) : null,
   };
 });

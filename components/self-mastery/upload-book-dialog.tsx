@@ -1,15 +1,16 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { prepareBookUpload, finalizeBookUpload, cancelBookUpload } from "@/app/(app)/personal/self-mastery-actions";
+import { prepareBookUpload, finalizeBookUpload, cancelBookUpload, getBookProcessingRoute } from "@/app/(app)/personal/self-mastery-actions";
 import { createClient } from "@/lib/supabase/client";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
+import { estimateAgentSteps, agentEstimateMessage } from "@/lib/self-mastery/agent-estimate";
 
 // Hardcoded, not imported -- self-mastery-actions.ts is a "use server"
 // module and can only export async functions, so it can't export this
@@ -30,6 +31,24 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** How this book would be processed (own key / a connected agent / neither yet). Asked once a file is picked; a failure just shows nothing extra. */
+  const [route, setRoute] = useState<"inline" | "queue" | "none" | null>(null);
+
+  useEffect(() => {
+    if (!file) return;
+    let cancelled = false;
+    Promise.resolve()
+      .then(() => getBookProcessingRoute())
+      .then((r) => {
+        if (!cancelled) setRoute(r);
+      })
+      .catch(() => {
+        if (!cancelled) setRoute(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
 
   function reset() {
     setFile(null);
@@ -166,6 +185,17 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
                   Batch combines several sections per AI call to cost less — it can take longer to see your first cards.
                 </p>
               </div>
+              {route === "queue" ? (
+                <p data-testid="agent-estimate" className="rounded-md border border-border/40 bg-muted/30 p-2 text-xs text-muted-foreground">
+                  You have no AI key, so your connected agent will process this book. {agentEstimateMessage(estimateAgentSteps({ bytes: file.size, filename: file.name }))} The exact number is shown on the
+                  book page once it has been read.
+                </p>
+              ) : null}
+              {route === "none" ? (
+                <p data-testid="no-ai-warning" className="rounded-md border border-border/40 bg-muted/30 p-2 text-xs text-muted-foreground">
+                  The book will upload and stay readable, but it can&apos;t be turned into lessons until you add an AI key in Settings or connect an agent (Claude or ChatGPT) under Settings &gt; Connector.
+                </p>
+              ) : null}
             </div>
           )}
           <input

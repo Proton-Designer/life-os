@@ -519,6 +519,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/personal/answer-feedback-actions.ts#markCardFeedbackSeen": { excluded: "ui_scaffold: marks agent feedback as seen; display bookkeeping only" },
   "app/(app)/personal/teach-back-actions.ts#getLessonFeedbackState": { read_only: true, note: "feedback an agent attached to a lesson; written via agent.job.submit" },
   "app/(app)/personal/teach-back-actions.ts#markLessonFeedbackSeen": { excluded: "ui_scaffold: marks agent feedback as seen; display bookkeeping only" },
+  "app/(app)/personal/self-mastery-actions.ts#getBookProcessingRoute": { read_only: true, note: "which path a book upload would take (own key / connected agent / neither); display only" },
+  "app/(app)/personal/self-mastery-actions.ts#cancelAgentBookWork": { excluded: "ui_scaffold: the person cancels their agent's queued steps for one book from the page (fails the book retryably); an agent that wants out uses agent.job.fail" },
   "app/(app)/agent-jobs-actions.ts#listAgentJobs": { read_only: true, note: "the class page's queued-work cards; an agent reads the same rows with read(agent, job)" },
   "app/(app)/agent-jobs-actions.ts#cancelAgentJob": { excluded: "ui_scaffold: the person cancels their own waiting job from the page; an agent that wants out uses agent.job.fail" },
   "app/(app)/agent-jobs-actions.ts#dismissAgentJob": { excluded: "ui_scaffold: hides a failed job / takes finished drafts into review; display bookkeeping only" },
