@@ -198,3 +198,79 @@ describe("autoImportCanvasCoursesAsClassesCore", () => {
     expect(result).toEqual({ created: 1, adopted: 1, alreadyLinked: 1, skippedDismissed: 1 });
   });
 });
+
+describe("autoImportCanvasCoursesAsClassesCore — match by course number before creating (ICS feed labels)", () => {
+  const ICS_LABEL = "CS 3345.HON - F26";
+  const icsCourse = (id: string, label: string) => ({ canvasCourseId: id, name: label, courseCode: label, computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null });
+
+  it("a feed label 'CS 3345.HON - F26' is MAPPED to the existing class 'CS-3345-HON', and no duplicate class is created", async () => {
+    const { client, calls } = makeClient({
+      arraySeq: {
+        canvas_course_mappings: [{ data: [], error: null }],
+        classes: [{ data: [{ id: "dsa", short_name: "DSA", code: "CS-3345-HON" }], error: null }],
+      },
+    });
+    const result = await autoImportCanvasCoursesAsClassesCore(client, userId, [icsCourse("20333", ICS_LABEL)]);
+    expect(createClassCoreMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ created: 0, adopted: 1 });
+    const upsert = calls.find((c) => c.table === "canvas_course_mappings" && c.method === "upsert")!;
+    expect((upsert.args[0] as { class_id: string }).class_id).toBe("dsa");
+  });
+
+  it("all three of his courses map to his three classes, the cross-listed label included", async () => {
+    const { client, calls } = makeClient({
+      arraySeq: {
+        canvas_course_mappings: [{ data: [], error: null }],
+        classes: [
+          {
+            data: [
+              { id: "dsa", short_name: "DSA", code: "CS-3345-HON" },
+              { id: "comm", short_name: "Prof Comm", code: "ECS-2390-5H3" },
+              { id: "stats", short_name: "Prob & Stats", code: "CS-3341-HON" },
+            ],
+            error: null,
+          },
+        ],
+      },
+    });
+    const result = await autoImportCanvasCoursesAsClassesCore(client, userId, [
+      icsCourse("20333", "CS 3345.HON - F26"),
+      icsCourse("20068", "ECS 2390.5H3 - F26"),
+      icsCourse("20152", "CS-3341.HON-SE-3341.HON-STAT-3341.HON - F26"),
+    ]);
+    expect(createClassCoreMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ created: 0, adopted: 3 });
+    const mapped = calls.filter((c) => c.method === "upsert").map((c) => (c.args[0] as { canvas_course_id: string; class_id: string }));
+    expect(mapped).toEqual([
+      expect.objectContaining({ canvas_course_id: "20333", class_id: "dsa" }),
+      expect.objectContaining({ canvas_course_id: "20068", class_id: "comm" }),
+      expect.objectContaining({ canvas_course_id: "20152", class_id: "stats" }),
+    ]);
+  });
+
+  it("zero matches still creates, as before (a course the person has no class for)", async () => {
+    const { client } = makeClient({ arraySeq: { canvas_course_mappings: [{ data: [], error: null }], classes: [{ data: [{ id: "other", short_name: "Bio", code: "BIO-1010" }], error: null }] } });
+    const result = await autoImportCanvasCoursesAsClassesCore(client, userId, [icsCourse("1", ICS_LABEL)]);
+    expect(createClassCoreMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ created: 1, adopted: 0 });
+  });
+
+  it("an ambiguous number (two classes share it) creates rather than guessing", async () => {
+    const { client } = makeClient({
+      arraySeq: {
+        canvas_course_mappings: [{ data: [], error: null }],
+        classes: [{ data: [{ id: "a", short_name: "DSA", code: "CS-3345-HON" }, { id: "b", short_name: "DSA Lab", code: "CS 3345 L" }], error: null }],
+      },
+    });
+    const result = await autoImportCanvasCoursesAsClassesCore(client, userId, [icsCourse("1", ICS_LABEL)]);
+    expect(result).toMatchObject({ created: 1, adopted: 0 });
+  });
+
+  it("the token path benefits too: a Canvas course whose code is 'CS 3345.HON' adopts the existing class", async () => {
+    const { client } = makeClient({ arraySeq: { canvas_course_mappings: [{ data: [], error: null }], classes: [{ data: [{ id: "dsa", short_name: "DSA", code: "CS-3345-HON" }], error: null }] } });
+    const result = await autoImportCanvasCoursesAsClassesCore(client, userId, [
+      { canvasCourseId: "9", name: "Data Structures and Algorithms (Honors)", courseCode: "CS 3345.HON", computedCurrentScore: null, computedFinalScore: null, computedCurrentLetterGrade: null },
+    ]);
+    expect(result).toMatchObject({ created: 0, adopted: 1 });
+  });
+});

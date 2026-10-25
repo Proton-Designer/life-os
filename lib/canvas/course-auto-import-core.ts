@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CanvasCourseSummary } from "@/lib/canvas/client";
 import { findUnambiguousClassMatch, type LocalClassRow } from "@/lib/canvas/sync-core";
 import { createClassCore } from "@/lib/school/actions-core";
+import { findClassByCourseNumber } from "@/lib/canvas/course-number";
 
 /**
  * CANVAS-LITE-03 — the user's own instruction, reading ENG3's CANVAS-GAP-05
@@ -126,7 +127,9 @@ export async function autoImportCanvasCoursesAsClassesCore(supabase: SupabaseCli
     };
 
     if (needsResolution.has(course.canvasCourseId)) {
-      const match = findUnambiguousClassMatch(localClasses, course.name, course.courseCode);
+      // Same name/code first; then the course NUMBER ("CS 3345.HON - F26" is the person's "CS-3345-HON"), so a feed or Canvas label never
+      // spawns a duplicate of a class they already have. Zero or ambiguous matches create, as before.
+      const match = findUnambiguousClassMatch(localClasses, course.name, course.courseCode) ?? findClassByCourseNumber(localClasses, [course.name, course.courseCode]);
       const classId = match ? match.id : await createAutoImportedClass(supabase, userId, course);
       upsertPayload.class_id = classId;
       if (match) result.adopted++;
