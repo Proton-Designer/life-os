@@ -5,7 +5,7 @@ import { untypedFrom } from "@/lib/self-mastery/untyped-from";
  * Books that will never finish on their own, found by the step route on every poll (the cron hits it each minute):
  *   - 'processing' with NO ingestion_jobs row, for over NO_JOB_AFTER_MS. finalizeBookUpload used to leave these when the
  *     job insert failed, and anything that took a job row away leaves the same thing. Nothing would ever claim them.
- *   - a job that is not done/failed and has not been touched for over STALLED_AFTER_MS. updated_at moves on every claim,
+ *   - a job that is not done/failed, was claimed at least once, and has not been touched for over STALLED_AFTER_MS. updated_at moves on every claim,
  *     advance and failure, and one step is one chunk (a lease is 6 minutes), so an hour of silence is a dead job.
  * Both are marked FAILED with a message that is retryable, so the library shows "Try again" (retry_book_ingestion, 271).
  *
@@ -47,6 +47,10 @@ export async function sweepStuckBooks(supabase: SupabaseClient, now: Date = new 
     const { data: stalled } = await untypedFrom(supabase, "ingestion_jobs")
       .select("id, book_id")
       .not("stage", "in", "(done,failed)")
+      // A job nobody has claimed yet is waiting its turn, not stalled: claim_ingestion_job is FIFO and takes one job per
+      // poll, so a book uploaded behind a multi-hour book sits 'queued' with an untouched updated_at. Only a job that was
+      // claimed once (it has a lease) can have stopped moving.
+      .or("stage.neq.queued,leased_until.not.is.null")
       .lt("updated_at", stalledCutoff)
       .order("updated_at", { ascending: true })
       .limit(SWEEP_LIMIT)

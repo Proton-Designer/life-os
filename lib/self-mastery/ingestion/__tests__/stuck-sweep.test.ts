@@ -3,7 +3,7 @@ import { sweepStuckBooks, NO_JOB_AFTER_MS, STALLED_AFTER_MS, SWEEP_LIMIT, STUCK_
 
 /** A small in-memory stand-in for the two tables, honouring only the filters the sweep uses. */
 type Book = { id: string; status: string; created_at: string; error_message?: string | null };
-type Job = { id: string; book_id: string; stage: string; updated_at: string; last_error?: string | null };
+type Job = { id: string; book_id: string; stage: string; updated_at: string; leased_until?: string | null; last_error?: string | null };
 
 function fake(books: Book[], jobs: Job[]) {
   const limits: number[] = [];
@@ -21,6 +21,17 @@ function fake(books: Book[], jobs: Job[]) {
     c.not = (col: string, _op: string, v: string) => {
       const set = v.replace(/[()]/g, "").split(",");
       filters.push((r) => !set.includes(String(r[col])));
+      return c;
+    };
+    // PostgREST or(): the two shapes the sweep uses, "col.neq.v" and "col.not.is.null", comma-separated.
+    c.or = (expr: string) => {
+      const preds = expr.split(",").map((part) => {
+        const [col, op, ...rest] = part.split(".");
+        if (op === "neq") return (r: Record<string, unknown>) => r[col!] !== rest.join(".");
+        if (op === "not" && rest.join(".") === "is.null") return (r: Record<string, unknown>) => r[col!] != null;
+        throw new Error(`fake or(): unsupported ${part}`);
+      });
+      filters.push((r) => preds.some((f) => f(r)));
       return c;
     };
     c.order = () => c;
@@ -76,6 +87,29 @@ describe("sweepStuckBooks", () => {
     expect(books.find((b) => b.id === "dead")).toMatchObject({ status: "failed", error_message: STUCK_BOOK_MESSAGE });
     expect(jobs.find((j) => j.id === "ja")!.stage).toBe("merging");
     expect(books.find((b) => b.id === "done")!.status).toBe("ready");
+  });
+
+  it("does not fail a queued job that was never claimed: it is waiting its turn behind a long book (claims are FIFO, one job per poll)", async () => {
+    const books: Book[] = ["slow", "waiting"].map((id) => ({ id, status: "processing", created_at: ago(9 * STALLED_AFTER_MS) }));
+    const jobs: Job[] = [
+      // Old job mid-run whose last advance was over an hour ago: genuinely dead.
+      { id: "j-slow", book_id: "slow", stage: "extracting_lessons", updated_at: ago(STALLED_AFTER_MS + 60_000), leased_until: ago(STALLED_AFTER_MS) },
+      // Uploaded later, never claimed (still 'queued', no lease), updated_at unchanged since the upload.
+      { id: "j-waiting", book_id: "waiting", stage: "queued", updated_at: ago(STALLED_AFTER_MS + 60_000), leased_until: null },
+    ];
+    const { supabase } = fake(books, jobs);
+    const r = await sweepStuckBooks(supabase, NOW);
+    expect(r.failedStalled).toBe(1);
+    expect(jobs.find((j) => j.id === "j-slow")!.stage).toBe("failed");
+    expect(jobs.find((j) => j.id === "j-waiting")!.stage).toBe("queued");
+    expect(books.find((b) => b.id === "waiting")!.status).toBe("processing");
+  });
+
+  it("does fail a job that WAS claimed and then went quiet while still at 'queued' (a lease exists)", async () => {
+    const books: Book[] = [{ id: "b", status: "processing", created_at: ago(9 * STALLED_AFTER_MS) }];
+    const jobs: Job[] = [{ id: "j", book_id: "b", stage: "queued", updated_at: ago(STALLED_AFTER_MS + 60_000), leased_until: ago(STALLED_AFTER_MS) }];
+    const { supabase } = fake(books, jobs);
+    expect((await sweepStuckBooks(supabase, NOW)).failedStalled).toBe(1);
   });
 
   it("is idempotent: a second poll finds nothing left to do", async () => {
