@@ -5,7 +5,7 @@ layer: L2
 type: memory
 status: canonical
 owner: unassigned
-updated: 2026-10-04
+updated: 2026-10-25
 answers:
   - "what is in flight"
   - "why is this code half-migrated"
@@ -59,13 +59,10 @@ T-0002 first.
 **Found:** 2026-09-19, Sonnet ENG 3, ONB item 8 audit — confirmed
 independently by Opus Lead. Picker removed 2026-09-19, ONB item 8b.
 
-### AI provider: DeepSeek-only, multi-provider planned but not shipped
-**Old / current:** `lib/ai/providers.ts` supports DeepSeek only.
-**Planned:** `docs/ai-connector/PROGRAM-PLAN.md` records a ruling to
-generalize this beyond DeepSeek to Gemini, Claude, and GPT.
-**Rule while this gap exists:** don't assume multi-provider support exists
-anywhere downstream (UI, settings, encryption key handling) just because the
-plan calls for it — verify against `lib/ai/providers.ts` directly.
+### AI provider: multi-provider shipped; the connector replaces the BYO key (resolved 2026-10-25)
+**Now:** `lib/ai/gateway.ts` routes every AI feature through the person's OWN saved provider and key: DeepSeek, Claude, OpenAI, Gemini, Kimi or Grok (`lib/ai/providers.ts`, `lib/ai/reasoning.ts`, `lib/ai/model-catalog.ts`). There is no shared or operator-funded key. Live-verified for DeepSeek only; the other providers are pinned by recorded request/response shapes (`lib/ai/__tests__/ingestion-provider-shapes.test.ts`), and a few catalog ids are flagged stale in `lib/ai/model-catalog.ts`.
+**Ruling (Ayman, 2026-10-25, `decisions.md`):** the MCP / PAT connector exists to REPLACE the BYO AI key. Every in-app AI feature has a no-key path that a scheduled agent (Claude / ChatGPT) fills through MCP; a key stays optional, for instant results. A feature with neither shows "Connect an agent or add a key", not an error.
+**How each kind of AI work is covered without a key:** scheduled outputs (Morning Brief, weekly review narrative, session-closer day connection) are written with `day.morning_brief` / `review.weekly_narrative` / `self_mastery.day_connection` write ops; request-triggered work (syllabus, announcement, question drafts incl. transcripts, answer feedback, teach-back, and every model step of book ingestion) goes through the agent work queue (`agent.job`). Details: `.brain/domains/mcp-connector.md`. Not covered by an agent path: transcription (needs audio) and embeddings (they use the owner's embeddings key when they have one, otherwise are skipped).
 
 ### `updated_at` columns requested for School and Work/Business tables
 **Status:** documented as requests awaiting migration-number allocation, not
@@ -93,6 +90,7 @@ engine, risk engine, and a capture parser are ported (consistent with
 |---|---|
 | `mcp_widgets.kind` CHECK widened to 5 kinds (migration 149) | Closes the gap `docs/ai-connector/PROGRAM-PLAN.md` describes — see `.brain/memory/known-issues.md` |
 | IA Option A "Rhythms" (P1–P4, run 20261004-1135) | Home rhythm card, `/week` reset, Insights Week tab, Launch sequence + Wind-down, Work tabs, one capture/review/goal editor — see `.brain/memory/decisions.md` (2026-10-04) and the `.brain/domains/*` notes; deferred: step reorder, MCP twins (`pending` in `lib/mcp/parity-manifest.ts`), per-tab Work data |
+| Agent-connector program, steps 1-4 (2026-10-25, migrations 274-281) | Step 1: agent-written Morning Brief (274). Step 2: weekly review narrative (275) and session-closer day connection (276). Step 3: generic agent work queue `agent_jobs` (277, claimed_by tenancy 278): announcement / syllabus / question-draft jobs, transcript drafting, "feedback later" answer feedback and teach-back (280, `ai_feedback_notes`), idempotent apply, and the `jobs` token scope that confines the queued-work agent (279). Step 4: book ingestion with no key (281): model stages planned per unit, ingestion job parked while the agent works, keyed by unit id, stage writes shared in `stage-apply.ts`, upload estimate, "Waiting for your agent: X of N steps" with Cancel. Live-proved on seed-domains with a jobs-only PAT (3-chapter book -> ready, 5 lessons, 20 cards). Docs: `.brain/domains/mcp-connector.md`, `.brain/domains/self-mastery.md`, `docs/ai-connector/CAPABILITIES.md` |
 | `pg_cron` MCP scheduled-actions poll registered | `mcp-scheduled-actions-every-5min`, verified firing on schedule with zero audit rows against an empty queue |
 
 <!--
