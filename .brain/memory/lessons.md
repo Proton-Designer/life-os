@@ -181,3 +181,6 @@ test bad ids.
 <!--
 [ ] Under 200 lines
 -->
+
+### 2026-10-25 — a psql "dry-run" piped `begin` without `;`
+Building a rolled-back dry-run as `{ echo begin; cat file.sql; ...; echo "rollback;"; } | psql` merged `begin` into the file's first statement (syntax error), so everything after it ran in AUTOCOMMIT, live. It was harmless this time (migration 278: an FK swap on an empty table, with the end state matching intent), but it would not have been for a data migration. Always write `echo "begin;"` and run psql with `-v ON_ERROR_STOP=1`, so the first error aborts instead of continuing outside a transaction.
