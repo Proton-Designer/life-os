@@ -4,6 +4,7 @@ import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { bracketStage, describeError } from "@/lib/self-mastery/ingestion/telemetry";
 import { STAGE_HANDLERS } from "@/lib/self-mastery/ingestion/worker-stages";
 import { recordIngestionDriverHeartbeat } from "@/lib/self-mastery/ingestion-availability";
+import { sweepStuckBooks } from "@/lib/self-mastery/ingestion/stuck-sweep";
 import { estimateBookProgressPct } from "@/lib/self-mastery/ingestion-progress";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { GatewayCallFailedError } from "@/lib/self-mastery/ingestion/llm/deepseek-provider";
@@ -226,6 +227,10 @@ export async function POST(request: Request) {
   // a bool, never throws) — a heartbeat write failing must never block the
   // real ingestion work this invocation exists to do.
   await recordIngestionDriverHeartbeat(supabase);
+
+  // Housekeeping before the claim: fail books that can never finish (no job, or a job silent for an hour) so the library
+  // offers "Try again". Bounded, idempotent and never throws (stuck-sweep.ts); it must not cost the poll its real work.
+  await sweepStuckBooks(supabase);
 
   const { data: job, error: claimError } = await supabase.rpc("claim_ingestion_job");
   if (claimError) {
