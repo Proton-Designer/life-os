@@ -11,7 +11,8 @@ import { PromoteLessonSheet } from "@/components/promotions/promote-lesson-sheet
 import { getPromotableAreas, getActivePromotionForLesson } from "@/lib/promotions/read";
 import { hasAction } from "@/lib/promotions/types";
 import { getBookDetail } from "@/lib/self-mastery/get-book-detail";
-import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
+import { looksUnclaimed, processingLabel } from "@/lib/self-mastery/ingestion-stage";
+import { AutoRefreshWhileProcessing } from "./auto-refresh-while-processing";
 
 // No "Start studying" button anywhere on this page — per D-003, the
 // session is entered from Home and interleaves across books and courses.
@@ -80,14 +81,15 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
             ? "Processing hasn't started yet"
             : stalled
               ? "This seems to have stalled"
-              : INGESTION_STAGE_LABEL[bucketIngestStage(book.stage)];
+              : processingLabel(book.stage, book.progressPct);
           const body = unclaimed
             ? "This usually means the processing service isn't running right now. No need to re-upload — it'll pick up automatically once it's back."
             : stalled
               ? "This hasn't moved in a few minutes, longer than a normal step takes. No need to re-upload — it usually catches back up on its own. If it's still stuck next time you check, try uploading it again."
               : "This can take a while — a full book is a lot to read. Feel free to leave and come back; progress is saved on our end, not in this browser tab.";
           return (
-            <div className="rounded-2xl border border-border/40 bg-card p-5">
+            <div className="rounded-2xl border border-border/40 bg-card p-5" data-testid="book-processing">
+              <AutoRefreshWhileProcessing active />
               <p className="text-sm font-medium text-foreground">{title}</p>
               <p className="mt-1 text-sm text-muted-foreground">{body}</p>
               <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">

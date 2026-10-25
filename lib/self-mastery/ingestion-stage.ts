@@ -43,6 +43,17 @@ export function bucketIngestStage(stage: IngestStage): IngestionStageKey {
   }
 }
 
+/**
+ * What a processing book says about itself: the real stage name and the real percentage, e.g. "Finding lessons · 54%".
+ * No percentage at 0 or when it is unknown, and never above 99 while the book is still processing (100 means "ready",
+ * and the page shows that state itself).
+ */
+export function processingLabel(stage: IngestStage, progressPct: number): string {
+  const label = INGESTION_STAGE_LABEL[bucketIngestStage(stage)];
+  if (!Number.isFinite(progressPct) || progressPct <= 0) return label;
+  return `${label} · ${Math.min(99, Math.round(progressPct))}%`;
+}
+
 // Same staleness classification ULM's book detail page uses — "never
 // claimed" (no worker has picked this up), "genuinely slow" (still
 // working), and "claimed but stalled" (stopped advancing) look identical

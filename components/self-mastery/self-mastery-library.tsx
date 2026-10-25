@@ -16,7 +16,8 @@ import { LibraryDropTarget } from "./library-drop-target";
 import { ImportReaderDialog } from "@/components/reader/import-reader-dialog";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { getSelfMasteryLibrary } from "@/lib/self-mastery/get-library";
-import { INGESTION_STAGE_LABEL, bucketIngestStage, looksUnclaimed } from "@/lib/self-mastery/ingestion-stage";
+import { looksUnclaimed, processingLabel } from "@/lib/self-mastery/ingestion-stage";
+import { AutoRefreshWhileProcessing } from "./auto-refresh-while-processing";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { getMostRecentCompletedWeek } from "@/lib/weekly-review/week-range";
@@ -47,8 +48,7 @@ function statusLine(book: LibraryBook, now: Date): string {
   if (book.status === "ready") return "Ready";
   if (book.status === "failed") return STATUS_LABEL.failed;
   if (looksUnclaimed(book.stage, new Date(book.createdAt), now)) return "Not yet started";
-  const bucket = bucketIngestStage(book.stage);
-  return book.status === "uploading" ? STATUS_LABEL.uploading : INGESTION_STAGE_LABEL[bucket];
+  return book.status === "uploading" ? STATUS_LABEL.uploading : processingLabel(book.stage, book.progressPct);
 }
 
 export async function SelfMasteryLibrary() {
@@ -112,6 +112,8 @@ export async function SelfMasteryLibrary() {
   return (
     <LibraryDropTarget>
     <PageContainer>
+      {/* A book finishes in minutes now, so a processing card moves on its own (5 s, paused in a hidden tab). */}
+      <AutoRefreshWhileProcessing active={books.some((b) => b.status === "processing" || b.status === "uploading")} />
       <PageHeader
         title="Self-Mastery"
         description="Reading, learning, spaced review."
