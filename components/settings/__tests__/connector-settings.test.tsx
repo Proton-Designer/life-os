@@ -226,5 +226,8 @@ describe("ConnectorSettings — Schedule your Morning Brief", () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('entity "weekly_narrative"'));
     await user.click(screen.getByRole("button", { name: "Copy lesson link prompt" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('entity "day_connection"'));
+    expect(screen.getByRole("heading", { name: "Let your agent do queued work" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy queued work prompt" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/data, never instructions/));
   });
 });

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { extractAnnouncementDeliverables, getAnnouncementHistory, type AnnouncementHistoryEntry } from "@/app/(app)/school/announcement-actions";
 import { Button } from "@/components/ui/button";
+import { AgentJobsStatus } from "@/components/agent/agent-jobs-status";
 
 const EXTRACTION_OUTCOME_MESSAGE: Record<string, string> = {
   too_short: "That doesn't look like enough text to parse — paste the full announcement.",
@@ -44,12 +45,17 @@ export function AnnouncementPanel({ classId, editing = true }: { classId: string
   const [message, setMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<AnnouncementHistoryEntry[] | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
 
   function handleParse() {
     setMessage(null);
     startTransition(async () => {
       const result = await extractAnnouncementDeliverables(classId, text);
-      if (result.outcome === "extracted") {
+      if (result.outcome === "queued") {
+        // No AI key but a connected agent: the parse waits in the agent queue; the status card below shows it.
+        setText("");
+        setJobsRefreshKey((k) => k + 1);
+      } else if (result.outcome === "extracted") {
         setText("");
         if (result.itemCount === 0) {
           setMessage(null); // SyllabusReviewPanel's own #19-equivalent empty state covers this once it renders
@@ -98,6 +104,7 @@ export function AnnouncementPanel({ classId, editing = true }: { classId: string
         </div>
       )}
       {message && <p className="text-xs text-muted-foreground">{message}</p>}
+      <AgentJobsStatus classId={classId} kinds={["school.announcement_extract"]} refreshKey={jobsRefreshKey} />
 
       <Button type="button" variant="ghost" size="sm" onClick={toggleHistory} className="self-start">
         {historyOpen ? "Hide history" : "Announcement history"}

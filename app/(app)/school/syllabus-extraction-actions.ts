@@ -7,6 +7,8 @@ import { loadPdf, extractPages } from "@/lib/self-mastery/ingestion/pdf";
 import { repairExtractedPages } from "@/lib/self-mastery/ingestion/text-repair";
 import { extractDeliverablesFromText } from "@/lib/school/syllabus-extraction";
 import { createStagingBatchCore, createStagedDeliverablesCore } from "@/lib/school/staging-core";
+import { routeAiRequest } from "@/lib/agent-jobs/route";
+import { enqueueAgentJobCore } from "@/lib/agent-jobs/core";
 import { resolveCanvasConnectionCore } from "@/lib/canvas/connection-core";
 import { fetchCanvasCourseSyllabus } from "@/lib/canvas/client";
 import { importCanvasSyllabusCore, type CanvasSyllabusImportOutcome } from "@/lib/canvas/syllabus-import-core";
@@ -31,6 +33,7 @@ import { importCanvasSyllabusCore, type CanvasSyllabusImportOutcome } from "@/li
 
 export type SyllabusExtractionOutcome =
   | { outcome: "extracted"; batchId: string; itemCount: number; truncated: boolean }
+  | { outcome: "queued"; jobId: string }
   | { outcome: "unreadable" }
   | { outcome: "no_text_layer" }
   | { outcome: "no_key" }
@@ -42,6 +45,8 @@ export type SyllabusExtractionOutcome =
  * with just a title and three exam dates runs well past this in practice. Deciding
  * this BEFORE calling the gateway means a blank scan never spends a call. */
 const MIN_EXTRACTABLE_TEXT_LENGTH = 200;
+/** Same cap as the in-app extraction (syllabus-extraction.ts MAX_SYLLABUS_CHARS). */
+const SYLLABUS_QUEUE_MAX_CHARS = 20_000;
 
 export async function extractSyllabusDeliverables(classId: string, formData: FormData): Promise<SyllabusExtractionOutcome> {
   const { supabase, userId } = await requireUser();
@@ -85,6 +90,16 @@ export async function extractSyllabusDeliverables(classId: string, formData: For
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
+
+  // No AI key but a connected agent: queue the extraction for it (lib/agent-jobs) instead of dropping to "add a key".
+  if ((await routeAiRequest(supabase, userId, new Date())) === "queue") {
+    try {
+      const jobId = await enqueueAgentJobCore(supabase, { kind: "school.syllabus_extract", subjectId: classId, input: { text: text.slice(0, SYLLABUS_QUEUE_MAX_CHARS), today: todayStr, truncated: text.length > SYLLABUS_QUEUE_MAX_CHARS } });
+      return { outcome: "queued", jobId };
+    } catch {
+      return { outcome: "unavailable" };
+    }
+  }
 
   const result = await extractDeliverablesFromText(supabase, userId, text, todayStr);
   if (result.status !== "extracted") {

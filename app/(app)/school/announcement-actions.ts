@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { localDateString } from "@/lib/date-utils";
 import { stageAnnouncementCore, type StageAnnouncementOutcome } from "@/lib/school/announcement-extraction-core";
+import { routeAiRequest } from "@/lib/agent-jobs/route";
+import { enqueueAgentJobCore } from "@/lib/agent-jobs/core";
 
 /**
  * P2-07 — pasted announcement → AI parse → staged diff, the action-layer
@@ -18,13 +20,28 @@ import { stageAnnouncementCore, type StageAnnouncementOutcome } from "@/lib/scho
  * timezone, call the core, revalidate. Behavior unchanged.
  */
 
-export type AnnouncementExtractionOutcome = StageAnnouncementOutcome;
+/** `queued`: the person has no AI key but a connected agent, so the parse waits in the agent work queue (lib/agent-jobs). */
+export type AnnouncementExtractionOutcome = StageAnnouncementOutcome | { outcome: "queued"; jobId: string };
+
+/** Same floor as stageAnnouncementCore's too_short check and same cap as the in-app extraction (announcement-extraction.ts MAX_ANNOUNCEMENT_CHARS). */
+const MIN_QUEUED_ANNOUNCEMENT_LENGTH = 10;
+const ANNOUNCEMENT_QUEUE_MAX_CHARS = 4_000;
 
 export async function extractAnnouncementDeliverables(classId: string, announcementText: string): Promise<AnnouncementExtractionOutcome> {
   const { supabase, userId } = await requireUser();
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
+
+  const trimmed = announcementText.trim();
+  if (trimmed.length >= MIN_QUEUED_ANNOUNCEMENT_LENGTH && (await routeAiRequest(supabase, userId, new Date())) === "queue") {
+    try {
+      const jobId = await enqueueAgentJobCore(supabase, { kind: "school.announcement_extract", subjectId: classId, input: { text: trimmed.slice(0, ANNOUNCEMENT_QUEUE_MAX_CHARS), today: todayStr, truncated: trimmed.length > ANNOUNCEMENT_QUEUE_MAX_CHARS } });
+      return { outcome: "queued", jobId };
+    } catch {
+      return { outcome: "unavailable" };
+    }
+  }
 
   const result = await stageAnnouncementCore(supabase, userId, classId, announcementText, todayStr);
   if (result.outcome === "extracted") revalidatePath("/school");

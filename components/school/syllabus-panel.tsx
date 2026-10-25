@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { uploadClassSyllabus, removeClassSyllabus, getClassSyllabusUrl } from "@/app/(app)/school/class-actions";
 import { extractSyllabusDeliverables, importCanvasSyllabus } from "@/app/(app)/school/syllabus-extraction-actions";
 import { Button } from "@/components/ui/button";
+import { AgentJobsStatus } from "@/components/agent/agent-jobs-status";
 import { SyllabusViewerDialog, type SyllabusViewerResult } from "@/components/school/syllabus-viewer-dialog";
 
 const EXTRACTION_OUTCOME_MESSAGE: Record<string, string> = {
@@ -64,6 +65,7 @@ export function SyllabusPanel({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerResult, setViewerResult] = useState<SyllabusViewerResult | null>(null);
   const [extractionMessage, setExtractionMessage] = useState<string | null>(null);
+  const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
 
   function handleFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -107,7 +109,10 @@ export function SyllabusPanel({
     formData.set("file", file);
     startExtracting(async () => {
       const result = await extractSyllabusDeliverables(classId, formData);
-      if (result.outcome === "extracted" && result.itemCount === 0) {
+      if (result.outcome === "queued") {
+        // No AI key but a connected agent: the extraction waits in the agent queue; the status card below shows it.
+        setJobsRefreshKey((k) => k + 1);
+      } else if (result.outcome === "extracted" && result.itemCount === 0) {
         setExtractionMessage(null); // the review panel's own #19 empty state covers this once it renders
       } else if (result.outcome !== "extracted") {
         setExtractionMessage(EXTRACTION_OUTCOME_MESSAGE[result.outcome] ?? "Extraction didn't work — try again or add manually.");
@@ -177,6 +182,7 @@ export function SyllabusPanel({
         </div>
       )}
       {extractionMessage && <p className="text-xs text-muted-foreground">{extractionMessage}</p>}
+      <AgentJobsStatus classId={classId} kinds={["school.syllabus_extract"]} refreshKey={jobsRefreshKey} />
       {hasSyllabus ? (
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={isPending} onClick={view}>

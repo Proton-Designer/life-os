@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { MORNING_BRIEF_SCHEDULE_PROMPT, WEEKLY_REVIEW_SCHEDULE_PROMPT, DAY_CONNECTION_SCHEDULE_PROMPT } from "@/lib/morning-brief/schedule-prompt";
+import { MORNING_BRIEF_SCHEDULE_PROMPT, WEEKLY_REVIEW_SCHEDULE_PROMPT, DAY_CONNECTION_SCHEDULE_PROMPT, AGENT_JOBS_SCHEDULE_PROMPT } from "@/lib/morning-brief/schedule-prompt";
 
 /** Connector settings: a copyable prompt for a Claude / ChatGPT scheduled task that writes the Morning Brief. */
 export function MorningBriefSchedule() {
@@ -49,6 +49,7 @@ export function AgentOutputsSchedule() {
   const items = [
     { id: "weekly", title: "Schedule your weekly review", when: "every Sunday at 7:00 AM", blurb: "Writes the \"Your week\" narrative on the Weekly Review screen.", prompt: WEEKLY_REVIEW_SCHEDULE_PROMPT },
     { id: "lessons", title: "Schedule lesson links to your day", when: "every day at 6:00 AM", blurb: "Writes the \"Today\" line that ties a lesson to your plan when you finish a study session.", prompt: DAY_CONNECTION_SCHEDULE_PROMPT },
+    { id: "jobs", title: "Let your agent do queued work", when: "every hour", blurb: "Without an AI key, things like parsing a syllabus or announcement, or drafting questions, wait here for your agent. It claims them, does them and submits the result; you review it in the app as usual.", prompt: AGENT_JOBS_SCHEDULE_PROMPT },
   ];
   async function copy(id: string, prompt: string) {
     try {
@@ -71,7 +72,7 @@ export function AgentOutputsSchedule() {
           <pre className="max-h-48 overflow-auto rounded-md bg-muted/50 p-3 font-mono text-xs whitespace-pre-wrap select-all">{it.prompt}</pre>
           <div>
             <Button type="button" size="sm" variant="outline" onClick={() => copy(it.id, it.prompt)}>
-              {copied === it.id ? "Copied" : `Copy ${it.id === "weekly" ? "weekly review" : "lesson link"} prompt`}
+              {copied === it.id ? "Copied" : `Copy ${it.id === "weekly" ? "weekly review" : it.id === "lessons" ? "lesson link" : "queued work"} prompt`}
             </Button>
           </div>
         </section>

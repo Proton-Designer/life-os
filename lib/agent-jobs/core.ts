@@ -123,3 +123,10 @@ export async function hasAgentConnector(supabase: SupabaseClient, userId: string
     .limit(1);
   return !error && Array.isArray(data) && data.length > 0;
 }
+
+/** The person dismisses a failed / expired job, or takes a finished job's drafts into review (consume_agent_job). Returns whether one changed. */
+export async function dismissAgentJobCore(supabase: SupabaseClient, id: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc("consume_agent_job", { p_id: id });
+  if (error) throw error;
+  return Number(data) > 0;
+}

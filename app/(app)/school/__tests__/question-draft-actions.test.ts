@@ -9,6 +9,11 @@ vi.mock("@/lib/school/question-draft-generation", () => ({
   draftQuestionsFromNotes: vi.fn(async () => ({ status: "drafted", drafts: [], truncated: false })),
 }));
 
+const routeMock = vi.fn(async (..._a: unknown[]): Promise<string> => "inline");
+vi.mock("@/lib/agent-jobs/route", () => ({ routeAiRequest: (...a: unknown[]) => routeMock(...a) }));
+const enqueueMock = vi.fn(async (..._a: unknown[]) => "job-1");
+vi.mock("@/lib/agent-jobs/core", () => ({ enqueueAgentJobCore: (...a: unknown[]) => enqueueMock(...a) }));
+
 function makeChain(result: { data: unknown; error: unknown }) {
   const chain: Record<string, unknown> = {};
   for (const method of ["select", "eq", "maybeSingle"]) {
@@ -77,5 +82,31 @@ describe("draftQuestionsFromTranscript (question-draft-actions.ts)", () => {
 
     expect(result).toEqual({ status: "error" });
     expect(draftQuestionsFromTranscriptCoreMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("draftQuestionsFromNotes — no key, connected agent (agent work queue)", () => {
+  beforeEach(() => {
+    routeMock.mockReset().mockResolvedValue("queue");
+    enqueueMock.mockClear();
+  });
+
+  it("queues the drafting for the agent when a class is given", async () => {
+    const { draftQuestionsFromNotes } = await import("../question-draft-actions");
+    expect(await draftQuestionsFromNotes("Mitochondria make ATP.", "class-1")).toEqual({ status: "queued", jobId: "job-1" });
+    expect(enqueueMock).toHaveBeenCalledWith(expect.anything(), { kind: "school.question_draft", subjectId: "class-1", input: { text: "Mitochondria make ATP.", truncated: false } });
+  });
+
+  it("without a class there is nothing to attach the result to, so it never queues (existing behaviour)", async () => {
+    const { draftQuestionsFromNotes } = await import("../question-draft-actions");
+    await draftQuestionsFromNotes("Mitochondria make ATP.");
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("with a key (inline) it drafts as before and queues nothing", async () => {
+    routeMock.mockResolvedValue("inline");
+    const { draftQuestionsFromNotes } = await import("../question-draft-actions");
+    expect((await draftQuestionsFromNotes("Notes", "class-1") as { status: string }).status).toBe("drafted");
+    expect(enqueueMock).not.toHaveBeenCalled();
   });
 });

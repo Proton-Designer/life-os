@@ -19,6 +19,7 @@ import { IconChip } from "@/components/ui/icon-chip";
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ClassShareSection } from "@/components/school/class-share-section";
+import { AgentJobsStatus } from "@/components/agent/agent-jobs-status";
 import { PublicQuestionBankDrill } from "@/components/school/public-question-bank-drill";
 
 export type QuestionBankQuestion = {
@@ -162,6 +163,7 @@ export function QuestionBankPanel({
   const [error, setError] = useState<string | null>(null);
   const [notesText, setNotesText] = useState("");
   const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [jobsRefreshKey, setJobsRefreshKey] = useState(0);
   const [aiDrafts, setAiDrafts] = useState<AiDraftRow[]>([]);
 
   const completedTranscripts = useMemo(() => lectures.filter((l) => l.transcriptStatus === "completed"), [lectures]);
@@ -272,7 +274,14 @@ export function QuestionBankPanel({
     if (!text) return;
     setAiMessage(null);
     startDrafting(async () => {
-      const result = await draftQuestionsFromNotes(text);
+      const result = await draftQuestionsFromNotes(text, classId);
+      if (result.status === "queued") {
+        // No AI key but a connected agent: the drafting waits in the agent queue; the drafts come back as a "ready" card below.
+        setNotesText("");
+        setFormMode("closed");
+        setJobsRefreshKey((k) => k + 1);
+        return;
+      }
       if (result.status !== "drafted") {
         // Notes stay in the textarea -- never silently dropped, same as
         // every other "failed submit keeps what was typed" rule in this
@@ -406,6 +415,17 @@ export function QuestionBankPanel({
       </div>
 
       <ClassShareSection classId={classId} />
+
+      <AgentJobsStatus
+        classId={classId}
+        kinds={["school.question_draft"]}
+        refreshKey={jobsRefreshKey}
+        onReviewDrafts={(_jobId, drafts) => {
+          setAiDrafts(drafts.map(draftRowFromAiDraft));
+          setAiMessage("Drafted by your agent. Check each question before adding it.");
+          setFormMode("ai_review");
+        }}
+      />
 
       {active.length > 0 && (
         <Button type="button" variant="ghost" size="sm" className="w-fit" onClick={() => setDrillOpen((v) => !v)}>

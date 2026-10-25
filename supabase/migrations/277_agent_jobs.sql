@@ -225,7 +225,7 @@ begin
 end;
 $$;
 
--- The person has taken a finished job's result into the app (e.g. reviewed the drafted questions): it stops showing as "ready".
+-- The person has taken a finished job's result into the app (reviewed the drafted questions) or dismissed a failed / expired one: it stops showing.
 create or replace function public.consume_agent_job(p_id uuid)
 returns integer
 language plpgsql
@@ -239,7 +239,7 @@ begin
   if v_uid is null then
     raise exception 'not authenticated' using errcode = '28000';
   end if;
-  update public.agent_jobs set consumed_at = now() where id = p_id and user_id = v_uid and status = 'done' and consumed_at is null;
+  update public.agent_jobs set consumed_at = now() where id = p_id and user_id = v_uid and status in ('done', 'failed', 'expired') and consumed_at is null;
   get diagnostics v_n = row_count;
   return v_n;
 end;

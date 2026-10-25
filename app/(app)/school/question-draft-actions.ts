@@ -1,6 +1,8 @@
 "use server";
 
 import { requireUser } from "@/lib/supabase/auth";
+import { routeAiRequest } from "@/lib/agent-jobs/route";
+import { enqueueAgentJobCore } from "@/lib/agent-jobs/core";
 import { draftQuestionsFromNotes as draftQuestionsFromNotesCore, type QuestionDraftOutcome } from "@/lib/school/question-draft-generation";
 import {
   draftQuestionsFromTranscript as draftQuestionsFromTranscriptCore,
@@ -21,8 +23,21 @@ export type { TranscriptQuestionDraftOutcome } from "@/lib/school/question-draft
  * user adds it via the existing `createQuestion` action, which is where
  * `classId` (and everything else `questions` needs) is supplied.
  */
-export async function draftQuestionsFromNotes(notesText: string): Promise<QuestionDraftOutcome> {
+/** Same cap as the in-app drafting (question-draft-generation.ts MAX_NOTES_CHARS). */
+const DRAFT_QUEUE_MAX_CHARS = 20_000;
+
+export async function draftQuestionsFromNotes(notesText: string, classId?: string): Promise<QuestionDraftOutcome | { status: "queued"; jobId: string }> {
   const { supabase, userId } = await requireUser();
+  // No AI key but a connected agent (and a class to attach it to): queue the drafting for the agent. The drafts come back as a
+  // "ready" card on the question bank, reviewed exactly like AI drafts (nothing lands in the bank unreviewed).
+  if (classId && notesText.trim().length > 0 && (await routeAiRequest(supabase, userId, new Date())) === "queue") {
+    try {
+      const jobId = await enqueueAgentJobCore(supabase, { kind: "school.question_draft", subjectId: classId, input: { text: notesText.slice(0, DRAFT_QUEUE_MAX_CHARS), truncated: notesText.length > DRAFT_QUEUE_MAX_CHARS } });
+      return { status: "queued", jobId };
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
   return draftQuestionsFromNotesCore(supabase, userId, notesText);
 }
 

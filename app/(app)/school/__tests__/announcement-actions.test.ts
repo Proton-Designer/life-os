@@ -20,6 +20,11 @@ vi.mock("@/lib/school/staging-core", () => ({
   createStagedDeliverablesCore: (...args: unknown[]) => createStagedDeliverablesCoreMock(...args),
 }));
 
+const routeMock = vi.fn(async (..._a: unknown[]): Promise<string> => "inline");
+vi.mock("@/lib/agent-jobs/route", () => ({ routeAiRequest: (...a: unknown[]) => routeMock(...a) }));
+const enqueueMock = vi.fn(async (..._a: unknown[]) => "job-1");
+vi.mock("@/lib/agent-jobs/core", () => ({ enqueueAgentJobCore: (...a: unknown[]) => enqueueMock(...a) }));
+
 const { extractAnnouncementDeliverables, getAnnouncementHistory } = await import("../announcement-actions");
 
 beforeEach(() => {
@@ -27,6 +32,50 @@ beforeEach(() => {
   extractMock.mockReset();
   createStagingBatchCoreMock.mockClear();
   createStagedDeliverablesCoreMock.mockClear();
+  routeMock.mockReset().mockResolvedValue("inline");
+  enqueueMock.mockClear();
+});
+
+describe("extractAnnouncementDeliverables — no key, connected agent (agent work queue)", () => {
+  it("queues the parse for the agent instead of calling the model, with the class and today's local date", async () => {
+    routeMock.mockResolvedValue("queue");
+    const result = await extractAnnouncementDeliverables("class-1", "  The quiz has been moved to Oct 1.  ");
+    expect(result).toEqual({ outcome: "queued", jobId: "job-1" });
+    expect(enqueueMock).toHaveBeenCalledWith(expect.anything(), {
+      kind: "school.announcement_extract",
+      subjectId: "class-1",
+      input: { text: "The quiz has been moved to Oct 1.", today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), truncated: false },
+    });
+    expect(extractMock).not.toHaveBeenCalled();
+    expect(createStagingBatchCoreMock).not.toHaveBeenCalled();
+  });
+
+  it("a too-short paste is still too_short, never queued", async () => {
+    routeMock.mockResolvedValue("queue");
+    expect(await extractAnnouncementDeliverables("class-1", "hi")).toEqual({ outcome: "too_short" });
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it("caps the queued text at the in-app limit and says it was truncated", async () => {
+    routeMock.mockResolvedValue("queue");
+    await extractAnnouncementDeliverables("class-1", "x".repeat(5000));
+    const input = (enqueueMock.mock.calls[0]![1] as { input: { text: string; truncated: boolean } }).input;
+    expect(input.text).toHaveLength(4000);
+    expect(input.truncated).toBe(true);
+  });
+
+  it("an enqueue failure (queue full, class not found) reads as unavailable, not a crash", async () => {
+    routeMock.mockResolvedValue("queue");
+    enqueueMock.mockRejectedValueOnce(new Error("too many jobs"));
+    expect(await extractAnnouncementDeliverables("class-1", "A real announcement about a quiz.")).toEqual({ outcome: "unavailable" });
+  });
+
+  it("with no key and no connector it falls through to the existing no_key outcome (no job)", async () => {
+    routeMock.mockResolvedValue("none");
+    extractMock.mockResolvedValue({ status: "no_key" });
+    expect(await extractAnnouncementDeliverables("class-1", "A real announcement about a quiz.")).toEqual({ outcome: "no_key" });
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("extractAnnouncementDeliverables (P2-07)", () => {
