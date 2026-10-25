@@ -58,7 +58,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
     setFile(picked);
     setError(null);
     if (!title.trim()) {
-      setTitle(picked.name.replace(/\.pdf$/i, ""));
+      setTitle(picked.name.replace(/\.(pdf|epub|txt|md|markdown)$/i, ""));
     }
   }
 
@@ -66,7 +66,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
    * Three hops (URGENT pdf-upload fix, 2026-09-19 -- BRIEF-pdf-upload.md):
    * prepare (Server Action -- validates every existing guard, mints a
    * signed upload url, and inserts the `books` row up front) -> the browser
-   * uploads the actual PDF bytes straight to Storage, never through a
+   * uploads the actual file bytes (PDF, EPUB, TXT or Markdown) straight to Storage, never through a
    * Server Action's own request body -> finalize (Server Action -- re-reads
    * the real object and only then flips status to "processing"). A failure
    * at the upload or finalize hop, after prepare already created a row,
@@ -76,22 +76,22 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
    */
   function handleSubmit() {
     if (!file) {
-      setError("Choose a PDF to get started.");
+      setError("Choose a file to get started.");
       return;
     }
     setError(null);
     startTransition(async () => {
-      const prepared = await prepareBookUpload(title.trim(), author.trim(), ingestionMode, file.size);
+      const prepared = await prepareBookUpload(title.trim(), author.trim(), ingestionMode, file.size, file.name);
       if (!prepared.ok) {
         setError(prepared.message);
         return;
       }
-      const { bookId, path, token } = prepared;
+      const { bookId, path, token, contentType } = prepared;
       try {
         const supabase = createClient();
         const { error: uploadError } = await supabase.storage
           .from(BOOKS_BUCKET)
-          .uploadToSignedUrl(path, token, file, { contentType: "application/pdf" });
+          .uploadToSignedUrl(path, token, file, { contentType });
         if (uploadError) throw uploadError;
 
         const result = await finalizeBookUpload(bookId, path);
@@ -135,7 +135,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
           {!file ? (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-4 py-8 text-center">
               <Upload className="size-6 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">Choose a PDF to get started.</p>
+              <p className="text-sm text-muted-foreground">Choose a PDF, EPUB, TXT or Markdown file to get started.</p>
               <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
                 Choose file
               </Button>
@@ -171,7 +171,7 @@ export function UploadBookDialog({ trigger }: { trigger?: React.ReactNode }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf,.pdf"
+            accept=".pdf,.epub,.txt,.md,.markdown"
             className="hidden"
             onChange={(e) => {
               const picked = e.target.files?.[0];

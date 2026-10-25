@@ -362,6 +362,10 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
     chunks?: { id: string; text: string; page_start: number; page_end: number; section_id?: string | null }[];
     /** P2-14: `books.ingestion_mode` -- defaults to 'standard' so every existing test (which never sets this) keeps exercising the pre-P2-14 code path with zero changes. */
     ingestionMode?: "standard" | "batch";
+    /** books.reader_source: absent/null/'pdf' = a PDF with real page numbers; 'epub'/'text' = no real pages. */
+    readerSource?: string | null;
+    /** book_sections rows (id, title), only ever read for a non-paged book. */
+    sections?: { id: string; title: string }[];
     onDelete?: (eqCalls: [string, unknown][]) => void;
     onInsert?: (rows: unknown[]) => void;
   }) {
@@ -372,11 +376,14 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
             select() {
               return {
                 eq() {
-                  return { single: async () => ({ data: { ingestion_mode: opts.ingestionMode ?? "standard" }, error: null }) };
+                  return { single: async () => ({ data: { ingestion_mode: opts.ingestionMode ?? "standard", reader_source: opts.readerSource }, error: null }) };
                 },
               };
             },
           };
+        }
+        if (table === "book_sections") {
+          return { select: () => ({ eq: () => ({ then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: opts.sections ?? [], error: null }) }) }) };
         }
         if (table === "source_chunks") {
           return {
@@ -546,6 +553,38 @@ describe("extracting_lessons stage — fail-closed on no real provider, idempote
 
     expect(insertedRows).toHaveLength(1);
     expect((insertedRows[0] as Record<string, unknown>)["section_id"]).toBe("section-42");
+  });
+
+  describe("books without real page numbers (EPUB / TXT / Markdown)", () => {
+    const candidate = { title: "t", coreClaim: "claim", mechanism: "mech", actionTemplate: "act", evidenceStrength: "author_anecdote" as const, provenanceQuote: "quote", pageRef: 7, sourceChunkId: "c1" };
+
+    async function run(readerSource: string | null | undefined) {
+      const { DevShimProvider } = await import("../llm/dev-shim-provider");
+      const extractLessons = vi.fn().mockResolvedValue([candidate]);
+      vi.mocked(DevShimProvider.fromEnv).mockReturnValue({ extractLessons, lastUsage: { promptTokens: 1, completionTokens: 1 } } as never);
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      let insertedRows: Record<string, unknown>[] = [];
+      const supabase = makeSupabase({
+        chunk: { id: "c1", text: "passage text", page_start: 7, page_end: 7, section_id: "s1" },
+        readerSource,
+        sections: [{ id: "s1", title: "Chapter 3: Habits" }],
+        onInsert: (rows) => (insertedRows = rows as Record<string, unknown>[]),
+      });
+      await STAGE_HANDLERS.extracting_lessons!({ job: { id: "job-1", book_id: "book-1", cursor_chunk_index: 0 } as never, supabase: supabase as never });
+      return { insertedRows, input: extractLessons.mock.calls[0]![0] as { pageStart: number; locationLabel?: string } };
+    }
+
+    it.each(["epub", "text"])("%s: lessons store page_ref NULL and the prompt cites the section, not a page", async (source) => {
+      const { insertedRows, input } = await run(source);
+      expect(insertedRows[0]!["page_ref"]).toBeNull();
+      expect(input.locationLabel).toBe('section "Chapter 3: Habits"');
+    });
+
+    it.each([["pdf"], [null], [undefined]])("a PDF (reader_source %s) keeps its real page numbers and the page-based prompt", async (source) => {
+      const { insertedRows, input } = await run(source);
+      expect(insertedRows[0]!["page_ref"]).toBe(7);
+      expect(input.locationLabel).toBeUndefined();
+    });
   });
 
   it("item 8: a chunk with no detected section (section_id: null) writes null, not a guessed value", async () => {
@@ -1842,5 +1881,66 @@ describe("embedding stage — P2-13 Slice C", () => {
 
     expect(result).toEqual({ nextStage: "extracting_lessons", nextChunkIndex: 0 });
     expect(getUserEmbeddingsMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("merging stage: lessons without a page_ref (EPUB / TXT / Markdown) are still spread across the book", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    getUserEmbeddingsMock.mockResolvedValue({ status: "no_key" });
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("falls back to the source chunk's own position for the page spread, so the top picks are not all from the first chapters", async () => {
+    const lessons = Array.from({ length: 30 }, (_, i) => ({
+      id: `l${i + 1}`,
+      title: `Lesson number ${i + 1} about habits`,
+      core_claim: `claim ${i + 1}`,
+      mechanism: "because of the mechanism ".repeat(4),
+      action_template: "Do one small thing",
+      evidence_strength: "author_anecdote",
+      provenance_quote: `quote ${i + 1}`,
+      page_ref: null, // what an EPUB/TXT/MD book stores
+      source_chunk_id: `c${i + 1}`,
+    }));
+    const chunkPage = new Map(lessons.map((l, i) => [l.source_chunk_id, (i + 1) * 2]));
+    const ranked: { id: string; rank: number }[] = [];
+    const supabase = {
+      from(table: string) {
+        if (table === "lessons") {
+          return {
+            update(vals: Record<string, unknown>) {
+              let id: string | null = null;
+              const b = {
+                eq(col: string, v: unknown) {
+                  if (col === "id") id = v as string;
+                  return b;
+                },
+                then(resolve: (v: { error: null }) => void) {
+                  if (typeof vals["rank"] === "number" && id) ranked.push({ id, rank: vals["rank"] as number });
+                  resolve({ error: null });
+                },
+              };
+              return b;
+            },
+            select: () => ({ eq: () => ({ eq: () => ({ then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: lessons, error: null }) }) }) }),
+          };
+        }
+        if (table === "books") return { select: () => ({ eq: () => ({ single: async () => ({ data: { page_count: 48 }, error: null }) }) }) };
+        if (table === "source_chunks") {
+          return { select: () => ({ in: (_c: string, ids: string[]) => ({ then: (resolve: (v: { data: unknown; error: null }) => void) => resolve({ data: ids.map((id) => ({ id, page_start: chunkPage.get(id) })), error: null }) }) }) };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+    const { STAGE_HANDLERS } = await import("../worker-stages");
+
+    await STAGE_HANDLERS.merging!({ job: { id: "job-1", book_id: "book-1", user_id: "owner-1" } as never, supabase: supabase as never });
+
+    expect(ranked).toHaveLength(6); // target = max(6, round(48 pages / 8))
+    const pages = ranked.map((r) => chunkPage.get(`c${r.id.slice(1)}`)!).sort((a, b) => a - b);
+    expect(pages[pages.length - 1]! - pages[0]!).toBeGreaterThanOrEqual(30); // spread over the book (chunk pages 2..60), not the first six (span 10)
   });
 });

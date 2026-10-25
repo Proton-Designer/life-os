@@ -17,7 +17,11 @@ export const NO_KEY_MESSAGE = "AI isn't set up for your account yet. Add an API 
 export const MONTHLY_CAP_MESSAGE = "You've used this month's AI budget, so this book couldn't be processed. Tap Try again once it resets or is raised.";
 export const AI_BLOCK_MESSAGE = { no_key: NO_KEY_MESSAGE, monthly_cap: MONTHLY_CAP_MESSAGE } as const;
 
-const FILE_PROBLEM_PATTERNS = [/^This PDF looks like scanned images/, /^This PDF is password-protected/, /^We couldn't read this PDF/, /^This book has \d+ pages, which is over/];
+export const EMPTY_DOCUMENT_MESSAGE = "We couldn't find any readable text in this file. Check that it isn't empty or only images, then upload it again.";
+export const NOT_TEXT_MESSAGE = "This file isn't readable text. Upload a PDF, EPUB, TXT or Markdown file.";
+export const UNREADABLE_DOCUMENT_MESSAGE = "We couldn't read this file. It may be damaged. Try exporting or re-saving it, then upload it again.";
+
+const FILE_PROBLEM_PATTERNS = [/^We couldn't find any readable text in this file/, /^This file isn't readable text/, /^We couldn't read this file/, /^This PDF looks like scanned images/, /^This PDF is password-protected/, /^We couldn't read this PDF/, /^This book has \d+ pages, which is over/];
 
 /** Retrying the same file can't help when the failure is about the file itself. Any other failure (provider, timeout, our bug) may. */
 export function isRetryableBookError(errorMessage: string | null | undefined): boolean {

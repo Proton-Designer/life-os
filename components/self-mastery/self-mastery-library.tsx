@@ -192,7 +192,7 @@ export async function SelfMasteryLibrary() {
           <ImportReaderDialog trigger={<Button size="sm" variant="outline">Import to read</Button>} />
           {canUpload ? (
             <>
-              <p className="max-w-xs text-xs text-muted-foreground">Or upload a PDF and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.</p>
+              <p className="max-w-xs text-xs text-muted-foreground">Or upload a PDF, EPUB, TXT or Markdown file and Self-Mastery turns it into a set of grounded lesson cards you can actually retain.</p>
               <UploadBookDialog trigger={<Button size="sm" variant="outline">Add a book</Button>} />
             </>
           ) : (

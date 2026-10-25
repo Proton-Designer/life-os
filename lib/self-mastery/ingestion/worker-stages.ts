@@ -57,7 +57,10 @@ import type { CandidateLesson, GeneratedCard, EvidenceStrength } from "./llm/typ
 import { getUserEmbeddings, embeddingModelTag } from "@/lib/ai/embeddings";
 import { loadPdf, extractPages, extractOutline, EncryptedPdfError, UnreadablePdfError, TooManyPagesError } from "./pdf";
 import { detectScannedPdf, MAX_PAGE_COUNT } from "./guards";
-import { SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage } from "./failure-messages";
+import { SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage, EMPTY_DOCUMENT_MESSAGE, NOT_TEXT_MESSAGE, UNREADABLE_DOCUMENT_MESSAGE } from "./failure-messages";
+import { extractTextDocument, isPagedSource, lessonSourceKind, TooManyPagesDocumentError } from "./documents";
+import { ReaderImportError } from "@/lib/reader/import/errors";
+import type { ExtractedPage, OutlineEntry } from "./types";
 import { parseStructure } from "./structure";
 import { chunkBook } from "./chunk";
 import { computeTargetLessonCount } from "./merge";
@@ -121,6 +124,13 @@ function resolveIngestionProvider(ctx: StageContext): DevShimProvider | DeepSeek
  * literal `'batch'` degrades to `'standard'`, today's unchanged behavior,
  * never the other way around.
  */
+/** Does this book have real page numbers? Only PDFs do (books.reader_source; null on rows from before it was set = a PDF). */
+async function getBookIsPaged(ctx: StageContext): Promise<boolean> {
+  const { data, error } = await ctx.supabase.from("books").select("reader_source").eq("id", ctx.job.book_id).single();
+  if (error) throw error;
+  return isPagedSource((data as { reader_source?: string | null } | null)?.reader_source);
+}
+
 async function getIngestionMode(ctx: StageContext): Promise<"standard" | "batch"> {
   const { data, error } = await ctx.supabase.from("books").select("ingestion_mode").eq("id", ctx.job.book_id).single();
   if (error) throw error;
@@ -293,35 +303,58 @@ async function chunkingStage(ctx: StageContext): Promise<StageWorkResult> {
     return { nextStage: "failed", nextChunkIndex: null };
   };
 
-  let pdf;
-  let rawPages;
-  try {
-    pdf = await loadPdf(new Uint8Array(await fileBlob.arrayBuffer()));
-    rawPages = await extractPages(pdf);
-  } catch (e) {
-    if (e instanceof EncryptedPdfError) return failBookForFile(ENCRYPTED_PDF_MESSAGE);
-    if (e instanceof UnreadablePdfError) return failBookForFile(UNREADABLE_PDF_MESSAGE);
-    if (e instanceof TooManyPagesError) return failBookForFile(tooManyPagesMessage(e.pageCount, MAX_PAGE_COUNT));
-    throw e;
+  // The stored file's extension says what it is (pdf for every book uploaded before EPUB/TXT/MD existed). PDFs keep the
+  // exact path below; the text formats go through documents.ts, which hands back the same two things (numbered pages and a
+  // page-based outline) so structure, chunking and every insert after this are shared.
+  const kind = lessonSourceKind(book.file_path) ?? "pdf";
+  const fileBytes = new Uint8Array(await fileBlob.arrayBuffer());
+  let pages: ExtractedPage[];
+  let outline: OutlineEntry[];
+  if (kind === "pdf") {
+    let pdf;
+    let rawPages;
+    try {
+      pdf = await loadPdf(fileBytes);
+      rawPages = await extractPages(pdf);
+    } catch (e) {
+      if (e instanceof EncryptedPdfError) return failBookForFile(ENCRYPTED_PDF_MESSAGE);
+      if (e instanceof UnreadablePdfError) return failBookForFile(UNREADABLE_PDF_MESSAGE);
+      if (e instanceof TooManyPagesError) return failBookForFile(tooManyPagesMessage(e.pageCount, MAX_PAGE_COUNT));
+      throw e;
+    }
+    // text-repair.ts's own header (ULM L6 §3 finding): a NUL byte (U+0000) in
+    // extracted PDF text makes Postgres reject the insert outright
+    // ("unsupported Unicode escape sequence") on EVERY source_chunks/
+    // book_sections/lessons/cards row that contains it, identically, every
+    // retry -- a poison pill that burns all of max_attempts before failing.
+    // `repairExtractedPages` was written and unit-tested for exactly this
+    // (plus ligature/hyphenation cleanup) but had never actually been wired
+    // into this real worker path -- confirmed live, running Phase 1 item 3's
+    // real book, the first real PDF whose extracted text has ever reached
+    // this INSERT. Applied here, once, before structure parsing and
+    // chunking both see the same repaired text (so section titles/chunk text
+    // stay consistent with each other, not repaired in one place and raw in
+    // the other).
+    pages = repairExtractedPages(rawPages);
+    // A scanned/image-only PDF has no text layer, so every later stage would run on nothing and the book would only
+    // fail at the very end ("couldn't find teachable lessons"). Stop here, once, saying what is wrong.
+    if (detectScannedPdf(pages).isLikelyScanned) return failBookForFile(SCANNED_PDF_MESSAGE);
+    outline = await extractOutline(pdf);
+  } else {
+    try {
+      const doc = extractTextDocument(fileBytes, kind);
+      pages = repairExtractedPages(doc.pages); // same NUL-byte poison-pill guard as PDF text
+      outline = doc.outline;
+    } catch (e) {
+      if (e instanceof TooManyPagesDocumentError) return failBookForFile(tooManyPagesMessage(e.pageCount, MAX_PAGE_COUNT));
+      if (e instanceof ReaderImportError) {
+        if (e.code === "empty") return failBookForFile(EMPTY_DOCUMENT_MESSAGE);
+        if (e.code === "unsupported_type") return failBookForFile(NOT_TEXT_MESSAGE);
+        return failBookForFile(UNREADABLE_DOCUMENT_MESSAGE);
+      }
+      throw e;
+    }
   }
-  // text-repair.ts's own header (ULM L6 §3 finding): a NUL byte (U+0000) in
-  // extracted PDF text makes Postgres reject the insert outright
-  // ("unsupported Unicode escape sequence") on EVERY source_chunks/
-  // book_sections/lessons/cards row that contains it, identically, every
-  // retry -- a poison pill that burns all of max_attempts before failing.
-  // `repairExtractedPages` was written and unit-tested for exactly this
-  // (plus ligature/hyphenation cleanup) but had never actually been wired
-  // into this real worker path -- confirmed live, running Phase 1 item 3's
-  // real book, the first real PDF whose extracted text has ever reached
-  // this INSERT. Applied here, once, before structure parsing and
-  // chunking both see the same repaired text (so section titles/chunk text
-  // stay consistent with each other, not repaired in one place and raw in
-  // the other).
-  const pages = repairExtractedPages(rawPages);
-  // A scanned/image-only PDF has no text layer, so every later stage would run on nothing and the book would only
-  // fail at the very end ("couldn't find teachable lessons"). Stop here, once, saying what is wrong.
-  if (detectScannedPdf(pages).isLikelyScanned) return failBookForFile(SCANNED_PDF_MESSAGE);
-  const outline = await extractOutline(pdf);
   const sections = parseStructure(pages, outline);
   const chunks = chunkBook(pages, sections);
 
@@ -493,6 +526,15 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
   const mode = await getIngestionMode(ctx);
   const batchSize = mode === "batch" ? BATCH_SIZE_EXTRACT : 1;
   const concurrency = getIngestionConcurrency();
+  // An EPUB / TXT / Markdown book has no real pages: its lessons cite their section (in the prompt and in the data), and
+  // page_ref is stored NULL rather than an internal coordinate dressed up as a page number.
+  const paged = await getBookIsPaged(ctx);
+  const sectionTitles = new Map<string, string>();
+  if (!paged) {
+    const { data: sectionRows, error: sectionsError } = await ctx.supabase.from("book_sections").select("id, title").eq("book_id", ctx.job.book_id);
+    if (sectionsError) throw sectionsError;
+    for (const row of sectionRows ?? []) sectionTitles.set(row.id as string, row.title as string);
+  }
 
   // section_id selected alongside the rest (item 8): chunkingStage already
   // writes it onto every source_chunks row (see buildSectionInsertPlan
@@ -569,6 +611,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
       chunkText: c.text,
       pageStart: c.page_start ?? 0,
       pageEnd: c.page_end ?? c.page_start ?? 0,
+      ...(paged ? {} : { locationLabel: c.section_id && sectionTitles.has(c.section_id) ? `section "${sectionTitles.get(c.section_id)}"` : "a passage from the text" }),
       sourceChunkId: c.id,
     }));
 
@@ -643,7 +686,7 @@ async function extractingLessonsStage(ctx: StageContext): Promise<StageWorkResul
           action_template: c.actionTemplate,
           evidence_strength: c.evidenceStrength,
           provenance_quote: c.provenanceQuote,
-          page_ref: c.pageRef,
+          page_ref: paged ? c.pageRef : null,
           status: "archived" as const,
           extracted_by: "model" as const, // 084: a real provider call, not the heuristic or seed paths
         })),
@@ -709,6 +752,17 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
     return { nextStage: "verifying_grounding", nextChunkIndex: 0 };
   }
 
+  // A lesson from an EPUB / TXT / Markdown book has page_ref NULL (it has no real pages), but the merge spreads its picks across
+  // the book by page position. Use the lesson's source chunk's own (internal, synthetic) page_start for that, so a long book
+  // is not summarised from its first chapters only.
+  const chunkPageById = new Map<string, number>();
+  const needChunkPages = [...new Set(rows.filter((r) => r.page_ref === null && r.source_chunk_id).map((r) => r.source_chunk_id as string))];
+  if (needChunkPages.length > 0) {
+    const { data: chunkPages, error: chunkPagesError } = await ctx.supabase.from("source_chunks").select("id, page_start").in("id", needChunkPages);
+    if (chunkPagesError) throw chunkPagesError;
+    for (const c of chunkPages ?? []) if (c.page_start !== null) chunkPageById.set(c.id as string, c.page_start as number);
+  }
+
   // Pair each row with a CandidateLesson so the merge algorithm's returned
   // survivors (which come back as CandidateLesson VALUES, not row ids --
   // llm/types.ts's interface has no id field) can be matched back to a
@@ -724,7 +778,7 @@ async function mergingStage(ctx: StageContext): Promise<StageWorkResult> {
       actionTemplate: r.action_template ?? "",
       evidenceStrength: r.evidence_strength ?? "author_anecdote",
       provenanceQuote: r.provenance_quote,
-      pageRef: r.page_ref ?? 0,
+      pageRef: r.page_ref ?? (r.source_chunk_id ? chunkPageById.get(r.source_chunk_id) : undefined) ?? 0,
       sourceChunkId: r.source_chunk_id ?? "",
     },
   }));

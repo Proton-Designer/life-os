@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * URGENT pdf-upload fix (2026-09-19, BRIEF-pdf-upload.md): `uploadBook`
@@ -51,6 +51,7 @@ const listMock = vi.fn(
     ({ data: [] as { name: string; metadata: Record<string, unknown> | null }[], error: null as { message: string } | null })
 );
 const removeMock = vi.fn(async (_paths: string[]) => ({ error: null as { message: string } | null }));
+const createSignedUrlMock = vi.fn(async (_path: string, _ttl?: number) => ({ data: null as { signedUrl: string } | null, error: { message: "no signed url in this test" } as { message: string } | null }));
 
 const rpcMock = vi.fn(async (_fn: string, _args: Record<string, unknown>) => ({ data: "retried" as unknown, error: null as { message: string } | null }));
 const requireUserMock = vi.fn(async () => ({
@@ -60,6 +61,7 @@ const requireUserMock = vi.fn(async () => ({
     storage: {
       from: () => ({
         createSignedUploadUrl: createSignedUploadUrlMock,
+        createSignedUrl: createSignedUrlMock,
         list: listMock,
         remove: removeMock,
       }),
@@ -90,7 +92,41 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
 
       expect(fromMock).toHaveBeenCalledWith("books");
       expect(createSignedUploadUrlMock).toHaveBeenCalledTimes(1);
-      expect(result).toEqual({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "upload-token-abc" });
+      expect(result).toEqual({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "upload-token-abc", contentType: "application/pdf" });
+    });
+
+    describe("EPUB / TXT / Markdown uploads (lesson ingestion beyond PDF)", () => {
+      const insertedBook = () => {
+        const i = fromMock.mock.calls.findIndex(([t]) => t === "books");
+        return (fromMock.mock.results[i]!.value as { insert: { mock: { calls: unknown[][] } } }).insert.mock.calls[0]![0] as Record<string, unknown>;
+      };
+
+      it.each([
+        ["Atomic Habits.epub", "user-1/book-1.epub", "application/epub+zip", "epub"],
+        ["notes.txt", "user-1/book-1.txt", "text/plain", "text"],
+        ["notes.MD", "user-1/book-1.md", "text/markdown", "text"],
+        ["notes.markdown", "user-1/book-1.md", "text/markdown", "text"],
+        ["Book.PDF", "user-1/book-1.pdf", "application/pdf", "pdf"],
+      ])("%s: stored as %s, uploaded as %s, books.reader_source %s", async (filename, path, contentType, readerSource) => {
+        const { prepareBookUpload } = await import("../self-mastery-actions");
+
+        const result = await prepareBookUpload("A Book", "", "standard", 5_000_000, filename);
+
+        expect(result).toMatchObject({ ok: true, path, contentType });
+        expect(createSignedUploadUrlMock).toHaveBeenCalledWith(path);
+        expect(insertedBook()).toMatchObject({ reader_source: readerSource });
+      });
+
+      it("refuses any other file type before touching the database or Storage", async () => {
+        const { prepareBookUpload } = await import("../self-mastery-actions");
+
+        for (const filename of ["paper.docx", "page.html", "archive.zip", "noextension"]) {
+          const result = await prepareBookUpload("A Book", "", "standard", 5_000, filename);
+          expect(result).toMatchObject({ ok: false, message: expect.stringMatching(/PDF, EPUB, TXT or Markdown/) });
+        }
+        expect(fromMock).not.toHaveBeenCalled();
+        expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+      });
     });
 
     // The whole point of this fix: a file far larger than Next's 1MB Server
@@ -303,6 +339,77 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
       expect(patches).toContainEqual(expect.objectContaining({ file_path: "user-1/book-1.pdf", status: "failed", error_message: expect.stringMatching(/Add an API key in Settings, then tap Try again/) }));
     });
 
+    describe("finalize for EPUB / TXT / Markdown", () => {
+      afterEach(() => vi.unstubAllGlobals());
+      const stored = (name: string, mimetype: string) => listMock.mockResolvedValue({ data: [{ name, metadata: { size: 2048, mimetype } }], error: null });
+
+      it.each([
+        ["user-1/book-1.epub", "book-1.epub", "application/epub+zip"],
+        ["user-1/book-1.txt", "book-1.txt", "text/plain"],
+        ["user-1/book-1.md", "book-1.md", "text/markdown"],
+        ["user-1/book-1.md", "book-1.md", "text/plain"],
+      ])("accepts %s with the stored type %s and queues the job", async (path, name, mimetype) => {
+        stored(name, mimetype);
+        fromResults.ingestion_jobs = { data: null, error: null };
+        const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+        const result = await finalizeBookUpload("book-1", path);
+
+        expect(result).toEqual({ ok: true, bookId: "book-1" });
+        expect(listMock).toHaveBeenCalledWith("user-1", { search: name });
+        expect(fromMock).toHaveBeenCalledWith("ingestion_jobs");
+        expect(removeMock).not.toHaveBeenCalled();
+      });
+
+      it("removes the object and the row when the stored type does not match the extension (an .epub that is really text/plain)", async () => {
+        stored("book-1.epub", "text/plain");
+        const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+        const result = await finalizeBookUpload("book-1", "user-1/book-1.epub");
+
+        expect(result.ok).toBe(false);
+        expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.epub"]);
+      });
+
+      it("refuses a path with an extension lesson ingestion does not accept, without touching Storage", async () => {
+        const { finalizeBookUpload } = await import("../self-mastery-actions");
+        const result = await finalizeBookUpload("book-1", "user-1/book-1.exe");
+        expect(result.ok).toBe(false);
+        expect(listMock).not.toHaveBeenCalled();
+      });
+
+      it("SNIFFS the first bytes: a .pdf that is not a PDF, an .epub that is not a zip, a .txt with NUL bytes are removed", async () => {
+        const cases: [string, string, string, number[]][] = [
+          ["user-1/book-1.pdf", "book-1.pdf", "application/pdf", [0x50, 0x4e, 0x47]],
+          ["user-1/book-1.epub", "book-1.epub", "application/epub+zip", [0x25, 0x50, 0x44, 0x46]],
+          ["user-1/book-1.txt", "book-1.txt", "text/plain", [0x68, 0x69, 0x00, 0x00]],
+        ];
+        for (const [path, name, mimetype, head] of cases) {
+          vi.clearAllMocks();
+          fromResults = { books: { data: { id: "book-1", status: "uploading" }, error: null } };
+          isIngestionAvailableMock.mockResolvedValue(true);
+          hasUsableIngestionKeyMock.mockResolvedValue({ usable: true, providerLabel: "DeepSeek" });
+          stored(name, mimetype);
+          createSignedUrlMock.mockResolvedValue({ data: { signedUrl: "https://signed.example/x" }, error: null });
+          vi.stubGlobal("fetch", vi.fn(async () => new Response(new Uint8Array(head), { status: 206 })));
+          const { finalizeBookUpload } = await import("../self-mastery-actions");
+
+          const result = await finalizeBookUpload("book-1", path);
+
+          expect(result.ok, path).toBe(false);
+          expect(removeMock, path).toHaveBeenCalledWith([path]);
+        }
+      });
+
+      it("a sniff that cannot run (signed URL fails) does not block the upload: the worker re-validates the file itself", async () => {
+        stored("book-1.epub", "application/epub+zip");
+        createSignedUrlMock.mockResolvedValue({ data: null, error: { message: "nope" } });
+        fromResults.ingestion_jobs = { data: null, error: null };
+        const { finalizeBookUpload } = await import("../self-mastery-actions");
+        expect(await finalizeBookUpload("book-1", "user-1/book-1.epub")).toEqual({ ok: true, bookId: "book-1" });
+      });
+    });
+
     it("removes the object and deletes the row when the real object's mime type fails validation (bypassed the client-side check)", async () => {
       listMock.mockResolvedValue({ data: [{ name: "book-1.pdf", metadata: { size: 1024, mimetype: "text/plain" } }], error: null });
       const { finalizeBookUpload } = await import("../self-mastery-actions");
@@ -389,8 +496,15 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
 
       await cancelBookUpload("book-1");
 
-      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf"]);
+      expect(removeMock).toHaveBeenCalled();
       expect(fromMock).toHaveBeenCalledWith("books");
+    });
+
+    it("removes whichever source file was uploaded (pdf, epub, txt or md) when the book is still 'uploading'", async () => {
+      fromResults.books = { data: { id: "book-1", status: "uploading" }, error: null };
+      const { cancelBookUpload } = await import("../self-mastery-actions");
+      await cancelBookUpload("book-1");
+      expect(removeMock).toHaveBeenCalledWith(["user-1/book-1.pdf", "user-1/book-1.epub", "user-1/book-1.txt", "user-1/book-1.md"]);
     });
 
     it("is a no-op for a book that already progressed past 'uploading' -- never deletes a book that's actually fine", async () => {

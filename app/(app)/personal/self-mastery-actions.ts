@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/supabase/auth";
 import { untypedFrom, untypedRpc } from "@/lib/self-mastery/untyped-from";
 import { isRetryableBookError, NO_KEY_MESSAGE } from "@/lib/self-mastery/ingestion/failure-messages";
+import { lessonSourceKind, type LessonSourceKind } from "@/lib/self-mastery/ingestion/documents";
+import { mimeForExtension, sourceKindForExtension } from "@/lib/reader/server/paths";
 import { isIngestionAvailable, INGESTION_UNAVAILABLE_MESSAGE } from "@/lib/self-mastery/ingestion-availability";
 import { hasUsableIngestionKey, ingestionNoKeyMessage } from "@/lib/ai/gateway";
 import { BOOK_MAX_BYTES, BOOK_MAX_SIZE_MESSAGE } from "@/lib/self-mastery/book-upload-limits";
@@ -39,6 +41,49 @@ export interface PrepareBookUploadResult {
   bookId: string;
   path: string;
   token: string;
+  /** The Content-Type the browser must upload with (the bucket only accepts the types in migration 269). */
+  contentType: string;
+}
+
+/** What lesson ingestion accepts, by stored extension, with the Storage type the object must carry. */
+const LESSON_SOURCES: Record<LessonSourceKind, { ext: string; mimeTypes: string[] }> = {
+  pdf: { ext: "pdf", mimeTypes: ["application/pdf"] },
+  epub: { ext: "epub", mimeTypes: ["application/epub+zip"] },
+  txt: { ext: "txt", mimeTypes: ["text/plain"] },
+  md: { ext: "md", mimeTypes: ["text/markdown", "text/plain"] },
+};
+const ALL_LESSON_PATH_EXTENSIONS = ["pdf", "epub", "txt", "md"] as const;
+const UNSUPPORTED_BOOK_TYPE_MESSAGE = "That file type isn't supported. Upload a PDF, EPUB, TXT or Markdown file.";
+
+/** The extension the book is STORED under, from the person's filename. null = not a type we accept. */
+function storedExtensionFor(filename: string): LessonSourceKind | null {
+  return lessonSourceKind(filename);
+}
+
+/**
+ * Reads the first bytes of the stored object (a ranged GET on a short-lived signed URL) and checks they match what the
+ * extension claims: %PDF, a zip (EPUB), or text with no NUL bytes. A file renamed to a type it is not is removed. If the
+ * bytes cannot be fetched at all, this says "fine": the worker's own chunking stage re-validates the file and fails the
+ * book with a specific message, so an unavailable sniff must never block a good upload.
+ */
+async function storedBytesMatch(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  path: string,
+  kind: LessonSourceKind,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.storage.from(BOOKS_BUCKET).createSignedUrl(path, 60);
+    if (error || !data?.signedUrl) return true;
+    const res = await fetch(data.signedUrl, { headers: { Range: "bytes=0-4095" } });
+    if (!res.ok) return true;
+    const head = new Uint8Array(await res.arrayBuffer()).subarray(0, 4096);
+    if (head.length === 0) return false;
+    if (kind === "pdf") return head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46;
+    if (kind === "epub") return head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+    return !head.includes(0);
+  } catch {
+    return true;
+  }
 }
 
 const BOOKS_BUCKET = "books";
@@ -73,9 +118,15 @@ export async function prepareBookUpload(
   title: string,
   author: string,
   ingestionMode: "standard" | "batch",
-  fileSizeBytes: number
+  fileSizeBytes: number,
+  /** The picked file's name; only its extension is used (to choose the stored extension and Content-Type). Defaults to a PDF. */
+  filename: string = "book.pdf",
 ): Promise<PrepareBookUploadResult | UploadBookError> {
   const { supabase, userId } = await requireUser();
+
+  const sourceKind = storedExtensionFor(filename);
+  if (!sourceKind) return { ok: false, message: UNSUPPORTED_BOOK_TYPE_MESSAGE };
+  const sourceExt = LESSON_SOURCES[sourceKind].ext;
 
   // Refuse on the SERVER, not only by hiding the button. Without a worker to
   // consume `ingestion_jobs`, a successful upload strands the book at
@@ -111,6 +162,8 @@ export async function prepareBookUpload(
       progress_pct: 0,
       file_size_bytes: fileSizeBytes,
       ingestion_mode: resolvedIngestionMode,
+      // What the file is. Drives the library label and whether lessons carry real page numbers (only a PDF's do).
+      reader_source: sourceKindForExtension(sourceExt),
     })
     .select("id")
     .single()
@@ -118,7 +171,7 @@ export async function prepareBookUpload(
   if (insertError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
 
   const bookId = inserted.id;
-  const path = `${userId}/${bookId}.pdf`;
+  const path = `${userId}/${bookId}.${sourceExt}`;
 
   const { data: signed, error: signError } = await supabase.storage.from(BOOKS_BUCKET).createSignedUploadUrl(path);
   if (signError) {
@@ -129,7 +182,7 @@ export async function prepareBookUpload(
     return { ok: false, message: GENERIC_UPLOAD_ERROR };
   }
 
-  return { ok: true, bookId, path, token: signed.token };
+  return { ok: true, bookId, path, token: signed.token, contentType: mimeForExtension(sourceExt) };
 }
 
 /**
@@ -150,8 +203,12 @@ export async function prepareBookUpload(
 export async function finalizeBookUpload(bookId: string, path: string): Promise<UploadBookResult | UploadBookError> {
   const { supabase, userId } = await requireUser();
 
-  const expectedPath = `${userId}/${bookId}.pdf`;
-  if (path !== expectedPath) return { ok: false, message: GENERIC_UPLOAD_ERROR };
+  // The stored extension decides the format. The path is recomputed from THIS request's own user and book id, so a client
+  // can neither point finalize at someone else's object nor smuggle in an extension we do not accept.
+  const pathKind = lessonSourceKind(path);
+  const sourceExt = pathKind ? LESSON_SOURCES[pathKind].ext : null;
+  const expectedPath = `${userId}/${bookId}.${sourceExt}`;
+  if (!pathKind || !sourceExt || path !== expectedPath) return { ok: false, message: GENERIC_UPLOAD_ERROR };
 
   const { data: bookRow, error: bookFetchError } = await untypedFrom(supabase, "books")
     .select("id, status")
@@ -162,7 +219,7 @@ export async function finalizeBookUpload(bookId: string, path: string): Promise<
   if (bookFetchError || !bookRow) return { ok: false, message: GENERIC_UPLOAD_ERROR };
   if (bookRow.status !== "uploading") return { ok: false, message: GENERIC_UPLOAD_ERROR };
 
-  const filename = `${bookId}.pdf`;
+  const filename = `${bookId}.${sourceExt}`;
   const { data: listing, error: listError } = await supabase.storage.from(BOOKS_BUCKET).list(userId, { search: filename });
   if (listError) return { ok: false, message: GENERIC_UPLOAD_ERROR };
   const object = listing?.find((f) => f.name === filename);
@@ -173,8 +230,9 @@ export async function finalizeBookUpload(bookId: string, path: string): Promise<
   const mimeType = metadata?.mimetype ?? "application/octet-stream";
   // Belt-and-suspenders on top of the bucket's own policies (which already
   // gate WHO can write here, not what) -- doesn't assume the client-side
-  // check in upload-book-dialog.tsx can never be bypassed.
-  if (mimeType !== "application/pdf" || sizeBytes <= 0 || sizeBytes > BOOK_MAX_BYTES) {
+  // check in upload-book-dialog.tsx can never be bypassed. Type, size, then the
+  // actual first bytes.
+  if (!LESSON_SOURCES[pathKind].mimeTypes.includes(mimeType) || sizeBytes <= 0 || sizeBytes > BOOK_MAX_BYTES || !(await storedBytesMatch(supabase, path, pathKind))) {
     await supabase.storage.from(BOOKS_BUCKET).remove([path]);
     await untypedFrom(supabase, "books").delete().eq("id", bookId);
     return { ok: false, message: GENERIC_UPLOAD_ERROR };
@@ -244,12 +302,14 @@ export async function cancelBookUpload(bookId: string): Promise<void> {
     .returns<{ id: string; status: string } | null>();
   if (!bookRow || bookRow.status !== "uploading") return;
 
-  const path = `${userId}/${bookId}.pdf`;
+  // Whichever source file was uploaded: the extension is not stored until finalize, and removing a path that does not
+  // exist is harmless.
+  const paths = ALL_LESSON_PATH_EXTENSIONS.map((ext) => `${userId}/${bookId}.${ext}`);
   // Best-effort, same posture as removeLectureRecording: the row is the
   // source of truth for whether this book exists to the user, so a failure
   // removing a storage object that may never have been written (upload
   // failed before any bytes landed) is an orphaned object, not lost data.
-  await supabase.storage.from(BOOKS_BUCKET).remove([path]);
+  await supabase.storage.from(BOOKS_BUCKET).remove(paths);
   await untypedFrom(supabase, "books").delete().eq("id", bookId);
 }
 

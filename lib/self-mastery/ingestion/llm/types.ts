@@ -35,6 +35,11 @@ export interface ExtractLessonsInput {
   chunkText: string;
   pageStart: number;
   pageEnd: number;
+  /**
+   * Where the passage is, in words, for the prompt: 'section "Chapter 3"' for an EPUB / TXT / Markdown book (whose "pages"
+   * are an internal coordinate nobody should see or be asked to cite). Absent for a PDF, where the prompt says "page N".
+   */
+  locationLabel?: string;
   /** The chunk's own DB id, already known to the caller at this point in the pipeline. */
   sourceChunkId: string;
 }

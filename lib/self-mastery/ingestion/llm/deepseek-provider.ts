@@ -458,7 +458,7 @@ Rules:
 - "action_template" must be a specific, concrete action tied to this exact claim, not generic advice.
 - If the passage has no extractable lesson, return an empty lessons array.${strictnessNote}
 
-Passage (page ${input.pageStart}):
+Passage (${input.locationLabel ?? `page ${input.pageStart}`}):
 """
 ${input.chunkText}
 """
@@ -513,7 +513,7 @@ Return ONLY strict JSON: {"lessons": [{"title": "...", "core_claim": "...", "mec
     if (inputs.length === 1) return { perChunk: [await this.extractLessons(inputs[0]!)] };
 
     const passages = inputs
-      .map((input, i) => `Passage ${i} (page ${input.pageStart}):\n"""\n${input.chunkText}\n"""`)
+      .map((input, i) => `Passage ${i} (${input.locationLabel ?? `page ${input.pageStart}`}):\n"""\n${input.chunkText}\n"""`)
       .join("\n\n");
     const userPrompt = `Extract up to 2 distinct teachable lessons from EACH of the ${inputs.length} passages below, INDEPENDENTLY -- never mix content across passages, and a provenance_quote for passage N must come verbatim from passage N only.
 

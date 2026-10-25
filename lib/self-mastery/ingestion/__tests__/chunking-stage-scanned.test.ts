@@ -21,6 +21,8 @@ const scannedPages = () => Array.from({ length: 40 }, (_, i) => ({ page: i + 1, 
 const prose = "The mind forgets quickly unless the material is retrieved again after a delay. ".repeat(26);
 const textPages = () => Array.from({ length: 40 }, (_, i) => ({ page: i + 1, text: prose }));
 
+let storedFile: { path: string; bytes: Uint8Array } = { path: "u/b.pdf", bytes: new Uint8Array([1]) };
+
 function makeSupabase() {
   const tablesTouched: string[] = [];
   const bookUpdates: Record<string, unknown>[] = [];
@@ -31,7 +33,7 @@ function makeSupabase() {
       if (table === "books") bookUpdates.push(vals);
       return c;
     });
-    c.single = vi.fn(async () => (table === "books" ? { data: { file_path: "u/b.pdf" }, error: null } : result));
+    c.single = vi.fn(async () => (table === "books" ? { data: { file_path: storedFile.path }, error: null } : result));
     c.then = (resolve: (v: unknown) => void) => resolve(result);
     return c;
   };
@@ -43,7 +45,7 @@ function makeSupabase() {
         tablesTouched.push(table);
         return chain(table);
       },
-      storage: { from: () => ({ download: async () => ({ data: new Blob([new Uint8Array([1])]), error: null }) }) },
+      storage: { from: () => ({ download: async () => ({ data: new Blob([storedFile.bytes as BlobPart]), error: null }) }) },
     },
   };
 }
@@ -55,6 +57,7 @@ describe("chunking stage: scanned-PDF guard", () => {
     vi.resetModules();
     extractPagesMock.mockReset();
     loadPdfMock.mockReset().mockResolvedValue({});
+    storedFile = { path: "u/b.pdf", bytes: new Uint8Array([1]) };
   });
 
   it("fails a scanned PDF immediately with a clear message, before writing any sections or chunks", async () => {
@@ -115,6 +118,14 @@ describe("chunking stage: scanned-PDF guard", () => {
     });
   });
 
+  it("isRetryableBookError: the text-format file problems are not retryable either", async () => {
+    const { isRetryableBookError, EMPTY_DOCUMENT_MESSAGE, NOT_TEXT_MESSAGE, UNREADABLE_DOCUMENT_MESSAGE } = await import("../failure-messages");
+    for (const m of [EMPTY_DOCUMENT_MESSAGE, NOT_TEXT_MESSAGE, UNREADABLE_DOCUMENT_MESSAGE]) {
+      expect(typeof m).toBe("string");
+      expect(isRetryableBookError(m)).toBe(false);
+    }
+  });
+
   it("isRetryableBookError: file problems are not retryable, everything else is", async () => {
     const { isRetryableBookError, SCANNED_PDF_MESSAGE, ENCRYPTED_PDF_MESSAGE, UNREADABLE_PDF_MESSAGE, tooManyPagesMessage, NO_KEY_MESSAGE, MONTHLY_CAP_MESSAGE } = await import("../failure-messages");
     // An AI block is about the account, not the file: a key can be added or a month can pass, so Try again stays offered.
@@ -126,5 +137,70 @@ describe("chunking stage: scanned-PDF guard", () => {
     expect(isRetryableBookError("Something went wrong while processing this book. Please try uploading it again.")).toBe(true);
     expect(isRetryableBookError("The AI provider kept timing out while processing this book. Please try again later.")).toBe(true);
     expect(isRetryableBookError(null)).toBe(true);
+  });
+
+  describe("EPUB / TXT / Markdown (lesson ingestion beyond PDF)", () => {
+    const prose = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} explains how spaced retrieval strengthens a memory far more than rereading ever does. `.repeat(6).trim()).join("\n\n");
+
+    it("a TXT book is chunked from its own text: no PDF parsing, sections + chunks written, page_count set from the synthetic pages", async () => {
+      storedFile = { path: "u/b.txt", bytes: new TextEncoder().encode(`CHAPTER I\n\n${prose}\n\nCHAPTER II\n\n${prose}`) };
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, tablesTouched, bookUpdates } = makeSupabase();
+
+      const result = await STAGE_HANDLERS.chunking!(ctxFor(supabase));
+
+      expect(result.nextStage).toBe("embedding");
+      expect(loadPdfMock).not.toHaveBeenCalled();
+      expect(tablesTouched).toEqual(expect.arrayContaining(["book_sections", "source_chunks"]));
+      expect(bookUpdates.some((u) => typeof u.page_count === "number" && (u.page_count as number) > 1)).toBe(true);
+      expect(bookUpdates.filter((u) => u.status === "failed")).toHaveLength(0);
+    });
+
+    it("an empty / blank text file fails the book at once with a clear message, nothing written", async () => {
+      storedFile = { path: "u/b.md", bytes: new TextEncoder().encode("   \n\n  ") };
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, tablesTouched, bookUpdates } = makeSupabase();
+
+      const result = await STAGE_HANDLERS.chunking!(ctxFor(supabase));
+
+      expect(result.nextStage).toBe("failed");
+      expect(String(bookUpdates[0]!.error_message)).toMatch(/readable text/i);
+      expect(tablesTouched).not.toContain("source_chunks");
+    });
+
+    it("a broken EPUB fails with the 'couldn't read' message, a binary renamed .txt with the 'isn't readable text' one", async () => {
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+
+      storedFile = { path: "u/b.epub", bytes: new TextEncoder().encode("this is not a zip file at all") };
+      const epub = makeSupabase();
+      expect((await STAGE_HANDLERS.chunking!(ctxFor(epub.supabase))).nextStage).toBe("failed");
+      expect(String(epub.bookUpdates[0]!.error_message)).toMatch(/couldn't read/i);
+
+      const png = new Uint8Array(4000).map((_, i) => (i * 7) % 256);
+      png[0] = 0x89;
+      storedFile = { path: "u/b.txt", bytes: png };
+      const bin = makeSupabase();
+      expect((await STAGE_HANDLERS.chunking!(ctxFor(bin.supabase))).nextStage).toBe("failed");
+      expect(String(bin.bookUpdates[0]!.error_message)).toMatch(/isn't readable text/i);
+    });
+
+    it("a text longer than the page ceiling fails with the same too-many-pages message PDFs get", async () => {
+      const huge = Array.from({ length: 6000 }, (_, i) => `Paragraph ${i} explains how spaced retrieval strengthens a memory far more than rereading ever does. `.repeat(6).trim()).join("\n\n");
+      storedFile = { path: "u/b.txt", bytes: new TextEncoder().encode(huge) };
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, bookUpdates, tablesTouched } = makeSupabase();
+      expect((await STAGE_HANDLERS.chunking!(ctxFor(supabase))).nextStage).toBe("failed");
+      expect(String(bookUpdates[0]!.error_message)).toMatch(/pages, which is over the 1500-page limit/);
+      expect(tablesTouched).not.toContain("source_chunks");
+    });
+
+    it("the scanned-PDF guard does not apply to text formats (a short but real text file is not 'scanned')", async () => {
+      storedFile = { path: "u/b.txt", bytes: new TextEncoder().encode(`${prose.slice(0, 700)}`) };
+      const { STAGE_HANDLERS } = await import("../worker-stages");
+      const { supabase, bookUpdates } = makeSupabase();
+      const result = await STAGE_HANDLERS.chunking!(ctxFor(supabase));
+      expect(result.nextStage).toBe("embedding");
+      expect(bookUpdates.filter((u) => u.status === "failed")).toHaveLength(0);
+    });
   });
 });

@@ -7,10 +7,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
-type PrepareOutcome = { ok: true; bookId: string; path: string; token: string } | { ok: false; message: string };
+type PrepareOutcome = { ok: true; bookId: string; path: string; token: string; contentType: string } | { ok: false; message: string };
 type FinalizeOutcome = { ok: true; bookId: string } | { ok: false; message: string };
 const prepareBookUploadMock = vi.fn(
-  async (..._args: unknown[]): Promise<PrepareOutcome> => ({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "tok-1" })
+  async (..._args: unknown[]): Promise<PrepareOutcome> => ({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "tok-1", contentType: "application/pdf" })
 );
 const finalizeBookUploadMock = vi.fn(async (..._args: unknown[]): Promise<FinalizeOutcome> => ({ ok: true, bookId: "book-1" }));
 const cancelBookUploadMock = vi.fn(async (..._args: unknown[]) => {});
@@ -51,7 +51,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     pushMock.mockReset();
-    prepareBookUploadMock.mockReset().mockResolvedValue({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "tok-1" });
+    prepareBookUploadMock.mockReset().mockResolvedValue({ ok: true, bookId: "book-1", path: "user-1/book-1.pdf", token: "tok-1", contentType: "application/pdf" });
     finalizeBookUploadMock.mockReset().mockResolvedValue({ ok: true, bookId: "book-1" });
     cancelBookUploadMock.mockReset().mockResolvedValue(undefined);
     uploadToSignedUrlMock.mockReset().mockResolvedValue({ data: {}, error: null });
@@ -66,7 +66,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
     await user.click(screen.getByRole("button", { name: "Add to library" }));
 
     await waitFor(() => expect(finalizeBookUploadMock).toHaveBeenCalledTimes(1));
-    expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number));
+    expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number), "book.pdf");
     expect(uploadToSignedUrlMock).toHaveBeenCalledWith("user-1/book-1.pdf", "tok-1", expect.any(File), { contentType: "application/pdf" });
     expect(finalizeBookUploadMock).toHaveBeenCalledWith("book-1", "user-1/book-1.pdf");
     expect(cancelBookUploadMock).not.toHaveBeenCalled();
@@ -191,7 +191,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
       await user.click(screen.getByRole("button", { name: "Add to library" }));
 
       await waitFor(() => expect(prepareBookUploadMock).toHaveBeenCalledTimes(1));
-      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number));
+      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number), "book.pdf");
     });
 
     it("clicking Batch then submitting sends ingestion_mode=batch", async () => {
@@ -204,7 +204,7 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
       await user.click(screen.getByRole("button", { name: "Add to library" }));
 
       await waitFor(() => expect(prepareBookUploadMock).toHaveBeenCalledTimes(1));
-      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "batch", expect.any(Number));
+      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "batch", expect.any(Number), "book.pdf");
     });
 
     it("closing and reopening the dialog resets the mode back to Standard, never carrying a stale Batch choice into a new upload", async () => {
@@ -225,7 +225,34 @@ describe("UploadBookDialog -- URGENT pdf-upload fix (direct-to-storage)", () => 
       await user.click(screen.getByRole("button", { name: "Add to library" }));
 
       await waitFor(() => expect(prepareBookUploadMock).toHaveBeenCalledTimes(1));
-      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number));
+      expect(prepareBookUploadMock).toHaveBeenCalledWith("A Book", "", "standard", expect.any(Number), "book.pdf");
+    });
+  });
+
+  describe("EPUB / TXT / Markdown", () => {
+    it("the file picker offers PDF, EPUB, TXT and Markdown", async () => {
+      const user = userEvent.setup();
+      render(<UploadBookDialog />);
+      await user.click(screen.getByTestId("add-book-trigger"));
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      expect(input.accept).toBe(".pdf,.epub,.txt,.md,.markdown");
+    });
+
+    it("an EPUB goes up with the Content-Type the server named, under the path the server named, and the title drops the extension", async () => {
+      prepareBookUploadMock.mockResolvedValue({ ok: true, bookId: "book-1", path: "user-1/book-1.epub", token: "tok-1", contentType: "application/epub+zip" });
+      const user = userEvent.setup();
+      render(<UploadBookDialog />);
+      await user.click(screen.getByTestId("add-book-trigger"));
+      const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+      await user.upload(input, new File(["PK"], "Atomic Habits.epub", { type: "" }));
+      expect(screen.getByLabelText("Title")).toHaveValue("Atomic Habits");
+
+      await user.click(screen.getByRole("button", { name: "Add to library" }));
+
+      await waitFor(() => expect(finalizeBookUploadMock).toHaveBeenCalledTimes(1));
+      expect(prepareBookUploadMock).toHaveBeenCalledWith("Atomic Habits", "", "standard", expect.any(Number), "Atomic Habits.epub");
+      expect(uploadToSignedUrlMock).toHaveBeenCalledWith("user-1/book-1.epub", "tok-1", expect.any(File), { contentType: "application/epub+zip" });
+      expect(finalizeBookUploadMock).toHaveBeenCalledWith("book-1", "user-1/book-1.epub");
     });
   });
 });
