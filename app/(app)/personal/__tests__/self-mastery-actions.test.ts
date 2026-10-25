@@ -359,6 +359,7 @@ describe("self-mastery-actions -- direct-to-storage book upload", () => {
 
     it.each([
       ["file_gone", /no longer stored/],
+      ["has_history", /already studied/],
       ["not_failed", /can't be retried/],
       ["not_found", /can't be retried/],
     ])("RPC result %s becomes a plain message", async (rpcResult, message) => {

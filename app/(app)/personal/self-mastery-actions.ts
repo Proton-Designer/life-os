@@ -274,6 +274,7 @@ export async function retryBookIngestion(bookId: string): Promise<{ ok: true } |
   const { data, error } = await untypedRpc<string>(supabase, "retry_book_ingestion", { p_book_id: bookId });
   if (error) return { ok: false, message: "Couldn't restart this book. Please try again." };
   if (data === "file_gone") return { ok: false, message: "The original file is no longer stored, so this book can't be run again. Upload it again." };
+  if (data === "has_history") return { ok: false, message: "You've already studied or promoted lessons from this book, so it can't be rerun from scratch without losing that. Upload the file again as a new book." };
   if (data !== "retried") return { ok: false, message: cantRetry };
 
   revalidatePath("/personal/self_mastery");
