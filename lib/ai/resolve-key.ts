@@ -47,6 +47,12 @@ export async function hasAiAvailable(client: SupabaseClient, userId: string): Pr
   return (await resolveApiKey(client, userId, "deepseek")) !== null;
 }
 
+/** Has the person saved a key for ANY provider? (The gateway and ingestion are multi-provider; `hasAiAvailable` above only looks at DeepSeek.) Used for "connect an agent or add a key" empty states. A read error reads as no key: the hint is not an error. */
+export async function hasAnyAiKey(client: SupabaseClient, userId: string): Promise<boolean> {
+  const { data, error } = await client.from("user_api_keys").select("provider").eq("user_id", userId).limit(1);
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
 /** Whose key a call used. Only "user" is produced now; "server" stays in the type because ai_usage_log rows written while the shared key existed carry it (and its CHECK allows it). */
 export type KeySource = "user" | "server";
 

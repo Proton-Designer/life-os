@@ -3,6 +3,8 @@
 import { requireUser, getProfile } from "@/lib/supabase/auth";
 import { gatewayChat } from "@/lib/ai/gateway";
 import { localDateString } from "@/lib/date-utils";
+import { getCloserDayConnectionCore } from "@/lib/self-mastery/closer-day-connection-core";
+import type { CloserDayConnectionResult } from "@/lib/self-mastery/closer-day-connection-types";
 import { buildDayConnectionUserMessage, normalizeDayConnection, type DueTodayItem } from "@/lib/self-mastery/closer-day-connection";
 
 /**
@@ -50,16 +52,19 @@ const SYSTEM = [
 ].join(" ");
 
 
-export async function getCloserDayConnection(cardId: string): Promise<string | null> {
+export async function getCloserDayConnection(cardId: string): Promise<CloserDayConnectionResult | null> {
   const { supabase, userId } = await requireUser();
-
-  // RLS restricts this to the caller's own card, same as getAnswerFeedback.
-  const { data: card, error: cardError } = await supabase.from("cards").select("prompt, answer").eq("id", cardId).maybeSingle();
-  if (cardError || !card?.answer) return null;
-
   const profile = await getProfile();
   const timezone = profile?.timezone ?? "UTC";
   const todayStr = localDateString(new Date(), timezone);
+  return getCloserDayConnectionCore(supabase, userId, cardId, todayStr, () => generateDayConnection(supabase, userId, cardId, todayStr));
+}
+
+/** The in-app generator (the person's own key). Null for every failure mode, and for nothing due today. */
+async function generateDayConnection(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"], userId: string, cardId: string, todayStr: string): Promise<string | null> {
+  // RLS restricts this to the caller's own card, same as getAnswerFeedback.
+  const { data: card, error: cardError } = await supabase.from("cards").select("prompt, answer").eq("id", cardId).maybeSingle();
+  if (cardError || !card?.answer) return null;
 
   const { data: dueRows, error: dueError } = await supabase
     .from("tasks")

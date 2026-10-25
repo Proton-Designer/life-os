@@ -30,6 +30,8 @@ import {
 } from "@/app/(app)/personal/self-mastery-session-actions";
 import { getAnswerFeedback, type AnswerFeedback } from "@/app/(app)/personal/answer-feedback-actions";
 import { getCloserDayConnection } from "@/app/(app)/personal/closer-day-connection-actions";
+import type { CloserDayConnectionResult } from "@/lib/self-mastery/closer-day-connection-types";
+import { ConnectAgentHint } from "@/components/agent/connect-agent-hint";
 import type { LessonContext } from "@/lib/self-mastery/session/build-session";
 import type { BuiltSession } from "@/lib/self-mastery/session/types";
 import { studyMethodLabel } from "@/lib/self-mastery/study-methods";
@@ -99,7 +101,7 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
   // null is the normal answer whenever there's nothing genuine to connect
   // to, not just on a provider/key failure — see closer-day-connection-
   // actions.ts's own header.
-  const [closerDayConnection, setCloserDayConnection] = useState<string | null>(null);
+  const [closerDayConnection, setCloserDayConnection] = useState<CloserDayConnectionResult | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [explanationText, setExplanationText] = useState("");
   const [completion, setCompletion] = useState<FinishSessionResult | null>(null);
@@ -669,7 +671,18 @@ export function RetrievalSessionOverlay({ open, onClose }: { open: boolean; onCl
                         <Target className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                         <div className="flex flex-col gap-0.5">
                           <p className="text-xs font-medium text-muted-foreground">Today</p>
-                          <p className="text-sm text-foreground">{closerDayConnection}</p>
+                          {closerDayConnection.kind === "line" ? (
+                            <>
+                              <p className="text-sm text-foreground">{closerDayConnection.text}</p>
+                              {closerDayConnection.sourceLabel ? (
+                                <p data-testid="day-connection-source" className="text-xs text-muted-foreground/80">
+                                  {closerDayConnection.sourceLabel}
+                                </p>
+                              ) : null}
+                            </>
+                          ) : (
+                            <ConnectAgentHint what="day connection" />
+                          )}
                         </div>
                       </div>
                     )}

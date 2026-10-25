@@ -270,9 +270,19 @@ describe("getCollegeOsWeeklyNarrative()", () => {
   }
 
   it("returns the narrative text for a real row", async () => {
-    const client = makeReadClient({ data: { narrative_text: "A great week." }, error: null });
+    const client = makeReadClient({ data: { narrative_text: "A great week.", provider: "user", model: "" }, error: null });
     const result = await getCollegeOsWeeklyNarrative(client, "u1", "2026-09-07");
-    expect(result).toBe("A great week.");
+    expect(result).toEqual({ text: "A great week.", provider: "user", model: "" });
+  });
+
+  it("carries an agent narrative's source", async () => {
+    const client = makeReadClient({ data: { narrative_text: "Hi.", provider: "mcp", model: "Claude" }, error: null });
+    expect(await getCollegeOsWeeklyNarrative(client, "u1", "2026-09-07")).toEqual({ text: "Hi.", provider: "mcp", model: "Claude" });
+  });
+
+  it("an empty claim row (no text yet) is no narrative", async () => {
+    const client = makeReadClient({ data: { narrative_text: null, provider: null, model: null }, error: null });
+    expect(await getCollegeOsWeeklyNarrative(client, "u1", "2026-09-07")).toBeNull();
   });
 
   it("returns null when nothing was generated for that week", async () => {

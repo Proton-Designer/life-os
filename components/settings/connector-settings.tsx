@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { MorningBriefSchedule } from "./morning-brief-schedule";
+import { MorningBriefSchedule, AgentOutputsSchedule } from "./morning-brief-schedule";
 import {
   createMcpToken,
   revokeMcpToken,
@@ -434,6 +434,7 @@ export function ConnectorSettings({
       </Tabs>
 
       <MorningBriefSchedule />
+      <AgentOutputsSchedule />
 
       {tokens.length > 0 ? (
         // UX-04: this list has no natural size cap -- the pass-1 audit found

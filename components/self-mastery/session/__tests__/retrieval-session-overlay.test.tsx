@@ -44,7 +44,7 @@ vi.mock("@/app/(app)/personal/answer-feedback-actions", () => ({
   getAnswerFeedback: (cardId: string, userAnswer: string) => getAnswerFeedbackMock(cardId, userAnswer),
 }));
 
-const getCloserDayConnectionMock = vi.fn(async (_cardId: string): Promise<string | null> => null);
+const getCloserDayConnectionMock = vi.fn(async (_cardId: string): Promise<import("@/lib/self-mastery/closer-day-connection-types").CloserDayConnectionResult | null> => null);
 vi.mock("@/app/(app)/personal/closer-day-connection-actions", () => ({
   getCloserDayConnection: (cardId: string) => getCloserDayConnectionMock(cardId),
 }));
@@ -203,7 +203,7 @@ describe("RetrievalSessionOverlay", () => {
       dueQuestions: [],
     });
     revealCardAnswerMock.mockResolvedValue("Closer answer");
-    getCloserDayConnectionMock.mockResolvedValue("This connects to Problem Set 3, due today.");
+    getCloserDayConnectionMock.mockResolvedValue({ kind: "line", text: "This connects to Problem Set 3, due today.", sourceLabel: null });
     const user = userEvent.setup();
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
 
@@ -214,6 +214,44 @@ describe("RetrievalSessionOverlay", () => {
     expect(getCloserDayConnectionMock).toHaveBeenCalledWith("c-closer");
     await waitFor(() => expect(screen.getByText("This connects to Problem Set 3, due today.")).toBeInTheDocument());
     expect(screen.getByText("Today")).toBeInTheDocument();
+  });
+
+  it("an agent-written day connection shows its source line", async () => {
+    const closerCard = card("c-closer", "Closer prompt");
+    loadTodaysSessionMock.mockResolvedValue({
+      session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
+      plan: { warmUp: [], due: [], fresh: [], closer: closerCard },
+      settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
+      overflowDueCount: 0,
+      dueQuestions: [],
+    });
+    revealCardAnswerMock.mockResolvedValue("Closer answer");
+    getCloserDayConnectionMock.mockResolvedValue({ kind: "line", text: "Ties to your 7:00 PM quiz.", sourceLabel: "Written by Claude via your connector" });
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Closer prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByText("Ties to your 7:00 PM quiz.")).toBeInTheDocument());
+    expect(screen.getByTestId("day-connection-source")).toHaveTextContent("Written by Claude via your connector");
+  });
+
+  it("with no key and nothing written, the closer shows the honest 'connect an agent or add a key' hint, not an error", async () => {
+    const closerCard = card("c-closer", "Closer prompt");
+    loadTodaysSessionMock.mockResolvedValue({
+      session: { id: "sess-1", userId: "user-1", localDate: "2026-09-01", startedAt: "2026-09-01T12:00:00Z", endedAt: null, cardsReviewed: 0, newCardsIntroduced: 0 },
+      plan: { warmUp: [], due: [], fresh: [], closer: closerCard },
+      settings: { sessionTargetMinutes: 8, dailyNewLimit: 5, aiGradingEnabled: true, desiredRetention: 0.9 },
+      overflowDueCount: 0,
+      dueQuestions: [],
+    });
+    revealCardAnswerMock.mockResolvedValue("Closer answer");
+    getCloserDayConnectionMock.mockResolvedValue({ kind: "no_ai" });
+    const user = userEvent.setup();
+    render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Closer prompt")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Reveal answer" }));
+    await waitFor(() => expect(screen.getByTestId("connect-agent-hint")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("P2-15: the closer card shows nothing extra when there's no genuine day-connection (no key, cap hit, or nothing due) -- never a placeholder", async () => {

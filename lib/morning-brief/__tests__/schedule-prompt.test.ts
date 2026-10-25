@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MORNING_BRIEF_SCHEDULE_PROMPT } from "../schedule-prompt";
+import { MORNING_BRIEF_SCHEDULE_PROMPT, WEEKLY_REVIEW_SCHEDULE_PROMPT, DAY_CONNECTION_SCHEDULE_PROMPT } from "../schedule-prompt";
 import { getWriteAction } from "@/lib/mcp/write-registry";
 import { getEntity } from "@/lib/mcp/registry";
 
@@ -21,5 +21,21 @@ describe("MORNING_BRIEF_SCHEDULE_PROMPT", () => {
     expect(MORNING_BRIEF_SCHEDULE_PROMPT).toMatch(/9:00 PM/);
     expect(MORNING_BRIEF_SCHEDULE_PROMPT).toMatch(/plain text/i);
     expect(MORNING_BRIEF_SCHEDULE_PROMPT).toMatch(/2000/);
+  });
+});
+
+describe.each([
+  ["weekly review", WEEKLY_REVIEW_SCHEDULE_PROMPT, ["review", "weekly_narrative", "write"]],
+  ["day connection", DAY_CONNECTION_SCHEDULE_PROMPT, ["self_mastery", "day_connection", "write"]],
+] as const)("%s prompt", (_name, prompt, [domain, entity, action]) => {
+  it("names its registered write op exactly", () => {
+    expect(prompt).toContain(`domain "${domain}", entity "${entity}", action "${action}"`);
+    expect(getWriteAction(domain, entity, action)).not.toBeNull();
+  });
+  it("only names read entities that exist, and asks for 12-hour times", () => {
+    const named = [...prompt.matchAll(/`([a-z_]+)\.([a-z_]+)`/g)].map((m) => [m[1]!, m[2]!] as const);
+    expect(named.length).toBeGreaterThan(2);
+    for (const [d, e] of named) expect(getEntity(d, e), `${d}.${e}`).not.toBeNull();
+    expect(prompt).toMatch(/12-hour/);
   });
 });

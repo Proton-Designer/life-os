@@ -12,3 +12,24 @@ export const MORNING_BRIEF_SCHEDULE_PROMPT = `Write my Life OS Morning Brief for
 5. Save it with the write tool: domain "day", entity "morning_brief", action "write", patch { "text": "<the brief>" }. Plain text only (no HTML or markdown tables), at most 2000 characters. Leave out the date so it saves for my local today. Saving again replaces the brief.
 
 If the connector is not available or a call fails, stop and tell me what failed instead of retrying in a loop.`;
+
+/** Weekly Review narrative ("Your week"): run on Sunday morning. Migration 275. */
+export const WEEKLY_REVIEW_SCHEDULE_PROMPT = `Write my Life OS weekly review for the week that just ended and save it with my Life OS connector.
+
+1. Call list_capabilities once if you are unsure what you can read.
+2. Read the week with the read tool. Useful sources: focused work sessions (\`work.work_session\`), distractions I logged (\`distractions.event\`), my habits and their check-ins (\`deen.habit\`, \`deen.habit_log\`), and what I finished (\`work.task\`, \`school.task\`). The week is Sunday to Saturday; filter by date range. Skip anything empty or not enabled for me.
+3. Write 3 to 5 sentences of plain text, warm but not saccharine: what went well, what slipped (the most common distraction, a habit that dropped), and one forward-looking note for the week ahead. Use only numbers you actually read. Never invent.
+4. Write every time in 12-hour form with AM or PM, like 9:00 PM.
+5. Save it with the write tool: domain "review", entity "weekly_narrative", action "write", patch { "text": "<the review>" }. Plain text only, at most 2000 characters. Leave out week_start so it saves for the week that just ended. Saving again replaces it.
+
+If the connector is not available or a call fails, stop and tell me what failed instead of retrying in a loop.`;
+
+/** Session closer "connect this lesson to today" lines: run each morning. Migration 276. */
+export const DAY_CONNECTION_SCHEDULE_PROMPT = `Link my Life OS study lessons to my real day and save the links with my Life OS connector.
+
+1. Read what is on my plate today with the read tool: open tasks due today (\`work.task\`, \`school.task\`) and my lesson cards due for review (\`self_mastery.card\`, \`self_mastery.card_state\`). If nothing is due today, stop.
+2. For each of up to 5 due lesson cards, write ONE sentence (at most 220 characters, no line break) that honestly ties that lesson to one specific thing on my plate today. If there is no real connection, skip the card. Never force one.
+3. Write times in 12-hour form with AM or PM, like 7:00 PM.
+4. Save each one with the write tool: domain "self_mastery", entity "day_connection", action "write", id left out, patch { "card_id": "<the card id>", "text": "<the sentence>" }. Leave out the date so it saves for my local today. Saving again replaces the line.
+
+If the connector is not available or a call fails, stop and tell me what failed instead of retrying in a loop.`;

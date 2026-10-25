@@ -11,6 +11,9 @@ import { getDistractionPareto } from "@/lib/weekly-review/pareto";
 import { getHabitWeeklySummaries } from "@/lib/weekly-review/habit-summary";
 import { getMostRecentCompletedWeek, getThisWeekSoFar } from "@/lib/weekly-review/week-range";
 import { getCollegeOsWeeklyNarrative } from "@/lib/weekly-review/weekly-narrative";
+import { hasAnyAiKey } from "@/lib/ai/resolve-key";
+import { briefParagraphs, briefSourceLabel } from "@/lib/morning-brief/brief-source";
+import { ConnectAgentHint } from "@/components/agent/connect-agent-hint";
 import { WeeklyReviewView } from "@/components/weekly-review/weekly-review-view";
 import { WakePlanNudge } from "@/components/weekly-review/wake-plan-nudge";
 import { isOptInFeatureOnForRequest } from "@/lib/opt-in-guard";
@@ -89,6 +92,8 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
     getForecastableAssessments(supabase, user.id),
     getPageLayout("weekly_review"),
   ]);
+  // No narrative AND no key: say how to get one (an honest empty state), instead of a silently missing panel.
+  const aiAvailable = narrative ? true : await hasAnyAiKey(supabase, user.id);
   const courseLoadForecast = computeCourseLoadForecast(forecastableAssessments, todayStr, COURSE_LOAD_WEEKS);
 
   // Sleep plan ON with a plan set: do the real mornings of this week run clearly later than the planned wake time?
@@ -150,7 +155,22 @@ export async function WeeklyReviewBody({ soFar, viewBasePath, showViewSwitch = t
       <LayoutSlot layout={layoutMap} widgetKey="your_week">
       {narrative ? (
         <Panel title="Your week">
-          <p className="whitespace-pre-line text-sm text-muted-foreground">{narrative}</p>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            {briefParagraphs(narrative.text).map((paragraph, i) => (
+              <p key={i} className="whitespace-pre-line">
+                {paragraph}
+              </p>
+            ))}
+          </div>
+          {briefSourceLabel(narrative.provider, narrative.model) ? (
+            <p data-testid="narrative-source" className="mt-2 text-xs text-muted-foreground/80">
+              {briefSourceLabel(narrative.provider, narrative.model)}
+            </p>
+          ) : null}
+        </Panel>
+      ) : !aiAvailable ? (
+        <Panel title="Your week">
+          <ConnectAgentHint what="weekly narrative" />
         </Panel>
       ) : null}
       </LayoutSlot>

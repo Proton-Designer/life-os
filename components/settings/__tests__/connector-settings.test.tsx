@@ -214,4 +214,17 @@ describe("ConnectorSettings — Schedule your Morning Brief", () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('action "write"'));
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
   });
+
+  it("offers the weekly review and lesson-link prompts, each copyable", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<ConnectorSettings initialTokens={[]} initialScheduledActions={[]} />);
+    expect(screen.getByRole("heading", { name: "Schedule your weekly review" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Schedule lesson links to your day" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy weekly review prompt" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('entity "weekly_narrative"'));
+    await user.click(screen.getByRole("button", { name: "Copy lesson link prompt" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('entity "day_connection"'));
+  });
 });

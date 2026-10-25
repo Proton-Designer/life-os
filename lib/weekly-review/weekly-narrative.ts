@@ -232,14 +232,22 @@ export async function dispatchCollegeOsWeeklyNarratives(supabase: TypedClient, n
   return { usersChecked: profiles.length, generated };
 }
 
-/** The Weekly Review page's own read — RLS-scoped, no service role needed. Null for every indistinguishable-by-design reason (not yet generated, no key, cap hit, provider failure), same posture as getMorningBriefForToday. */
-export async function getCollegeOsWeeklyNarrative(supabase: TypedClient, userId: string, weekStart: string): Promise<string | null> {
+export interface WeeklyNarrativeView {
+  text: string;
+  /** 'mcp' = written by a connected agent; anything else is the built-in narrative. */
+  provider: string | null;
+  /** For an agent narrative, the connecting token's name (or 'agent'). */
+  model: string | null;
+}
+
+/** The Weekly Review page's own read — RLS-scoped, no service role needed. Null for every indistinguishable-by-design reason (not yet generated, no key, cap hit, provider failure, an empty claim row), same posture as getMorningBriefForToday. */
+export async function getCollegeOsWeeklyNarrative(supabase: TypedClient, userId: string, weekStart: string): Promise<WeeklyNarrativeView | null> {
   const { data, error } = await untypedFrom(supabase, "collegeos_weekly_narratives")
-    .select("narrative_text")
+    .select("narrative_text, provider, model")
     .eq("user_id", userId)
     .eq("week_start", weekStart)
     .maybeSingle()
-    .returns<{ narrative_text: string | null } | null>();
-  if (error || !data) return null;
-  return data.narrative_text;
+    .returns<{ narrative_text: string | null; provider: string | null; model: string | null } | null>();
+  if (error || !data || !data.narrative_text) return null;
+  return { text: data.narrative_text, provider: data.provider, model: data.model };
 }
