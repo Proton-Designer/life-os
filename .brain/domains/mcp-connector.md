@@ -92,3 +92,7 @@ OAuth: RFC 6749 §4.1 + PKCE (mandatory) + RFC 7591 DCR + RFC 8414/9728 metadata
 
 - Whether a monitoring/canary check exists for silent `SUPABASE_LEGACY_JWT_SECRET` revocation (none found).
 - Whether any ceiling exists on `mcp_access_tokens` rows per user (none found; only OAuth *client* registration is capped).
+
+## Morning Brief write (2026-10-25)
+
+`day.morning_brief.write` / `.clear` (lib/mcp/write-registry.ts; core in `lib/morning-brief/agent-brief-core.ts`) and the read entity `home.morning_brief` let an agent replace Home's built-in brief. Writes go through migration 274's SECURITY DEFINER RPCs (the table is select-only for people), acting as `auth.uid()` with no user id. The row is marked `provider='mcp'`, `model` = the token's label (else `agent`); the calling token id now reaches write actions via `WriteContext.tokenId` (`executeOperation` passes `{ tokenId }` as `run`'s third argument). Date: local today or tomorrow only. The cron's fill/release in `lib/ai/morning-brief.ts` are guarded with `.is("brief_text", null)` so a brief an agent writes between the cron's claim and fill is never overwritten or deleted. Settings → Connector shows the copyable scheduled-task prompt (`lib/morning-brief/schedule-prompt.ts`, test-checked against the registries). **Migration 274 must be applied before the write/clear ops work.**

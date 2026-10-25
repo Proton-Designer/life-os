@@ -111,6 +111,29 @@ into the void — a scheduled `notify` action reaches the account's registered p
 using the same idempotency discipline as everything above (a retry does not send the same
 reminder twice).
 
+## Morning Brief — an agent can write it (2026-10-25)
+
+A connected agent (a Claude or ChatGPT scheduled task, through the OAuth connector or a personal
+token) can write the Morning Brief that Home shows, replacing the built-in AI one.
+
+- **Write:** `write(domain "day", entity "morning_brief", action "write", patch { text, date? })`.
+  `text` is plain text, 1 to 2000 characters, paragraphs separated by blank lines (it is shown as
+  text, never HTML). `date` defaults to the account's local today; only local today or tomorrow is
+  accepted, so a late-night task can write tomorrow's. It overwrites whatever brief is there,
+  including the built-in one, and is safe to run twice (it is schedulable).
+- **Clear:** `action "clear"` deletes the agent-written brief for a date (never a built-in one), so
+  Home goes back to the built-in brief or nothing.
+- **Read:** `read(domain "home", entity "morning_brief")` lists recent briefs with `provider`
+  (`mcp` = agent-written) and `model` (the connecting token's name, or `agent`).
+- **Source:** Home shows "Written by <client> via your connector" under an agent brief. A built-in
+  brief stays unlabeled.
+- **The nightly built-in brief never overwrites an agent brief:** its claim insert loses to the
+  existing row, and its fill / release only touch a claim row whose text is still empty.
+- **How it is written:** the MCP session is a user-scoped JWT and `ai_morning_briefs` has no write
+  policy for people, so migration 274 adds two SECURITY DEFINER functions
+  (`write_agent_morning_brief`, `clear_agent_morning_brief`) that act as `auth.uid()` and take no user
+  id. Settings → Connector has a copyable "Schedule your Morning Brief" prompt for the scheduled task.
+
 ## Widgets — what the AI can add to Home
 
 A widget is a config row, not code the AI writes and deploys — it names a `kind` (a fixed,

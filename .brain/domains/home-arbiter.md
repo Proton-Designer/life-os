@@ -84,3 +84,7 @@ Home is the single daily entry point, deliberately not a dashboard: what to do r
 
 - `lib/widgets/render.ts` calling the real `readTool()` was not re-verified line-by-line in this pass (verified by a separate MCP-focused pass; treated as confirmed here by cross-reference).
 - Whether Home's Focus panel (session-log-based, `work_sessions`) and Insights' Focus Map (check-in-sample-based, `checkin_allocations`) can report different "focus minutes" for the same day — observed as a plausible discrepancy, not documented elsewhere as a known gap.
+
+## Morning brief source (2026-10-25)
+
+`getMorningBriefForToday` returns `{ text, provider, model }`. `MorningBriefPanel` splits paragraphs on blank lines (plain text, no HTML), shows `briefSourceLabel(provider, model)` ("Written by <client> via your connector" for `provider='mcp'`, nothing for the built-in brief), and clamps a long brief behind Show more (`lib/morning-brief/brief-source.ts`). Collapse/minimize is unchanged. An agent can write the brief: see `mcp-connector.md`.

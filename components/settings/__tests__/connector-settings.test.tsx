@@ -201,3 +201,17 @@ describe("ConnectorSettings scheduled actions", () => {
     expect(screen.getByText(/Nightly summary/)).toBeInTheDocument();
   });
 });
+
+describe("ConnectorSettings — Schedule your Morning Brief", () => {
+  it("shows the section with the prompt and copies it", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<ConnectorSettings initialTokens={[]} initialScheduledActions={[]} />);
+    expect(screen.getByRole("heading", { name: "Schedule your Morning Brief" })).toBeInTheDocument();
+    expect(screen.getByTestId("morning-brief-prompt")).toHaveTextContent(/morning_brief/);
+    await user.click(screen.getByRole("button", { name: "Copy prompt" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('action "write"'));
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+});
