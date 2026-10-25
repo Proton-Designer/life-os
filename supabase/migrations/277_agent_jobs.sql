@@ -65,6 +65,10 @@ begin
   if p_subject_id is not null and not exists (select 1 from public.classes where id = p_subject_id and user_id = v_uid) then
     raise exception 'subject not found' using errcode = 'P0002';
   end if;
+  -- Lead review: input_chars is caller-supplied, so bound the stored input itself (a direct RPC could otherwise store any size).
+  if p_input is null or octet_length(p_input::text) > 131072 then
+    raise exception 'job input too large' using errcode = '22023';
+  end if;
   select count(*) into v_live from public.agent_jobs where user_id = v_uid and status in ('pending', 'claimed', 'applying');
   if v_live >= 50 then
     raise exception 'too many jobs waiting for your agent' using errcode = '53400';
@@ -89,6 +93,10 @@ declare
 begin
   if v_uid is null then
     raise exception 'not authenticated' using errcode = '28000';
+  end if;
+  -- Lead review: claimed_by gates submit/fail, so it must be one of the caller's own tokens, never another person's.
+  if p_token_id is not null and not exists (select 1 from public.mcp_access_tokens t where t.id = p_token_id and t.user_id = v_uid) then
+    raise exception 'token not found' using errcode = 'P0002';
   end if;
   return query
   with picked as (
