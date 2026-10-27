@@ -468,3 +468,5 @@ worth adding is a real judgment call, not done here.
 - **The stuck-book "no job" check keys on `books.created_at`** and looks only at the 25 oldest `processing` books per poll (`books` has no `updated_at`).
 - **Not deployed yet (2026-10-25): the shared-key removal.** Ayman's real account has no key of its own and relies on the shared key in production until the removal ships; deploying it turns AI off for that account until a key is added in Settings. Vercel env `AI_SHARED_KEY_POLICY`, `AI_SHARED_KEY_ALLOWED_USER_IDS` and `DEEPSEEK_API_KEY` become dead once it does (`DEEPSEEK_API_KEY` is still read by local scripts).
 
+
+- **2026-10-26 — `.brain/domains/self-mastery.md` said Self-Mastery had "no legacy standalone route".** Wrong since S6 (2026-09-14): `app/(app)/self-mastery/` exists. That route had no Personal tab bar, and the reader back arrow, speed test, book cards and notifications all pointed at it, so a domains-mode account lost its tabs. It now redirects domains-mode accounts to `/personal/self_mastery` (commit 273281f). Doc corrected.

@@ -46,7 +46,7 @@ Spaced repetition over real material — books → sections → lessons → card
 
 | What | Path | Notes |
 |---|---|---|
-| Entrypoint | `app/(app)/personal/[subdomain]/page.tsx` → `SelfMasteryLibrary` | Nav only at `/personal/self_mastery`, no legacy standalone route |
+| Entrypoint | `app/(app)/personal/[subdomain]/page.tsx` → `SelfMasteryLibrary` | Domains mode: `/personal/self_mastery` (inside the Personal tabs). Legacy mode: standalone `/self-mastery` + `/self-mastery/<book>`, which REDIRECT a domains-mode account into `/personal/self_mastery[/<book>]` (`lib/self-mastery/personal-self-mastery-href.ts`, 2026-10-26: the reader's back arrow and other links pointed there and dropped the tabs). Book pages have a "Library" back link (`BookDetailView` `libraryHref`). |
 | Ingestion pipeline | `lib/self-mastery/ingestion/*` | chunk, merge, pdf, promotion, summarize, LLM providers |
 | Session engine | `lib/self-mastery/session/*` | build-session, offline-queue, plan, queue-limits, timer |
 | Scheduler | `lib/self-mastery/fsrs-scheduler.ts` | The one scheduler |
