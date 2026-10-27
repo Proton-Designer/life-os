@@ -55,36 +55,63 @@ describe("allocateQueueLimits", () => {
 describe("previewSession (what Home's card promises = what the session will take)", () => {
   // Ayman's account after one book: 222 new cards, none due, daily_new_limit 5, 8-minute target, seed pace 20s/card.
   it("takes at most dailyNewLimit new cards however many are waiting, and says how many are left", () => {
-    const p = previewSession({ dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
+    const p = previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
     expect(p).toMatchObject({ sessionDue: 0, sessionNew: 5, dueWaiting: 0, newWaiting: 217 });
   });
 
   it("minutes come from the same pace math as the session: the cards it takes x the median pace, rounded up", () => {
-    const p = previewSession({ dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
+    const p = previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
     expect(p.minutes).toBe(2); // 5 x 20s = 100s -> 2 min, not the 8-minute target
-    const slow = previewSession({ dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: 60_000 });
+    const slow = previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: 60_000 });
     expect(slow.minutes).toBe(5);
   });
 
   it("due cards come first and use the capacity; new gets what is left, capped by the limit", () => {
-    const p = previewSession({ dueCount: 12, newCount: 40, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
+    const p = previewSession({ newIntroducedToday: 0, dueCount: 12, newCount: 40, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
     expect(p).toMatchObject({ sessionDue: 12, sessionNew: 5, newWaiting: 35 });
     expect(p.minutes).toBe(6); // 17 x 20s = 340s
   });
 
   it("a due backlog bigger than the session leaves the rest waiting and takes no new cards", () => {
     const cap = estimateSessionCapacity(8, SEED_MS_PER_CARD); // 24
-    const p = previewSession({ dueCount: 100, newCount: 10, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
+    const p = previewSession({ newIntroducedToday: 0, dueCount: 100, newCount: 10, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD });
     expect(p).toMatchObject({ sessionDue: cap, sessionNew: 0, dueWaiting: 100 - cap, newWaiting: 10 });
     expect(p.minutes).toBe(8);
   });
 
   it("never promises more new cards than exist, and a limit of 0 takes none", () => {
-    expect(previewSession({ dueCount: 0, newCount: 3, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionNew: 3, newWaiting: 0 });
-    expect(previewSession({ dueCount: 0, newCount: 30, targetMinutes: 8, dailyNewLimit: 0, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionNew: 0, newWaiting: 30, minutes: 0 });
+    expect(previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 3, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionNew: 3, newWaiting: 0 });
+    expect(previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 30, targetMinutes: 8, dailyNewLimit: 0, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionNew: 0, newWaiting: 30, minutes: 0 });
   });
 
   it("nothing at all is zero minutes", () => {
-    expect(previewSession({ dueCount: 0, newCount: 0, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionDue: 0, sessionNew: 0, minutes: 0 });
+    expect(previewSession({ newIntroducedToday: 0, dueCount: 0, newCount: 0, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD })).toMatchObject({ sessionDue: 0, sessionNew: 0, minutes: 0 });
+  });
+});
+
+describe("previewSession -- the daily new-card allowance is per DAY", () => {
+  const base = { dueCount: 0, newCount: 222, targetMinutes: 8, dailyNewLimit: 5, medianMs: SEED_MS_PER_CARD };
+
+  it("what was already introduced today comes off the limit", () => {
+    expect(previewSession({ ...base, newIntroducedToday: 3 })).toMatchObject({ sessionNew: 2, newWaiting: 220, allowanceSpent: false });
+  });
+
+  it("with the allowance spent and nothing due the session is empty and says why", () => {
+    const p = previewSession({ ...base, newIntroducedToday: 5 });
+    expect(p).toMatchObject({ sessionDue: 0, sessionNew: 0, newWaiting: 222, minutes: 0, allowanceSpent: true });
+  });
+
+  it("due cards are still offered after the allowance is spent", () => {
+    const p = previewSession({ ...base, dueCount: 4, newIntroducedToday: 5 });
+    expect(p).toMatchObject({ sessionDue: 4, sessionNew: 0, allowanceSpent: true });
+  });
+
+  it("a limit of 0 is not 'spent today' (nothing was introduced); over-introduced never goes negative", () => {
+    expect(previewSession({ ...base, dailyNewLimit: 0, newIntroducedToday: 0 })).toMatchObject({ sessionNew: 0, allowanceSpent: false });
+    expect(previewSession({ ...base, newIntroducedToday: 9 })).toMatchObject({ sessionNew: 0, allowanceSpent: true });
+  });
+
+  it("no new cards exist -> nothing to be 'spent' on", () => {
+    expect(previewSession({ ...base, newCount: 0, newIntroducedToday: 5 })).toMatchObject({ allowanceSpent: false });
   });
 });

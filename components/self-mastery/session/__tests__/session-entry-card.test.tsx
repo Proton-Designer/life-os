@@ -12,11 +12,19 @@ vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
-type Summary = { dueCount: number; newCount: number; sessionDueCount: number; sessionNewCount: number; estimatedMinutes: number; hasBooks: boolean };
+type Summary = {
+  dueCount: number;
+  newCount: number;
+  sessionDueCount: number;
+  sessionNewCount: number;
+  newAllowanceSpent: boolean;
+  estimatedMinutes: number;
+  hasBooks: boolean;
+};
 // dueCount/newCount are the whole library; sessionDueCount/sessionNewCount are what the session will actually take.
 // Unless a test says otherwise the session takes everything, so the old copy cases below still read as they did.
 function due(overrides: Partial<Summary>): Summary {
-  const base = { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true, ...overrides };
+  const base = { dueCount: 0, newCount: 0, newAllowanceSpent: false, estimatedMinutes: 0, hasBooks: true, ...overrides };
   return { sessionDueCount: base.dueCount, sessionNewCount: base.newCount, ...base };
 }
 
@@ -49,7 +57,7 @@ describe("SessionEntryCard", () => {
 
   it("shows 'ready to start' copy for a fresh deck with nothing due yet -- day one must not read as broken", () => {
     render(<SessionEntryCard dueSummary={due({ newCount: 12, estimatedMinutes: 8 })} />);
-    expect(screen.getByText("12 new cards, ~8 min")).toBeInTheDocument();
+    expect(screen.getByText("12 new cards today, ~8 min")).toBeInTheDocument();
     expect(screen.getByText("Start")).toBeInTheDocument();
     expect(screen.queryByText(/Nothing due/)).not.toBeInTheDocument();
   });
@@ -61,10 +69,23 @@ describe("SessionEntryCard", () => {
 
   it("describes what the session takes, not the whole library (222 new cards, 5 allowed)", () => {
     render(<SessionEntryCard dueSummary={due({ newCount: 222, sessionNewCount: 5, estimatedMinutes: 2 })} />);
-    expect(screen.getByText("5 new cards, ~2 min")).toBeInTheDocument();
+    expect(screen.getByText("5 new cards today, ~2 min")).toBeInTheDocument();
     expect(screen.getByText("Self-Mastery · 217 more waiting")).toBeInTheDocument();
     expect(screen.queryByText(/222/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/today/i)).not.toBeInTheDocument();
+  });
+
+  it("allowance spent, nothing due: 'Done for today' with the new cards still waiting - not 'Nothing due today'", () => {
+    render(<SessionEntryCard dueSummary={due({ newCount: 217, sessionNewCount: 0, newAllowanceSpent: true })} />);
+    expect(screen.getByText("Done for today")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery · 217 new waiting")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing due today")).not.toBeInTheDocument();
+    expect(screen.getByText("Review anyway")).toBeInTheDocument();
+  });
+
+  it("allowance spent but cards are due: the due copy wins and the leftover new cards are 'more waiting'", () => {
+    render(<SessionEntryCard dueSummary={due({ dueCount: 4, newCount: 217, sessionNewCount: 0, newAllowanceSpent: true, estimatedMinutes: 2 })} />);
+    expect(screen.getByText("4 cards due, ~2 min")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery · 217 more waiting")).toBeInTheDocument();
   });
 
   it("counts a due backlog the session can't fit as waiting too", () => {
@@ -75,7 +96,7 @@ describe("SessionEntryCard", () => {
 
   it("no 'more waiting' note when the session takes everything, and singular 'new card'", () => {
     render(<SessionEntryCard dueSummary={due({ newCount: 1, estimatedMinutes: 1 })} />);
-    expect(screen.getByText("1 new card, ~1 min")).toBeInTheDocument();
+    expect(screen.getByText("1 new card today, ~1 min")).toBeInTheDocument();
     expect(screen.getByText("Self-Mastery")).toBeInTheDocument();
   });
 

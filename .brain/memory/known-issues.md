@@ -470,3 +470,5 @@ worth adding is a real judgment call, not done here.
 
 
 - **2026-10-26 — `.brain/domains/self-mastery.md` said Self-Mastery had "no legacy standalone route".** Wrong since S6 (2026-09-14): `app/(app)/self-mastery/` exists. That route had no Personal tab bar, and the reader back arrow, speed test, book cards and notifications all pointed at it, so a domains-mode account lost its tabs. It now redirects domains-mode accounts to `/personal/self_mastery` (commit 273281f). Doc corrected.
+
+- **2026-10-27 — `daily_new_limit` was a per-session-build cap, not per day, and `work_sessions.new_cards_introduced` is never written.** Migration 077 added the column, no migration or RPC increments it (NULL on every learn session), so it cannot be the record. `buildTodaysSession` re-requested the full limit every time a queue was built, so a resumed or second same-day session got more new cards. Now `countNewCardsIntroduced` (reviews with `state_before='new'` in the person's local-date window) comes off the limit in `buildTodaysSession` and in `previewSession`/`getDueSummary`. A `new_cards_introduced` column that looks usable is not.

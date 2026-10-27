@@ -18,6 +18,7 @@ import {
   computeSessionBookStrengths,
   countDueCards,
   countNewCards,
+  countNewCardsIntroduced,
   loadRecentElapsedMs,
   countDueTomorrow,
   fetchDueCardDetail,
@@ -61,8 +62,8 @@ async function resolveLocalDate(): Promise<{ localDate: string; timezone: string
  */
 export async function loadTodaysSession(): Promise<BuiltSession> {
   const { supabase, userId } = await requireUser();
-  const { localDate } = await resolveLocalDate();
-  return buildTodaysSession(supabase, { userId, localDate, now: new Date() });
+  const { localDate, timezone } = await resolveLocalDate();
+  return buildTodaysSession(supabase, { userId, localDate, timezone, now: new Date() });
 }
 
 /**
@@ -287,12 +288,13 @@ export interface DueSummary {
   /**
    * What a session opened now would actually take: dueCount/newCount above are the whole library (222 new cards after
    * one book), but a session holds only what fits its length, with new cards capped by user_settings.daily_new_limit.
-   * The entry card describes THESE. Not "today's": the cap is applied each time a session is built (start_session
-   * resumes the same-date session, but buildSession re-requests up to daily_new_limit new cards every time and
-   * never subtracts new_cards_introduced), so a second session the same day can introduce more.
+   * The entry card describes THESE. daily_new_limit is a per-day cap: new cards already introduced on the person's
+   * local date (reviews with state_before = 'new') come off it, here and in buildSession alike.
    */
   sessionDueCount: number;
   sessionNewCount: number;
+  /** The day's new-card allowance is used up and new cards are still waiting: Home says "Done for today", not "Nothing due". */
+  newAllowanceSpent: boolean;
   estimatedMinutes: number;
   /**
    * Whether the account has at least one book at all. Distinguishes a
@@ -327,11 +329,13 @@ export async function getDueSummary(): Promise<DueSummary | null> {
     // Reader-only books (ingestion_mode 'reader') have no lessons or cards, so they don't make this a "caught up"
     // review account: only ingested books count.
     const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id).neq("ingestion_mode", "reader");
-    return { dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
+    return { dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, newAllowanceSpent: false, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
   }
-  const [{ data }, recentElapsedMs] = await Promise.all([
+  const { localDate, timezone } = await resolveLocalDate();
+  const [{ data }, recentElapsedMs, newIntroducedToday] = await Promise.all([
     supabase.from("user_settings").select("session_target_minutes, daily_new_limit").eq("user_id", user.id).maybeSingle(),
     loadRecentElapsedMs(supabase, user.id),
+    countNewCardsIntroduced(supabase, user.id, localDate, timezone),
   ]);
   // No user_settings row yet (never started a session) -- the columns' own defaults (066), not re-derived here, so
   // this stays the one place those defaults live.
@@ -340,9 +344,18 @@ export async function getDueSummary(): Promise<DueSummary | null> {
     newCount,
     targetMinutes: data?.session_target_minutes ?? 8,
     dailyNewLimit: data?.daily_new_limit ?? 5,
+    newIntroducedToday,
     medianMs: computeMedianElapsedMs(recentElapsedMs),
   });
-  return { dueCount, newCount, sessionDueCount: preview.sessionDue, sessionNewCount: preview.sessionNew, estimatedMinutes: preview.minutes, hasBooks: true };
+  return {
+    dueCount,
+    newCount,
+    sessionDueCount: preview.sessionDue,
+    sessionNewCount: preview.sessionNew,
+    newAllowanceSpent: preview.allowanceSpent,
+    estimatedMinutes: preview.minutes,
+    hasBooks: true,
+  };
 }
 
 /**
@@ -373,7 +386,9 @@ export async function getDueSummary(): Promise<DueSummary | null> {
  * free re-read.
  */
 export async function getSelfMasteryCandidateInput(summary: DueSummary | null): Promise<SelfMasterySummary> {
-  const hasCandidate = !!summary && (summary.dueCount > 0 || summary.newCount > 0);
+  // What the session would actually hold, not the library: an account whose day's new-card allowance is spent has
+  // 217 new cards but nothing to do now, and must not outrank real work with an empty session.
+  const hasCandidate = !!summary && (summary.sessionDueCount > 0 || summary.sessionNewCount > 0);
   if (!summary || !hasCandidate) {
     return { hasCandidate: false, dueAt: null, decay: null, cost: null };
   }

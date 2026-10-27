@@ -22,6 +22,7 @@ export function SessionEntryCard({
     newCount: number;
     sessionDueCount: number;
     sessionNewCount: number;
+    newAllowanceSpent: boolean;
     estimatedMinutes: number;
     hasBooks: boolean;
   } | null;
@@ -46,8 +47,10 @@ export function SessionEntryCard({
   // sessionNewCount), not the library's: after one book there are 222 new
   // cards, but a session holds only user_settings.daily_new_limit of them, so
   // "222 cards ready, ~8 min" was false twice over. The rest is a quiet
-  // "more waiting" note. No "today" in the copy: the cap applies each time a
-  // session is built, so it is not a per-day budget (see DueSummary).
+  // "more waiting" note. The new-card cap is per DAY (cards already started
+  // today come off it), so "today" is honest here: new-only reads "5 new cards
+  // today", and once the allowance is spent with nothing due it says "Done for
+  // today" instead of the caught-up "Nothing due today".
   const { sessionDueCount: due, sessionNewCount: fresh } = dueSummary;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
   const min = `~${dueSummary.estimatedMinutes} min`;
@@ -57,8 +60,10 @@ export function SessionEntryCard({
       : due > 0
         ? `${plural(due, "card")} due, ${min}`
         : fresh > 0
-          ? `${plural(fresh, "new card")}, ${min}`
-          : "Nothing due today";
+          ? `${plural(fresh, "new card")} today, ${min}`
+          : dueSummary.newAllowanceSpent
+            ? "Done for today"
+            : "Nothing due today";
   const waiting = dueSummary.dueCount - due + (dueSummary.newCount - fresh);
   const buttonLabel = due > 0 || fresh > 0 ? "Start" : "Review anyway";
 
@@ -72,7 +77,7 @@ export function SessionEntryCard({
         <IconChip icon={BookOpen} accent="business" />
         <div className="flex-1">
           <div className="text-sm font-medium">{label}</div>
-          <div className="text-xs text-muted-foreground">{waiting > 0 ? `Self-Mastery · ${waiting} more waiting` : "Self-Mastery"}</div>
+          <div className="text-xs text-muted-foreground">{waiting > 0 ? `Self-Mastery · ${waiting} ${dueSummary.newAllowanceSpent && due === 0 ? "new waiting" : "more waiting"}` : "Self-Mastery"}</div>
         </div>
         {/* A styled span, not a nested <button> -- the whole card above is
             already the single tap target (same discipline TaskRowList's

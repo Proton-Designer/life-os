@@ -18,7 +18,7 @@ import { addDaysToDateString, resolveLocalTime } from "@/lib/date-utils";
 import { getScheduler, toFsrsCard, toRpcNextState, computeNextState, type DbCardState } from "@/lib/self-mastery/fsrs-scheduler";
 import { getUserFsrsWeights } from "@/lib/self-mastery/fsrs-tuning";
 import { cardRetrievability, averageRetrievability, type CardStateForStrength } from "@/lib/self-mastery/memory-strength";
-import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
+import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits, remainingNewAllowance } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
 import { loadNearestUpcomingExamsByClass, applyExamIntensity, pickExamIntensity, type ExamIntensityInfo } from "./exam-intensity";
 import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
@@ -105,6 +105,26 @@ export async function countNewCards(client: TypedClient, userId: string): Promis
     .select("card_id", { count: "exact", head: true })
     .eq("user_id", userId)
     .eq("state", "new");
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * New cards the person has already started on their local `localDate`: reviews whose `state_before` was 'new', in that
+ * day's window in `timezone`. This, not `work_sessions.new_cards_introduced` (077 added the column but no migration
+ * ever writes it: NULL on all 36 learn sessions), is the record of an introduction, and it covers every path that
+ * grades a card (session, MCP) -- so a resumed or second same-day session can't hand out the daily limit again.
+ */
+export async function countNewCardsIntroduced(client: TypedClient, userId: string, localDate: string, timezone: string): Promise<number> {
+  const startUTC = resolveLocalTime(localDate, "00:00", timezone).toISOString();
+  const endUTC = resolveLocalTime(addDaysToDateString(localDate, 1), "00:00", timezone).toISOString();
+  const { count, error } = await client
+    .from("reviews")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("state_before", "new")
+    .gte("reviewed_at", startUTC)
+    .lt("reviewed_at", endUTC);
   if (error) throw error;
   return count ?? 0;
 }
@@ -502,7 +522,7 @@ export async function fetchSessionStudyMethods(client: TypedClient, sessionId: s
 
 export async function buildTodaysSession(
   client: TypedClient,
-  input: { userId: string; localDate: string; now: Date }
+  input: { userId: string; localDate: string; timezone: string; now: Date }
 ): Promise<BuiltSession> {
   // start_session MUST complete before the settings read, and this ordering is
   // load-bearing rather than stylistic.
@@ -521,13 +541,14 @@ export async function buildTodaysSession(
   // a user_settings row, so the race is unobservable unless the account has
   // genuinely never existed before. Only a real first-run journey could see it.
   //
-  // The remaining three still run concurrently — none of them depends on
+  // The remaining four still run concurrently — none of them depends on
   // anything start_session creates.
   const session = await startTodaysSession(client, input.localDate);
-  const [settings, recentElapsedMs, totalDueCount] = await Promise.all([
+  const [settings, recentElapsedMs, totalDueCount, newIntroducedToday] = await Promise.all([
     loadSessionSettings(client, input.userId),
     loadRecentElapsedMs(client, input.userId),
     countDueCards(client, input.userId, input.now),
+    countNewCardsIntroduced(client, input.userId, input.localDate, input.timezone),
   ]);
 
   const medianMs = computeMedianElapsedMs(recentElapsedMs);
@@ -586,7 +607,7 @@ export async function buildTodaysSession(
   const absoluteCeiling = estimateSessionCapacity(MAX_SESSION_MINUTES_WITH_INTENSITY, medianMs);
   const capacity = Math.min(intensifiedCapacity, absoluteCeiling);
 
-  const limits = allocateQueueLimits(capacity, totalDueCount, settings.dailyNewLimit);
+  const limits = allocateQueueLimits(capacity, totalDueCount, remainingNewAllowance(settings.dailyNewLimit, newIntroducedToday));
 
   const entries = await fetchQueueEntries(client, limits);
   // 160 (#24/#25): entries are a mix of card- and question-backed rows.

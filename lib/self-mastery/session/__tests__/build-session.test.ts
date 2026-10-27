@@ -522,7 +522,7 @@ describe("P3-03: buildTodaysSession records which study methods it actually used
 
   const run = (opts: Parameters<typeof makeClient>[0]) => {
     const { client, studyMethodsUpdates } = makeClient(opts);
-    return buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") }).then(() => studyMethodsUpdates);
+    return buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") }).then(() => studyMethodsUpdates);
   };
 
   it("records only 'retrieval' for a single-book session", async () => {
@@ -647,6 +647,7 @@ describe("a brand-new user's very first session", () => {
     await buildTodaysSession(client, {
       userId: "u1",
       localDate: "2026-09-01",
+      timezone: "UTC",
       now: new Date("2026-09-01T12:00:00Z"),
     });
 
@@ -729,7 +730,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
     // Which classes actually have due/new items this session could serve (a kind='course' sources row + an active
     // question with a due or new card_state). Default: every class with an exam does, so the capacity tests below
     // keep testing capacity; the eligibility tests pass [] or a subset.
-    opts: { classesWithItems?: string[]; classCodes?: Record<string, string> } = {}
+    opts: { classesWithItems?: string[]; classCodes?: Record<string, string>; dailyNewLimit?: number; newIntroducedToday?: number; ranges?: unknown[][] } = {}
   ) {
     const classesWithItems = opts.classesWithItems ?? classAssessmentRows.map((r) => r.class_id);
     const queueCalls: { p_limit_due: number; p_limit_new: number }[] = [];
@@ -750,7 +751,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
               // fixture (empty card_states), so allocateQueueLimits would otherwise
               // cap limitNew at a small daily_new_limit long before capacity itself
               // does, hiding the very capacity math these tests assert on.
-              data: { session_target_minutes: sessionTargetMinutes, daily_new_limit: 10_000, ai_grading_enabled: false, desired_retention: 0.9 },
+              data: { session_target_minutes: sessionTargetMinutes, daily_new_limit: opts.dailyNewLimit ?? 10_000, ai_grading_enabled: false, desired_retention: 0.9 },
               error: null,
             };
           }
@@ -758,6 +759,10 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
         },
         then: (res: (v: { data: unknown[]; count: number; error: null }) => unknown) => {
           if (table === "class_assessments") return Promise.resolve(res({ data: classAssessmentRows, count: classAssessmentRows.length, error: null }));
+          // reviews that introduced a new card within the local day (count query: state_before = 'new').
+          if (table === "reviews" && eqs.state_before === "new") {
+            return Promise.resolve(res({ data: [], count: opts.newIntroducedToday ?? 0, error: null }));
+          }
           // The eligibility probes: sources(kind='course', class_id) and card_states joined to questions of that class.
           const probed = table === "sources" && eqs.kind === "course" ? eqs.class_id : table === "card_states" ? eqs["questions.class_id"] : undefined;
           if (probed !== undefined) {
@@ -774,6 +779,12 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
           if (prop === "eq") {
             return (column: string, value: unknown) => {
               eqs[column] = value;
+              return proxy;
+            };
+          }
+          if ((prop === "gte" || prop === "lt") && table === "reviews") {
+            return (...args: unknown[]) => {
+              opts.ranges?.push([prop, ...args]);
               return proxy;
             };
           }
@@ -811,7 +822,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       [{ class_id: "c1", date: "2026-09-15", type: "exam", name: "Midterm" }], // 1 day away -> 3.0x
       10
     );
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     // baseline 30 * 3.0 = 90, but the absolute ceiling (20 min / 20s = 60) caps it.
@@ -831,7 +842,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       ],
       10
     );
-    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     // If multipliers compounded (3.0*2.5*2.5=18.75x -> 562 cards), the ceiling would
@@ -851,7 +862,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       ],
       1
     );
-    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     // MAX(3.0, 2.5) = 3.0 -> floor(3 * 3.0) = 9. A product (3.0*2.5=7.5) would give
@@ -865,7 +876,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       [{ class_id: "c1", date: "2026-09-14", type: "exam", name: "Exam today" }], // 0 days away -> 3.0x, the curve's max
       60 // a 60-minute target would otherwise yield 180 cards at baseline
     );
-    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     // Ceiling: 20 min / 20s per card = 60 cards, regardless of the 60-min target or
@@ -875,7 +886,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
 
   it("does not scale capacity at all when no class has an upcoming exam-type assessment", async () => {
     const { client, queueCalls } = makeSessionClient([], 10);
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     const totalLimit = queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new;
     expect(totalLimit).toBe(30); // baseline only, multiplier 1.0
@@ -890,7 +901,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       ],
       10
     );
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     expect(result.examIntensity).toEqual({ classId: "c1", className: null, daysUntilExam: 1, multiplier: 3.0, assessmentName: "Exam 1", assessmentType: "exam" });
   });
@@ -903,7 +914,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       10,
       { classesWithItems: [], classCodes: { c1: "MATH 2418" } }
     );
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(30); // baseline, multiplier 1.0
     expect(result.examIntensity).toBeNull();
@@ -915,7 +926,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       10,
       { classesWithItems: ["c1"], classCodes: { c1: "MATH 2418" } }
     );
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(60); // 30 x 3.0 = 90, capped by the 20-minute ceiling
     expect(result.examIntensity).toEqual({
@@ -937,9 +948,44 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       1,
       { classesWithItems: ["c2"], classCodes: { c2: "BIOL 1406" } }
     );
-    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
 
     expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(6); // 3 baseline x 2.0, not x 3.0
     expect(result.examIntensity).toMatchObject({ classId: "c2", className: "BIOL 1406", multiplier: 2.0 });
+  });
+
+  // daily_new_limit is a per-DAY cap: start_session resumes the same local-date session, but the new-card limit used
+  // to be re-requested in full every time the queue was built, so a second session the same day got 5 more.
+  describe("per-day new-card cap", () => {
+    const build = async (opts: { dailyNewLimit: number; newIntroducedToday: number }) => {
+      const { client, queueCalls } = makeSessionClient([], 10, opts);
+      await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "UTC", now: new Date("2026-09-14T12:00:00Z") });
+      return queueCalls[0]!;
+    };
+
+    it("positive control: nothing introduced yet -> the whole daily limit is requested", async () => {
+      expect((await build({ dailyNewLimit: 5, newIntroducedToday: 0 })).p_limit_new).toBe(5);
+    });
+
+    it("a resumed same-day session gets 0 more new cards after 5 were introduced", async () => {
+      expect((await build({ dailyNewLimit: 5, newIntroducedToday: 5 })).p_limit_new).toBe(0);
+    });
+
+    it("only the remainder is requested after a partial day (3 of 5 introduced -> 2)", async () => {
+      expect((await build({ dailyNewLimit: 5, newIntroducedToday: 3 })).p_limit_new).toBe(2);
+    });
+
+    it("never goes negative when more were introduced than the limit (limit lowered mid-day, or MCP-graded cards)", async () => {
+      expect((await build({ dailyNewLimit: 5, newIntroducedToday: 9 })).p_limit_new).toBe(0);
+    });
+
+    it("counts only today's local day: the review-count query is bounded by the local-date window in the person's timezone", async () => {
+      const ranges: unknown[][] = [];
+      const { client } = makeSessionClient([], 10, { dailyNewLimit: 5, newIntroducedToday: 0, ranges });
+      // 2026-09-14 in America/Chicago (CDT, UTC-5) is [05:00Z, next 05:00Z)
+      await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", timezone: "America/Chicago", now: new Date("2026-09-14T12:00:00Z") });
+      expect(ranges).toContainEqual(["gte", "reviewed_at", "2026-09-14T05:00:00.000Z"]);
+      expect(ranges).toContainEqual(["lt", "reviewed_at", "2026-09-15T05:00:00.000Z"]);
+    });
   });
 });

@@ -44,14 +44,14 @@ function priorityItem(overrides: Partial<PriorityItem> & Pick<PriorityItem, "id"
 }
 
 function dueSummaryToSelfMasterySummary(
-  dueSummary: { dueCount: number; newCount: number; estimatedMinutes: number },
+  dueSummary: { sessionDueCount: number; sessionNewCount: number; estimatedMinutes: number },
   // Test-only stand-in for getSelfMasteryCandidateInput's real DB query
   // (earliest due card's own due_at) -- real dueAt is the whole point of
   // an "overdue" scenario, so this is a required override, not a
   // hardcoded null, whenever dueCount > 0.
   earliestDueAt: Date | null = null
 ): SelfMasterySummary {
-  const hasCandidate = dueSummary.dueCount > 0 || dueSummary.newCount > 0;
+  const hasCandidate = dueSummary.sessionDueCount > 0 || dueSummary.sessionNewCount > 0;
   return {
     hasCandidate,
     dueAt: hasCandidate ? earliestDueAt : null,
@@ -69,7 +69,7 @@ function TodaysHomeNowSection({
   now,
   selfMasteryEarliestDueAt = null,
 }: {
-  dueSummary: { dueCount: number; newCount: number; sessionDueCount: number; sessionNewCount: number; estimatedMinutes: number; hasBooks: boolean };
+  dueSummary: { dueCount: number; newCount: number; sessionDueCount: number; sessionNewCount: number; newAllowanceSpent: boolean; estimatedMinutes: number; hasBooks: boolean };
   items: PriorityItem[];
   now: Date;
   selfMasteryEarliestDueAt?: Date | null;
@@ -110,7 +110,7 @@ describe("Home's Today section, as actually composed (app/(app)/page.tsx) -- the
     // "Ready to start" -- real cards, but no due date at all (R18(4):
     // absent urgency, never a fabricated bucket). Genuinely less urgent
     // than a 5-minute-away deadline by every signal the arbiter has.
-    const readyToStartSelfMastery = { dueCount: 0, newCount: 12, sessionDueCount: 0, sessionNewCount: 5, estimatedMinutes: 2, hasBooks: true };
+    const readyToStartSelfMastery = { dueCount: 0, newCount: 12, sessionDueCount: 0, sessionNewCount: 5, newAllowanceSpent: false, estimatedMinutes: 2, hasBooks: true };
 
     const { container } = render(<TodaysHomeNowSection dueSummary={readyToStartSelfMastery} items={[urgentSchoolTask]} now={now} />);
 
@@ -133,7 +133,7 @@ describe("Home's Today section, as actually composed (app/(app)/page.tsx) -- the
       dueAt: new Date(now.getTime() + 6 * 60 * 60 * 1000), // 6 hours away -- later_today, not right_now
       urgencyBucket: "later_today",
     });
-    const overdueSelfMastery = { dueCount: 4, newCount: 0, sessionDueCount: 4, sessionNewCount: 0, estimatedMinutes: 2, hasBooks: true };
+    const overdueSelfMastery = { dueCount: 4, newCount: 0, sessionDueCount: 4, sessionNewCount: 0, newAllowanceSpent: false, estimatedMinutes: 2, hasBooks: true };
     const overdueSince = new Date(now.getTime() - 24 * 60 * 60 * 1000); // overdue by a day -- right_now bucket
 
     const { container } = render(

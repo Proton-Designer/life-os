@@ -27,6 +27,11 @@ export interface QueueLimits {
   limitNew: number;
 }
 
+/** `daily_new_limit` is a per-DAY cap: what was already introduced on the local date comes off it. Never negative (the limit can be lowered mid-day, and an MCP-graded card counts too). */
+export function remainingNewAllowance(dailyNewLimit: number, newIntroducedToday: number): number {
+  return Math.max(0, dailyNewLimit - newIntroducedToday);
+}
+
 /** Splits total capacity between due and new cards: due first (up to `totalDueCount`, never more), new gets what's left, capped by the user's own `dailyNewLimit`. Excess due cards are simply not requested — they stay due, roll to tomorrow, nothing is "dropped". */
 export function allocateQueueLimits(capacity: number, totalDueCount: number, dailyNewLimit: number): QueueLimits {
   const limitDue = Math.min(capacity, totalDueCount);
@@ -41,6 +46,8 @@ export interface SessionPreview {
   sessionNew: number;
   dueWaiting: number;
   newWaiting: number;
+  /** Today's new-card allowance is used up (and there are new cards still waiting): "done for today", not "none left". */
+  allowanceSpent: boolean;
   /** Minutes the cards above take at the person's own median pace, rounded up; 0 when the session is empty. */
   minutes: number;
 }
@@ -55,10 +62,12 @@ export function previewSession(input: {
   newCount: number;
   targetMinutes: number;
   dailyNewLimit: number;
+  /** New cards already introduced on the person's local date (reviews whose state_before was 'new'). */
+  newIntroducedToday: number;
   medianMs: number;
 }): SessionPreview {
   const capacity = estimateSessionCapacity(input.targetMinutes, input.medianMs);
-  const { limitDue, limitNew } = allocateQueueLimits(capacity, input.dueCount, input.dailyNewLimit);
+  const { limitDue, limitNew } = allocateQueueLimits(capacity, input.dueCount, remainingNewAllowance(input.dailyNewLimit, input.newIntroducedToday));
   const sessionNew = Math.min(limitNew, input.newCount);
   const cards = limitDue + sessionNew;
   return {
@@ -66,6 +75,7 @@ export function previewSession(input: {
     sessionNew,
     dueWaiting: input.dueCount - limitDue,
     newWaiting: input.newCount - sessionNew,
+    allowanceSpent: input.newCount > 0 && input.newIntroducedToday > 0 && remainingNewAllowance(input.dailyNewLimit, input.newIntroducedToday) === 0,
     minutes: cards === 0 ? 0 : Math.ceil((cards * input.medianMs) / 60_000),
   };
 }
