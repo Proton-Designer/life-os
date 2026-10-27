@@ -89,7 +89,7 @@ describe("Self-Mastery session actions", () => {
       // signal it used to be, since there's no more automatic starter-deck
       // seed to fail. Still must not read identically to "genuinely caught
       // up" (which always has at least one book) -- see hasBooks below.
-      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: false });
+      expect(result).toEqual({ dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, estimatedMinutes: 0, hasBooks: false });
       expect(fromMock).not.toHaveBeenCalledWith("user_settings");
     });
 
@@ -110,15 +110,16 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true });
+      expect(result).toEqual({ dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, estimatedMinutes: 0, hasBooks: true });
     });
 
-    it("reads session_target_minutes from user_settings when cards are due", async () => {
+    it("estimates minutes from the cards the session will take at the session's own pace, not from session_target_minutes", async () => {
       const dueChain = makeChain({ data: null, error: null, count: 12 });
       const newChain = makeChain({ data: null, error: null, count: 4 });
       let cardStatesCall = 0;
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         user_settings: makeChain({ data: { session_target_minutes: 15 }, error: null }),
+        reviews: makeChain({ data: [], error: null }),
       };
       fromImpl = (table) => {
         if (table === "card_states") {
@@ -131,15 +132,17 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 12, newCount: 4, estimatedMinutes: 15, hasBooks: true });
+      // capacity 45 at the seed 20s/card: all 12 due + the 4 new that exist (limit 5) = 16 cards = 320s -> 6 min, not the 15-minute target
+      expect(result).toEqual({ dueCount: 12, newCount: 4, sessionDueCount: 12, sessionNewCount: 4, estimatedMinutes: 6, hasBooks: true });
     });
 
-    it("falls back to the column default (8) when no user_settings row exists yet", async () => {
+    it("falls back to the column defaults (8 min, 5 new) when no user_settings row exists yet", async () => {
       const dueChain = makeChain({ data: null, error: null, count: 3 });
       const newChain = makeChain({ data: null, error: null, count: 0 });
       let cardStatesCall = 0;
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         user_settings: makeChain({ data: null, error: null }),
+        reviews: makeChain({ data: [], error: null }),
       };
       fromImpl = (table) => {
         if (table === "card_states") {
@@ -152,7 +155,7 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 3, newCount: 0, estimatedMinutes: 8, hasBooks: true });
+      expect(result).toEqual({ dueCount: 3, newCount: 0, sessionDueCount: 3, sessionNewCount: 0, estimatedMinutes: 1, hasBooks: true });
     });
 
     it("shows a fresh deck's never-reviewed cards even when dueCount is 0 -- day one, not caught up", async () => {
@@ -161,6 +164,7 @@ describe("Self-Mastery session actions", () => {
       let cardStatesCall = 0;
       const tables: Record<string, ReturnType<typeof makeChain>> = {
         user_settings: makeChain({ data: { session_target_minutes: 8 }, error: null }),
+        reviews: makeChain({ data: [], error: null }),
       };
       fromImpl = (table) => {
         if (table === "card_states") {
@@ -173,7 +177,30 @@ describe("Self-Mastery session actions", () => {
 
       const result = await getDueSummary();
 
-      expect(result).toEqual({ dueCount: 0, newCount: 12, estimatedMinutes: 8, hasBooks: true });
+      // 12 never-reviewed cards but the default new-card limit is 5: the session takes 5 (100s -> 2 min)
+      expect(result).toEqual({ dueCount: 0, newCount: 12, sessionDueCount: 0, sessionNewCount: 5, estimatedMinutes: 2, hasBooks: true });
+    });
+
+    it("222 new cards after one book: the session takes daily_new_limit of them, paced by the person's own median", async () => {
+      const dueChain = makeChain({ data: null, error: null, count: 0 });
+      const newChain = makeChain({ data: null, error: null, count: 222 });
+      let cardStatesCall = 0;
+      const tables: Record<string, ReturnType<typeof makeChain>> = {
+        user_settings: makeChain({ data: { session_target_minutes: 8, daily_new_limit: 5 }, error: null }),
+        reviews: makeChain({ data: [{ elapsed_ms: 30_000 }, { elapsed_ms: 30_000 }, { elapsed_ms: 30_000 }], error: null }),
+      };
+      fromImpl = (table) => {
+        if (table === "card_states") {
+          cardStatesCall += 1;
+          return cardStatesCall === 1 ? dueChain : newChain;
+        }
+        return tables[table];
+      };
+      const { getDueSummary } = await import("../self-mastery-session-actions");
+
+      const result = await getDueSummary();
+
+      expect(result).toEqual({ dueCount: 0, newCount: 222, sessionDueCount: 0, sessionNewCount: 5, estimatedMinutes: 3, hasBooks: true }); // 5 x 30s = 150s
     });
   });
 
@@ -200,7 +227,7 @@ describe("Self-Mastery session actions", () => {
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: false });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, estimatedMinutes: 0, hasBooks: false });
 
       expect(result).toEqual({ hasCandidate: false, dueAt: null, decay: null, cost: null });
     });
@@ -222,7 +249,7 @@ describe("Self-Mastery session actions", () => {
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 3, newCount: 0, estimatedMinutes: 15, hasBooks: true });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 3, newCount: 0, sessionDueCount: 3, sessionNewCount: 0, estimatedMinutes: 15, hasBooks: true });
 
       expect(result.hasCandidate).toBe(true);
       expect(result.dueAt).toEqual(new Date(dueCardRow.due_at));
@@ -238,9 +265,9 @@ describe("Self-Mastery session actions", () => {
       };
       const { getSelfMasteryCandidateInput } = await import("../self-mastery-session-actions");
 
-      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 12, estimatedMinutes: 8, hasBooks: true });
+      const result = await getSelfMasteryCandidateInput({ dueCount: 0, newCount: 12, sessionDueCount: 0, sessionNewCount: 5, estimatedMinutes: 2, hasBooks: true });
 
-      expect(result).toEqual({ hasCandidate: true, dueAt: null, decay: null, cost: 8 });
+      expect(result).toEqual({ hasCandidate: true, dueAt: null, decay: null, cost: 2 });
     });
   });
 

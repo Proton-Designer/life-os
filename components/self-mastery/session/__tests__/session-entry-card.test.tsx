@@ -12,8 +12,12 @@ vi.mock("@/app/(app)/personal/self-mastery-session-actions", () => ({
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
 
-function due(overrides: Partial<{ dueCount: number; newCount: number; estimatedMinutes: number; hasBooks: boolean }>) {
-  return { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true, ...overrides };
+type Summary = { dueCount: number; newCount: number; sessionDueCount: number; sessionNewCount: number; estimatedMinutes: number; hasBooks: boolean };
+// dueCount/newCount are the whole library; sessionDueCount/sessionNewCount are what the session will actually take.
+// Unless a test says otherwise the session takes everything, so the old copy cases below still read as they did.
+function due(overrides: Partial<Summary>): Summary {
+  const base = { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: true, ...overrides };
+  return { sessionDueCount: base.dueCount, sessionNewCount: base.newCount, ...base };
 }
 
 describe("SessionEntryCard", () => {
@@ -45,15 +49,40 @@ describe("SessionEntryCard", () => {
 
   it("shows 'ready to start' copy for a fresh deck with nothing due yet -- day one must not read as broken", () => {
     render(<SessionEntryCard dueSummary={due({ newCount: 12, estimatedMinutes: 8 })} />);
-    expect(screen.getByText("12 cards ready to start, ~8 min")).toBeInTheDocument();
+    expect(screen.getByText("12 new cards, ~8 min")).toBeInTheDocument();
     expect(screen.getByText("Start")).toBeInTheDocument();
     expect(screen.queryByText(/Nothing due/)).not.toBeInTheDocument();
   });
 
-  it("prefers due copy over new-card copy when both are non-zero", () => {
-    render(<SessionEntryCard dueSummary={due({ dueCount: 3, newCount: 5, estimatedMinutes: 6 })} />);
-    expect(screen.getByText("3 cards due, ~6 min")).toBeInTheDocument();
-    expect(screen.queryByText(/ready to start/)).not.toBeInTheDocument();
+  it("says both when a session has due and new cards: '12 due + 5 new'", () => {
+    render(<SessionEntryCard dueSummary={due({ dueCount: 12, newCount: 5, estimatedMinutes: 6 })} />);
+    expect(screen.getByText("12 due + 5 new, ~6 min")).toBeInTheDocument();
+  });
+
+  it("describes what the session takes, not the whole library (222 new cards, 5 allowed)", () => {
+    render(<SessionEntryCard dueSummary={due({ newCount: 222, sessionNewCount: 5, estimatedMinutes: 2 })} />);
+    expect(screen.getByText("5 new cards, ~2 min")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery · 217 more waiting")).toBeInTheDocument();
+    expect(screen.queryByText(/222/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/today/i)).not.toBeInTheDocument();
+  });
+
+  it("counts a due backlog the session can't fit as waiting too", () => {
+    render(<SessionEntryCard dueSummary={due({ dueCount: 100, sessionDueCount: 24, newCount: 10, sessionNewCount: 0, estimatedMinutes: 8 })} />);
+    expect(screen.getByText("24 cards due, ~8 min")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery · 86 more waiting")).toBeInTheDocument();
+  });
+
+  it("no 'more waiting' note when the session takes everything, and singular 'new card'", () => {
+    render(<SessionEntryCard dueSummary={due({ newCount: 1, estimatedMinutes: 1 })} />);
+    expect(screen.getByText("1 new card, ~1 min")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery")).toBeInTheDocument();
+  });
+
+  it("new cards waiting but the limit allows none and nothing is due: not 'ready to start'", () => {
+    render(<SessionEntryCard dueSummary={due({ newCount: 30, sessionNewCount: 0 })} />);
+    expect(screen.getByText("Nothing due today")).toBeInTheDocument();
+    expect(screen.getByText("Self-Mastery · 30 more waiting")).toBeInTheDocument();
   });
 
   it("tapping the card opens the session overlay (loadTodaysSession fires, not blocked)", async () => {
@@ -81,7 +110,7 @@ describe("SessionEntryCard", () => {
 
     it("positive control: the same component with a book DOES render its card", () => {
       render(<SessionEntryCard dueSummary={due({ hasBooks: true, newCount: 3, estimatedMinutes: 4 })} />);
-      expect(screen.getByRole("button", { name: /ready to start/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /3 new cards/ })).toBeInTheDocument();
     });
   });
 });

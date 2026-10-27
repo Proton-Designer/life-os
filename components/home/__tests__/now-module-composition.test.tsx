@@ -69,7 +69,7 @@ function TodaysHomeNowSection({
   now,
   selfMasteryEarliestDueAt = null,
 }: {
-  dueSummary: { dueCount: number; newCount: number; estimatedMinutes: number; hasBooks: boolean };
+  dueSummary: { dueCount: number; newCount: number; sessionDueCount: number; sessionNewCount: number; estimatedMinutes: number; hasBooks: boolean };
   items: PriorityItem[];
   now: Date;
   selfMasteryEarliestDueAt?: Date | null;
@@ -110,12 +110,12 @@ describe("Home's Today section, as actually composed (app/(app)/page.tsx) -- the
     // "Ready to start" -- real cards, but no due date at all (R18(4):
     // absent urgency, never a fabricated bucket). Genuinely less urgent
     // than a 5-minute-away deadline by every signal the arbiter has.
-    const readyToStartSelfMastery = { dueCount: 0, newCount: 12, estimatedMinutes: 8, hasBooks: true };
+    const readyToStartSelfMastery = { dueCount: 0, newCount: 12, sessionDueCount: 0, sessionNewCount: 5, estimatedMinutes: 2, hasBooks: true };
 
     const { container } = render(<TodaysHomeNowSection dueSummary={readyToStartSelfMastery} items={[urgentSchoolTask]} now={now} />);
 
     const schoolPosition = container.textContent!.indexOf("Essay due");
-    const selfMasteryPosition = container.textContent!.indexOf("ready to start");
+    const selfMasteryPosition = container.textContent!.indexOf("new cards");
     expect(schoolPosition).toBeGreaterThan(-1);
     expect(selfMasteryPosition).toBeGreaterThan(-1);
 
@@ -133,7 +133,7 @@ describe("Home's Today section, as actually composed (app/(app)/page.tsx) -- the
       dueAt: new Date(now.getTime() + 6 * 60 * 60 * 1000), // 6 hours away -- later_today, not right_now
       urgencyBucket: "later_today",
     });
-    const overdueSelfMastery = { dueCount: 4, newCount: 0, estimatedMinutes: 8, hasBooks: true };
+    const overdueSelfMastery = { dueCount: 4, newCount: 0, sessionDueCount: 4, sessionNewCount: 0, estimatedMinutes: 2, hasBooks: true };
     const overdueSince = new Date(now.getTime() - 24 * 60 * 60 * 1000); // overdue by a day -- right_now bucket
 
     const { container } = render(

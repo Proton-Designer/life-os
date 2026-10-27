@@ -18,12 +18,14 @@ import {
   computeSessionBookStrengths,
   countDueCards,
   countNewCards,
+  loadRecentElapsedMs,
   countDueTomorrow,
   fetchDueCardDetail,
   submitSelfExplanation as submitSelfExplanationCore,
   fetchSessionStudyMethods,
   type LessonContext,
 } from "@/lib/self-mastery/session/build-session";
+import { computeMedianElapsedMs, previewSession } from "@/lib/self-mastery/session/queue-limits";
 import type { BuiltSession, SessionCompletionResult } from "@/lib/self-mastery/session/types";
 import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type { SelfMasterySummary } from "@/lib/home/build-candidates";
@@ -282,6 +284,15 @@ export interface DueSummary {
    * as broken, not as "not started").
    */
   newCount: number;
+  /**
+   * What a session opened now would actually take: dueCount/newCount above are the whole library (222 new cards after
+   * one book), but a session holds only what fits its length, with new cards capped by user_settings.daily_new_limit.
+   * The entry card describes THESE. Not "today's": the cap is applied each time a session is built (start_session
+   * resumes the same-date session, but buildSession re-requests up to daily_new_limit new cards every time and
+   * never subtracts new_cards_introduced), so a second session the same day can introduce more.
+   */
+  sessionDueCount: number;
+  sessionNewCount: number;
   estimatedMinutes: number;
   /**
    * Whether the account has at least one book at all. Distinguishes a
@@ -316,18 +327,22 @@ export async function getDueSummary(): Promise<DueSummary | null> {
     // Reader-only books (ingestion_mode 'reader') have no lessons or cards, so they don't make this a "caught up"
     // review account: only ingested books count.
     const { count } = await supabase.from("books").select("id", { count: "exact", head: true }).eq("user_id", user.id).neq("ingestion_mode", "reader");
-    return { dueCount: 0, newCount: 0, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
+    return { dueCount: 0, newCount: 0, sessionDueCount: 0, sessionNewCount: 0, estimatedMinutes: 0, hasBooks: (count ?? 0) > 0 };
   }
-  const { data } = await supabase
-    .from("user_settings")
-    .select("session_target_minutes")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  // No user_settings row yet (never started a session) -- the column's own
-  // default (066), not re-derived here, so this stays the one place that
-  // default lives.
-  const estimatedMinutes = data?.session_target_minutes ?? 8;
-  return { dueCount, newCount, estimatedMinutes, hasBooks: true };
+  const [{ data }, recentElapsedMs] = await Promise.all([
+    supabase.from("user_settings").select("session_target_minutes, daily_new_limit").eq("user_id", user.id).maybeSingle(),
+    loadRecentElapsedMs(supabase, user.id),
+  ]);
+  // No user_settings row yet (never started a session) -- the columns' own defaults (066), not re-derived here, so
+  // this stays the one place those defaults live.
+  const preview = previewSession({
+    dueCount,
+    newCount,
+    targetMinutes: data?.session_target_minutes ?? 8,
+    dailyNewLimit: data?.daily_new_limit ?? 5,
+    medianMs: computeMedianElapsedMs(recentElapsedMs),
+  });
+  return { dueCount, newCount, sessionDueCount: preview.sessionDue, sessionNewCount: preview.sessionNew, estimatedMinutes: preview.minutes, hasBooks: true };
 }
 
 /**

@@ -17,7 +17,14 @@ import { RetrievalSessionOverlay } from "./retrieval-session-overlay";
 export function SessionEntryCard({
   dueSummary,
 }: {
-  dueSummary: { dueCount: number; newCount: number; estimatedMinutes: number; hasBooks: boolean } | null;
+  dueSummary: {
+    dueCount: number;
+    newCount: number;
+    sessionDueCount: number;
+    sessionNewCount: number;
+    estimatedMinutes: number;
+    hasBooks: boolean;
+  } | null;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -30,17 +37,30 @@ export function SessionEntryCard({
   if (!dueSummary.hasBooks) return null;
 
   // Three genuinely different states, not two -- "due" (real review debt),
-  // "ready to start" (a fresh/seeded deck nobody's touched yet, dueCount=0
+  // "new cards to start" (a fresh/seeded deck nobody's touched yet, dueCount=0
   // for an honest reason, not because there's nothing to do), and actually
-  // caught up. Collapsing "ready to start" into "Nothing due today" reads
-  // as broken on day one (Opus Lead, stranger-journey e2e).
+  // caught up. Collapsing the second into "Nothing due today" reads as broken
+  // on day one (Opus Lead, stranger-journey e2e).
+  //
+  // The counts shown are what the session will TAKE (sessionDueCount /
+  // sessionNewCount), not the library's: after one book there are 222 new
+  // cards, but a session holds only user_settings.daily_new_limit of them, so
+  // "222 cards ready, ~8 min" was false twice over. The rest is a quiet
+  // "more waiting" note. No "today" in the copy: the cap applies each time a
+  // session is built, so it is not a per-day budget (see DueSummary).
+  const { sessionDueCount: due, sessionNewCount: fresh } = dueSummary;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const min = `~${dueSummary.estimatedMinutes} min`;
   const label =
-    dueSummary.dueCount > 0
-      ? `${dueSummary.dueCount} card${dueSummary.dueCount === 1 ? "" : "s"} due, ~${dueSummary.estimatedMinutes} min`
-      : dueSummary.newCount > 0
-        ? `${dueSummary.newCount} card${dueSummary.newCount === 1 ? "" : "s"} ready to start, ~${dueSummary.estimatedMinutes} min`
-        : "Nothing due today";
-  const buttonLabel = dueSummary.dueCount > 0 || dueSummary.newCount > 0 ? "Start" : "Review anyway";
+    due > 0 && fresh > 0
+      ? `${due} due + ${fresh} new, ${min}`
+      : due > 0
+        ? `${plural(due, "card")} due, ${min}`
+        : fresh > 0
+          ? `${plural(fresh, "new card")}, ${min}`
+          : "Nothing due today";
+  const waiting = dueSummary.dueCount - due + (dueSummary.newCount - fresh);
+  const buttonLabel = due > 0 || fresh > 0 ? "Start" : "Review anyway";
 
   return (
     <>
@@ -52,7 +72,7 @@ export function SessionEntryCard({
         <IconChip icon={BookOpen} accent="business" />
         <div className="flex-1">
           <div className="text-sm font-medium">{label}</div>
-          <div className="text-xs text-muted-foreground">Self-Mastery</div>
+          <div className="text-xs text-muted-foreground">{waiting > 0 ? `Self-Mastery · ${waiting} more waiting` : "Self-Mastery"}</div>
         </div>
         {/* A styled span, not a nested <button> -- the whole card above is
             already the single tap target (same discipline TaskRowList's

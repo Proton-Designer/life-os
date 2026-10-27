@@ -166,7 +166,7 @@ test.describe("stranger journey", () => {
     // leg of this spec (written when a deck was seeded at onboarding) cannot run on a fresh account; it is
     // skipped (reported as skipped, not passed) until a fixture deck exists. What must still hold: Home does
     // not advertise an empty library.
-    const studyEntry = page.getByRole("button", { name: /cards? (due|ready to start)|nothing due today|review anyway/i }).first();
+    const studyEntry = page.getByRole("button", { name: /cards? due|new cards?,|\d+ due \+ \d+ new|nothing due today|review anyway/i }).first();
     if (!(await studyEntry.isVisible().catch(() => false))) {
       await expect(page.getByText("Add a book to get started")).toHaveCount(0);
       await page.screenshot({ path: `${SHOT}/05b-empty-state.png`, fullPage: true });
@@ -175,14 +175,14 @@ test.describe("stranger journey", () => {
 
     // ---- 4. Enter the session the way a person would ---------------------
     // The whole entry card is ONE <button>, so its accessible name is the entire
-    // string ("47 cards ready to start, ~8 min ... Start") — an anchored
+    // string ("5 new cards, ~2 min ... Start") — an anchored
     // /^start$/ never matches it. An earlier version of this spec used that
     // anchor and reported "No visible way to start a session from Home" while
     // a Start button sat plainly in the screenshot. Match the card the way a
     // person reads it, not the way a developer names it.
     let entered = false;
     const entryCard = page
-      .getByRole("button", { name: /cards? (due|ready to start)|nothing due today|review anyway/i })
+      .getByRole("button", { name: /cards? due|new cards?,|\d+ due \+ \d+ new|nothing due today|review anyway/i })
       .first();
     if (await entryCard.isVisible().catch(() => false)) { await entryCard.click(); entered = true; }
     else note("No visible way to start a session from Home.");

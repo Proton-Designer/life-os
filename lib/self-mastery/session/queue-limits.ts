@@ -33,3 +33,39 @@ export function allocateQueueLimits(capacity: number, totalDueCount: number, dai
   const limitNew = Math.max(0, Math.min(dailyNewLimit, capacity - limitDue));
   return { limitDue, limitNew };
 }
+
+export interface SessionPreview {
+  /** Due cards the session will take (the rest stay due and roll over). */
+  sessionDue: number;
+  /** New cards the session will take: what capacity has left after due, capped by `dailyNewLimit` and by how many exist. */
+  sessionNew: number;
+  dueWaiting: number;
+  newWaiting: number;
+  /** Minutes the cards above take at the person's own median pace, rounded up; 0 when the session is empty. */
+  minutes: number;
+}
+
+/**
+ * What a session opened right now would hold, for Home's entry card -- the SAME capacity and allocation math
+ * buildSession runs (estimateSessionCapacity, then allocateQueueLimits), minus exam intensity, which only ever lengthens
+ * a session. Pure so the card's promise and the session's contents can't drift apart.
+ */
+export function previewSession(input: {
+  dueCount: number;
+  newCount: number;
+  targetMinutes: number;
+  dailyNewLimit: number;
+  medianMs: number;
+}): SessionPreview {
+  const capacity = estimateSessionCapacity(input.targetMinutes, input.medianMs);
+  const { limitDue, limitNew } = allocateQueueLimits(capacity, input.dueCount, input.dailyNewLimit);
+  const sessionNew = Math.min(limitNew, input.newCount);
+  const cards = limitDue + sessionNew;
+  return {
+    sessionDue: limitDue,
+    sessionNew,
+    dueWaiting: input.dueCount - limitDue,
+    newWaiting: input.newCount - sessionNew,
+    minutes: cards === 0 ? 0 : Math.ceil((cards * input.medianMs) / 60_000),
+  };
+}
