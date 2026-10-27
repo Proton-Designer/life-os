@@ -29,6 +29,8 @@ export interface ReaderLoaderProps {
   highlights?: HighlightItem[];
   /** Open at this word in the Page view (a link from the highlights list). */
   startAt?: number | null;
+  /** Open at the first place these words appear (a link from a lesson's source passage); `startAt` wins. */
+  find?: string | null;
 }
 
 type Phase = { kind: "loading" } | { kind: "preparing" } | { kind: "failed"; message: string } | { kind: "ready"; doc: ReaderDoc };
@@ -188,6 +190,7 @@ export function ReaderLoader(props: ReaderLoaderProps) {
         onSession={onSession}
         stats={stats}
         startAt={props.startAt ?? null}
+        find={props.find ?? null}
       />
     );
   }

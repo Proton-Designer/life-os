@@ -1,3 +1,4 @@
+import { parseFindPhrase } from "@/lib/reader/find-word";
 import { parseStartAt } from "@/lib/reader/start-at";
 import { notFound } from "next/navigation";
 import { ReaderApp } from "@/components/reader/reader-app";
@@ -25,17 +26,18 @@ async function loadReaderPageData(bookId: string): Promise<ReaderPageData | null
   return result.ok ? { kind: "book", bootstrap: result.bootstrap, backHref: BACK_HREF } : null;
 }
 
-export default async function ReaderPage({ params, searchParams }: { params: Promise<{ bookId: string }>; searchParams: Promise<{ at?: string | string[] }> }) {
+export default async function ReaderPage({ params, searchParams }: { params: Promise<{ bookId: string }>; searchParams: Promise<{ at?: string | string[]; find?: string | string[] }> }) {
   const { bookId } = await params;
-  const atParam = (await searchParams).at;
+  const { at: atParam, find: findParam } = await searchParams;
   const startAt = parseStartAt(atParam);
+  const find = parseFindPhrase(findParam);
   // Same guard as the book pages: a non-uuid reaching the database is a 500, not a 404.
   if (bookId !== SAMPLE_BOOK_ID && !UUID_RE.test(bookId)) notFound();
 
   const data = await loadReaderPageData(bookId);
   if (!data) notFound();
 
-  if (data.kind === "sample") return <ReaderApp bookId={bookId} doc={data.doc} backHref={data.backHref} startAt={startAt} />;
+  if (data.kind === "sample") return <ReaderApp bookId={bookId} doc={data.doc} backHref={data.backHref} startAt={startAt} find={find} />;
   const { bootstrap } = data;
   return (
     <ReaderLoader
@@ -49,6 +51,7 @@ export default async function ReaderPage({ params, searchParams }: { params: Pro
       settings={bootstrap.settings}
       highlights={bootstrap.highlights}
       startAt={startAt}
+      find={find}
     />
   );
 }

@@ -133,7 +133,7 @@ export async function BookDetailView({ bookId, libraryHref }: { bookId: string; 
           <div className="flex flex-col gap-4">
             {book.lessons.map((lesson) => (
               <div key={lesson.id}>
-                <LessonCard lesson={lesson} />
+                <LessonCard lesson={lesson} readerHref={book.canRead ? `/read/${bookId}` : null} />
                 {/* Sibling, not a child: LessonCard takes no children and it is
                     not my component to widen. The wrapper is conditioned on
                     hasAction — the ULM lead's own predicate, one definition —

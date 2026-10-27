@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProvenanceQuote } from "./provenance-quote";
 import { fetchSourceChunkText } from "@/app/(app)/personal/self-mastery-actions";
+import { findPhraseHref } from "@/lib/reader/find-word";
 import { buildContextView, type Paragraph } from "@/lib/self-mastery/context-window";
 
 // Fetches on mount, nothing to reset — keyed by sourceChunkId from the
@@ -110,6 +112,7 @@ export function ProvenanceDrillDown({
   pageRef,
   sectionTitle,
   sourceChunkId,
+  readerHref = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -117,6 +120,8 @@ export function ProvenanceDrillDown({
   pageRef: number | null;
   sectionTitle: string | null;
   sourceChunkId: string | null;
+  // The book's reader page, or null when it cannot be read there: no link then.
+  readerHref?: string | null;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -142,6 +147,11 @@ export function ProvenanceDrillDown({
               <p className="text-sm text-muted-foreground">The surrounding passage isn&apos;t stored for this lesson.</p>
             ) : open ? (
               <SourceContext key={sourceChunkId} sourceChunkId={sourceChunkId} quote={quote} />
+            ) : null}
+            {readerHref ? (
+              <Link href={findPhraseHref(readerHref, quote)} className="self-start text-sm font-medium text-foreground underline underline-offset-4">
+                Read this in the reader
+              </Link>
             ) : null}
           </div>
         </div>

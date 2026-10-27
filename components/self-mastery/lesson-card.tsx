@@ -23,7 +23,8 @@ const CARD_STATE_LABEL: Record<string, string> = {
   relearning: "Relearning",
 };
 
-export function LessonCard({ lesson }: { lesson: BookDetailLesson }) {
+// readerHref: the reader page of this book, or null when it cannot be read there (the source-passage dialog then offers no link).
+export function LessonCard({ lesson, readerHref = null }: { lesson: BookDetailLesson; readerHref?: string | null }) {
   const [drillDownOpen, setDrillDownOpen] = useState(false);
   const reviewedCount = lesson.cards.filter((c) => c.state !== "new").length;
 
@@ -101,6 +102,7 @@ export function LessonCard({ lesson }: { lesson: BookDetailLesson }) {
         pageRef={lesson.pageRef}
         sectionTitle={lesson.sectionTitle}
         sourceChunkId={lesson.sourceChunkId}
+        readerHref={readerHref}
       />
     </div>
   );

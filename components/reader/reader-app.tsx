@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, Headphones, Highlighter, List, Settings2 } from "lucide-react";
 import { useBodyPin } from "@/lib/client/use-body-pin";
 import { buildDocWords, chapterIndexAt } from "@/lib/reader/doc-words";
+import { findWordIndex } from "@/lib/reader/find-word";
 import { clampRange, rangeText, sentenceRange, type HighlightItem, type WordRange } from "@/lib/reader/highlights";
 import { effectiveSpeechRate } from "@/lib/reader/narration";
 import { WPM_STEP } from "@/lib/reader/rsvp";
@@ -63,6 +64,7 @@ export function ReaderApp({
   onSession,
   stats = null,
   startAt = null,
+  find = null,
 }: {
   bookId: string;
   doc: ReaderDoc;
@@ -87,12 +89,15 @@ export function ReaderApp({
   stats?: ReadingStats | null;
   /** Open at this word in the Page view (a highlight link) instead of the saved position. */
   startAt?: number | null;
+  /** Open at the first place these words appear (a link from a lesson's source passage). `startAt` wins; not found = the saved position. */
+  find?: string | null;
 }) {
   const [boot, setBoot] = useState<Boot | null>(null);
   useEffect(() => {
     const storage = browserStorage();
     // Reading browser storage has to wait for mount: doing it during render would not match the server render.
-    const jump = startAt !== null && Number.isInteger(startAt) && startAt >= 0 ? startAt : null;
+    const jump =
+      startAt !== null && Number.isInteger(startAt) && startAt >= 0 ? startAt : find ? findWordIndex(buildDocWords(doc).words, find) : null;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setBoot({
       settings: serverSettings ?? loadSettings(storage),

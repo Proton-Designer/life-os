@@ -9,9 +9,10 @@ vi.mock("@/app/(app)/personal/self-mastery-actions", () => ({
 
 import { ProvenanceDrillDown } from "../provenance-drill-down";
 
-function open() {
+function open(readerHref?: string | null) {
   return render(
     <ProvenanceDrillDown
+      readerHref={readerHref}
       open
       onOpenChange={() => {}}
       quote={GAMIFICATION_QUOTE}
@@ -73,5 +74,19 @@ describe("ProvenanceDrillDown — the passage in context", () => {
     fetchSourceChunkText.mockResolvedValue(null);
     open();
     expect(await screen.findByText(/Couldn.t load the surrounding text/)).toBeInTheDocument();
+  });
+
+  it("links to the reader at the quote's first words when the book is readable", async () => {
+    open("/read/book-1");
+    const link = await screen.findByRole("link", { name: "Read this in the reader" });
+    const href = link.getAttribute("href")!;
+    expect(href.startsWith("/read/book-1?find=")).toBe(true);
+    expect(decodeURIComponent(href.split("?find=")[1])).toBe("Only when you put those two options together - hence Juxtaposition, do");
+  });
+
+  it("has no reader link when the book can't be read there (readerHref null or absent)", async () => {
+    open(null);
+    await screen.findByRole("button", { name: "Show full passage" });
+    expect(screen.queryByRole("link", { name: "Read this in the reader" })).toBeNull();
   });
 });
