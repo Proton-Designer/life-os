@@ -25,5 +25,5 @@ export default async function SelfMasteryBookDetailPage({ params }: { params: Pr
   const personalHref = await personalSelfMasteryHref(bookId);
   if (personalHref) redirect(personalHref);
 
-  return <BookDetailView bookId={bookId} />;
+  return <BookDetailView bookId={bookId} libraryHref={"/self-mastery"} />;
 }

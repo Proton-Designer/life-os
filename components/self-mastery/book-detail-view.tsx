@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { PageContainer } from "@/components/shell/page-container";
 import { BookCoverChip } from "./book-cover-chip";
 import { MemoryStrengthBar } from "./memory-strength-bar";
@@ -19,7 +21,9 @@ import { AgentWorkCard } from "./agent-work-card";
 // session is entered from Home and interleaves across books and courses.
 // This page owns the library and the per-book detail (lessons, mechanism/
 // action_template, provenance, memory strength), never the session itself.
-export async function BookDetailView({ bookId }: { bookId: string }) {
+// `libraryHref` is the library this page sits under: /personal/self_mastery
+// inside the Personal tabs, /self-mastery for a legacy account.
+export async function BookDetailView({ bookId, libraryHref }: { bookId: string; libraryHref: string }) {
   const book = await getBookDetail(bookId);
   if (!book) notFound();
 
@@ -41,6 +45,14 @@ export async function BookDetailView({ bookId }: { bookId: string }) {
 
   return (
     <PageContainer>
+      <Link
+        href={libraryHref}
+        className="-mb-2 inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        data-testid="book-detail-back"
+      >
+        <ArrowLeft aria-hidden className="size-4" />
+        Library
+      </Link>
       <div className="flex items-center gap-4">
         <BookCoverChip title={book.title} author={book.author} size="lg" />
         <div>

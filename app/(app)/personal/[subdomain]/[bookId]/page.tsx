@@ -27,5 +27,5 @@ export default async function PersonalBookDetailPage({
   // being silently swallowed by this dynamic segment.
   if (!UUID_RE.test(bookId)) notFound();
 
-  return <BookDetailView bookId={bookId} />;
+  return <BookDetailView bookId={bookId} libraryHref={"/personal/self_mastery"} />;
 }
