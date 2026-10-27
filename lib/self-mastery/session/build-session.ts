@@ -20,7 +20,7 @@ import { getUserFsrsWeights } from "@/lib/self-mastery/fsrs-tuning";
 import { cardRetrievability, averageRetrievability, type CardStateForStrength } from "@/lib/self-mastery/memory-strength";
 import { computeMedianElapsedMs, estimateSessionCapacity, allocateQueueLimits } from "./queue-limits";
 import { groupQueueIntoPlan } from "./plan";
-import { loadNearestUpcomingExamsByClass, examIntensityMultiplier, applyExamIntensity, daysBetweenDateStrings, type ExamIntensityInfo } from "./exam-intensity";
+import { loadNearestUpcomingExamsByClass, applyExamIntensity, pickExamIntensity, type ExamIntensityInfo } from "./exam-intensity";
 import type { StudyMethodId } from "@/lib/self-mastery/study-methods";
 import type {
   BuiltSession,
@@ -455,6 +455,44 @@ async function recordStudyMethods(client: TypedClient, sessionId: string, method
   if (updateError) throw updateError;
 }
 
+/**
+ * Which of `classIds` have at least one item this session could serve: an
+ * active question of that class with a due or new card_state, reached through
+ * the class's kind='course' sources row -- exactly the joins get_session_queue
+ * runs, checked as existence (one probe per class; a person has a handful of
+ * exam classes, and `limit 1` stops at the first hit).
+ */
+async function loadClassIdsWithSessionItems(client: TypedClient, userId: string, classIds: string[], now: Date): Promise<Set<string>> {
+  const dueOrNew = `state.eq.new,due_at.lte.${now.toISOString()}`;
+  const probes = await Promise.all(
+    classIds.map(async (classId) => {
+      const [source, items] = await Promise.all([
+        client.from("sources").select("id").eq("user_id", userId).eq("kind", "course").eq("class_id", classId).limit(1),
+        client
+          .from("card_states")
+          .select("id, questions!inner(class_id)")
+          .eq("user_id", userId)
+          .not("question_id", "is", null)
+          .eq("questions.class_id", classId)
+          .eq("questions.active", true)
+          .or(dueOrNew)
+          .limit(1),
+      ]);
+      if (source.error) throw source.error;
+      if (items.error) throw items.error;
+      return (source.data?.length ?? 0) > 0 && (items.data?.length ?? 0) > 0 ? classId : null;
+    })
+  );
+  return new Set(probes.filter((id): id is string => id !== null));
+}
+
+/** A class's own label for the exam banner: the course code ("MATH 2418", as it appears on the person's schedule), else short_name. Null when unreadable -- the banner then names the exam without a class. */
+async function loadClassLabel(client: TypedClient, classId: string): Promise<string | null> {
+  const { data, error } = await client.from("classes").select("code, short_name").eq("id", classId).maybeSingle();
+  if (error) throw error;
+  return data?.code || data?.short_name || null;
+}
+
 /** Read-only counterpart to `recordStudyMethods`, for the completion summary (self-mastery-session-actions.ts's `finishSession`). */
 export async function fetchSessionStudyMethods(client: TypedClient, sessionId: string): Promise<StudyMethodId[]> {
   const { data, error } = await client.from("work_sessions").select("study_methods").eq("id", sessionId).single();
@@ -514,19 +552,19 @@ export async function buildTodaysSession(
     input.userId,
     input.localDate
   );
-  // Tracks the SAME max-across-classes multiplier the capacity math uses
-  // (never a product of several -- see the comment above this block), plus
-  // which assessment produced it. This is purely for NAMING the multiplier
-  // to the user (describeExamIntensity, rendered in
-  // retrieval-session-overlay.tsx) -- never a second source of truth for
-  // the number itself, which stays maxIntensityMultiplier below.
-  let examIntensity: ExamIntensityInfo | null = null;
-  for (const a of examsByClass.values()) {
-    const daysUntilExam = daysBetweenDateStrings(input.localDate, a.date);
-    const multiplier = examIntensityMultiplier(daysUntilExam);
-    if (!examIntensity || multiplier > examIntensity.multiplier) {
-      examIntensity = { daysUntilExam, multiplier, assessmentName: a.name, assessmentType: a.type };
-    }
+  // Which exam (if any) governs this session -- the SAME max-across-classes
+  // multiplier the capacity math uses (never a product of several, see above),
+  // restricted to classes that actually have items this session could serve:
+  // an exam for a class with nothing due or new in the queue must neither
+  // boost the session nor announce itself on it (a book-only session used to
+  // read "Exam in 1 day -- study capacity boosted 3x" for an unrelated class).
+  // The pick also names the class, purely so describeExamIntensity can say
+  // which one -- never a second source of truth for the number itself, which
+  // stays maxIntensityMultiplier below.
+  const eligibleClassIds = await loadClassIdsWithSessionItems(client, input.userId, [...examsByClass.keys()], input.now);
+  let examIntensity: ExamIntensityInfo | null = pickExamIntensity(examsByClass, eligibleClassIds, input.localDate);
+  if (examIntensity) {
+    examIntensity = { ...examIntensity, className: await loadClassLabel(client, examIntensity.classId) };
   }
   const maxIntensityMultiplier = examIntensity?.multiplier ?? 1.0;
   const intensifiedCapacity = applyExamIntensity(baseCapacity, maxIntensityMultiplier);

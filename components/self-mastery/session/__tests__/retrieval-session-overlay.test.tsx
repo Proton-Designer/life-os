@@ -139,11 +139,11 @@ describe("RetrievalSessionOverlay", () => {
   // BuiltSession.examIntensity -- never a second computation of it.
   it("names the exam-intensity countdown and boost when the session was built with one", async () => {
     loadTodaysSessionMock.mockResolvedValue(
-      builtSession([card("c1", "A card")], [], { daysUntilExam: 2, multiplier: 2.5, assessmentName: "Midterm 1", assessmentType: "exam" })
+      builtSession([card("c1", "A card")], [], { classId: "c1", className: "MATH 2418", daysUntilExam: 2, multiplier: 2.5, assessmentName: "Midterm 1", assessmentType: "exam" })
     );
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByText("Exam in 2 days — study capacity boosted 2.5×")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("MATH 2418 exam in 2 days — more review today")).toBeInTheDocument());
   });
 
   it("shows no exam-intensity banner at all when the session has none", async () => {
@@ -151,7 +151,7 @@ describe("RetrievalSessionOverlay", () => {
     render(<RetrievalSessionOverlay open onClose={vi.fn()} />);
 
     await waitFor(() => expect(screen.getByText("A card")).toBeInTheDocument());
-    expect(screen.queryByText(/study capacity boosted/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/more review today/)).not.toBeInTheDocument();
   });
 
   it("P2-16: offers no Dictate control when the browser has no SpeechRecognition, and shows/wires one that appends to the typed answer when it does", async () => {

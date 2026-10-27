@@ -95,8 +95,13 @@ export function applyExamIntensity(baseLimit: number, multiplier: number): numbe
  * UI can name it. Never a second source of truth for the number: this is
  * always the SAME multiplier `examIntensityMultiplier` already computed for
  * that assessment's `daysUntilExam`.
+ *
+ * `className` is the class's own label (its course code, else short_name), filled in by
+ * the caller after the pick -- `pickExamIntensity` leaves it null.
  */
 export interface ExamIntensityInfo {
+  classId: string;
+  className: string | null;
   daysUntilExam: number;
   multiplier: number;
   assessmentName: string;
@@ -104,11 +109,38 @@ export interface ExamIntensityInfo {
 }
 
 /**
+ * The exam that governs this session, or null. Only a class that actually has
+ * items in the session (`eligibleClassIds`: a due or new question reached
+ * through its kind='course' sources row -- the same join get_session_queue
+ * serves) may boost it. Without that, an exam for MATH 2418 boosted, and
+ * announced itself on, a session made entirely of book cards. MAX across the
+ * eligible classes, never a product (Opus Lead ruling, build-session.ts).
+ */
+export function pickExamIntensity(
+  examsByClass: ReadonlyMap<string, UpcomingAssessment>,
+  eligibleClassIds: ReadonlySet<string>,
+  todayStr: string
+): ExamIntensityInfo | null {
+  let picked: ExamIntensityInfo | null = null;
+  for (const a of examsByClass.values()) {
+    if (!eligibleClassIds.has(a.classId)) continue;
+    const daysUntilExam = daysBetweenDateStrings(todayStr, a.date);
+    const multiplier = examIntensityMultiplier(daysUntilExam);
+    if (!picked || multiplier > picked.multiplier) {
+      picked = { classId: a.classId, className: null, daysUntilExam, multiplier, assessmentName: a.name, assessmentType: a.type };
+    }
+  }
+  return picked;
+}
+
+/**
  * Phase 1 #27's own gap, closed: the multiplier was wired into scheduling
  * capacity from day one but named nowhere a user could see, so a real effect
  * was completely silent. This is the one plain-language line the UI
  * (RetrievalSessionOverlay) renders verbatim -- it does not touch the
- * scheduling math above, only states its result.
+ * scheduling math above, only states its result, and names the class whose
+ * exam it is ("MATH 2418 exam tomorrow") so it can't be mistaken for a
+ * statement about the whole library.
  *
  * `null` in, `null` out: nothing to say when there is no known exam, and
  * nothing to say at the baseline multiplier either (1.0 means no active
@@ -117,10 +149,10 @@ export interface ExamIntensityInfo {
  */
 export function describeExamIntensity(info: ExamIntensityInfo | null): string | null {
   if (!info || info.multiplier <= 1.0) return null;
-  const label = info.assessmentType === "final_midterm" ? "Final/midterm" : "Exam";
-  const when = info.daysUntilExam <= 0 ? "today" : info.daysUntilExam === 1 ? "in 1 day" : `in ${info.daysUntilExam} days`;
-  const multiplierLabel = Number.isInteger(info.multiplier) ? `${info.multiplier}×` : `${info.multiplier.toFixed(1)}×`;
-  return `${label} ${when} — study capacity boosted ${multiplierLabel}`;
+  const kind = info.assessmentType === "final_midterm" ? "final/midterm" : "exam";
+  const when = info.daysUntilExam <= 0 ? "today" : info.daysUntilExam === 1 ? "tomorrow" : `in ${info.daysUntilExam} days`;
+  const subject = info.className ? `${info.className} ${kind}` : `${kind[0]!.toUpperCase()}${kind.slice(1)}`;
+  return `${subject} ${when} — more review today`;
 }
 
 interface AssessmentRow {

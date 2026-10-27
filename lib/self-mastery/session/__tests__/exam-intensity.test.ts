@@ -5,6 +5,8 @@ import {
   describeExamIntensity,
   examIntensityMultiplier,
   loadNearestUpcomingExamsByClass,
+  pickExamIntensity,
+  type UpcomingAssessment,
 } from "../exam-intensity";
 
 describe("daysBetweenDateStrings", () => {
@@ -75,42 +77,77 @@ describe("describeExamIntensity", () => {
   // Phase 1 #27's own gap: the multiplier was wired into scheduling capacity
   // from day one but named nowhere a user could see -- this is the
   // plain-language line the one UI surface that shows it renders verbatim.
+  // It names the CLASS whose exam is driving the session (and only appears
+  // when that class has items in it -- see pickExamIntensity).
+  const info = (over: Partial<Parameters<typeof describeExamIntensity>[0] & object> = {}) => ({
+    classId: "c1",
+    className: "MATH 2418",
+    daysUntilExam: 1,
+    multiplier: 3.0,
+    assessmentName: "Midterm Exam (proctored)",
+    assessmentType: "exam",
+    ...over,
+  });
+
   it("is null when there is no known exam", () => {
     expect(describeExamIntensity(null)).toBeNull();
   });
 
   it("is null at the baseline multiplier -- nothing to say when there's no active boost", () => {
-    expect(describeExamIntensity({ daysUntilExam: 30, multiplier: 1.0, assessmentName: "Final", assessmentType: "exam" })).toBeNull();
+    expect(describeExamIntensity(info({ daysUntilExam: 30, multiplier: 1.0 }))).toBeNull();
   });
 
-  it("states the countdown and the multiplier in plain language for an imminent exam", () => {
-    expect(describeExamIntensity({ daysUntilExam: 3, multiplier: 2.5, assessmentName: "Midterm 1", assessmentType: "exam" })).toBe(
-      "Exam in 3 days — study capacity boosted 2.5×"
-    );
+  it("names the class and says tomorrow for one day out", () => {
+    expect(describeExamIntensity(info())).toBe("MATH 2418 exam tomorrow — more review today");
   });
 
-  it("singularizes 1 day", () => {
-    expect(describeExamIntensity({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Final", assessmentType: "exam" })).toBe(
-      "Exam in 1 day — study capacity boosted 3×"
-    );
-  });
-
-  it("says 'today' for a same-day exam, not 'in 0 days'", () => {
-    expect(describeExamIntensity({ daysUntilExam: 0, multiplier: 3.0, assessmentName: "Final", assessmentType: "exam" })).toBe(
-      "Exam today — study capacity boosted 3×"
-    );
+  it("says today for a same-day exam and 'in N days' further out", () => {
+    expect(describeExamIntensity(info({ daysUntilExam: 0 }))).toBe("MATH 2418 exam today — more review today");
+    expect(describeExamIntensity(info({ daysUntilExam: 3, multiplier: 2.5 }))).toBe("MATH 2418 exam in 3 days — more review today");
   });
 
   it("labels a final_midterm-type assessment distinctly from a plain exam", () => {
-    expect(
-      describeExamIntensity({ daysUntilExam: 2, multiplier: 2.5, assessmentName: "Final", assessmentType: "final_midterm" })
-    ).toBe("Final/midterm in 2 days — study capacity boosted 2.5×");
+    expect(describeExamIntensity(info({ daysUntilExam: 2, multiplier: 2.5, assessmentType: "final_midterm" }))).toBe(
+      "MATH 2418 final/midterm in 2 days — more review today"
+    );
   });
 
-  it("formats a whole-number multiplier without a trailing .0", () => {
-    expect(describeExamIntensity({ daysUntilExam: 7, multiplier: 2.0, assessmentName: "Exam", assessmentType: "exam" })).toBe(
-      "Exam in 7 days — study capacity boosted 2×"
+  it("without a class label it still reads, capitalized, rather than inventing one", () => {
+    expect(describeExamIntensity(info({ className: null }))).toBe("Exam tomorrow — more review today");
+  });
+});
+
+describe("pickExamIntensity", () => {
+  const exam = (classId: string, date: string, name = "Exam"): UpcomingAssessment => ({ classId, date, type: "exam", name });
+  const exams = (...rows: UpcomingAssessment[]) => new Map(rows.map((r) => [r.classId, r]));
+
+  it("(a) an exam whose class has no items in the session picks nothing", () => {
+    expect(pickExamIntensity(exams(exam("c1", "2026-09-15")), new Set(), "2026-09-14")).toBeNull();
+  });
+
+  it("(b) an exam whose class has items is picked, naming that class", () => {
+    expect(pickExamIntensity(exams(exam("c1", "2026-09-15", "Midterm")), new Set(["c1"]), "2026-09-14")).toEqual({
+      classId: "c1",
+      className: null,
+      daysUntilExam: 1,
+      multiplier: 3.0,
+      assessmentName: "Midterm",
+      assessmentType: "exam",
+    });
+  });
+
+  it("takes the MAX over eligible classes only, never a product", () => {
+    const picked = pickExamIntensity(
+      exams(exam("c1", "2026-09-15"), exam("c2", "2026-09-16"), exam("c3", "2026-09-17")),
+      new Set(["c2", "c3"]),
+      "2026-09-14"
     );
+    expect(picked).toMatchObject({ classId: "c2", multiplier: 2.5 });
+  });
+
+  it("an exam already past is baseline, and no exams at all is null", () => {
+    expect(pickExamIntensity(exams(exam("c1", "2026-09-10")), new Set(["c1"]), "2026-09-14")).toMatchObject({ multiplier: 1.0 });
+    expect(pickExamIntensity(new Map(), new Set(["c1"]), "2026-09-14")).toBeNull();
   });
 });
 

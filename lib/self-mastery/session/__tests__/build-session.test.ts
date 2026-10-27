@@ -723,10 +723,26 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
    * observable side effect of the capacity math, since BuiltSession itself
    * doesn't expose capacity directly.
    */
-  function makeSessionClient(classAssessmentRows: { class_id: string; date: string; type: string; name: string }[], sessionTargetMinutes: number) {
+  function makeSessionClient(
+    classAssessmentRows: { class_id: string; date: string; type: string; name: string }[],
+    sessionTargetMinutes: number,
+    // Which classes actually have due/new items this session could serve (a kind='course' sources row + an active
+    // question with a due or new card_state). Default: every class with an exam does, so the capacity tests below
+    // keep testing capacity; the eligibility tests pass [] or a subset.
+    opts: { classesWithItems?: string[]; classCodes?: Record<string, string> } = {}
+  ) {
+    const classesWithItems = opts.classesWithItems ?? classAssessmentRows.map((r) => r.class_id);
     const queueCalls: { p_limit_due: number; p_limit_new: number }[] = [];
     const makeThenableChain = (table: string) => {
+      const eqs: Record<string, unknown> = {};
       const target: Record<string, unknown> = {
+        maybeSingle: async () => {
+          if (table === "classes") {
+            const code = opts.classCodes?.[eqs.id as string];
+            return { data: code ? { code, short_name: null } : null, error: null };
+          }
+          return { data: null, error: null };
+        },
         single: async () => {
           if (table === "user_settings") {
             return {
@@ -742,6 +758,12 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
         },
         then: (res: (v: { data: unknown[]; count: number; error: null }) => unknown) => {
           if (table === "class_assessments") return Promise.resolve(res({ data: classAssessmentRows, count: classAssessmentRows.length, error: null }));
+          // The eligibility probes: sources(kind='course', class_id) and card_states joined to questions of that class.
+          const probed = table === "sources" && eqs.kind === "course" ? eqs.class_id : table === "card_states" ? eqs["questions.class_id"] : undefined;
+          if (probed !== undefined) {
+            const rows = classesWithItems.includes(probed as string) ? [{ id: "row" }] : [];
+            return Promise.resolve(res({ data: rows, count: rows.length, error: null }));
+          }
           // reviews (elapsed_ms history), card_states (due/new counts) -- all empty:
           // zero due, zero history, SEED_MS_PER_CARD's 20s/card pace applies.
           return Promise.resolve(res({ data: [], count: 0, error: null }));
@@ -749,6 +771,12 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
       };
       const proxy: unknown = new Proxy(target, {
         get(t, prop) {
+          if (prop === "eq") {
+            return (column: string, value: unknown) => {
+              eqs[column] = value;
+              return proxy;
+            };
+          }
           if (prop in t) return (t as Record<string | symbol, unknown>)[prop];
           return () => proxy;
         },
@@ -791,7 +819,7 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
     // The effect was real and silent -- BuiltSession.examIntensity is what
     // finally names it for the UI (retrieval-session-overlay.tsx), without
     // this test's own capacity math above being its only observable trace.
-    expect(result.examIntensity).toEqual({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Midterm", assessmentType: "exam" });
+    expect(result.examIntensity).toEqual({ classId: "c1", className: null, daysUntilExam: 1, multiplier: 3.0, assessmentName: "Midterm", assessmentType: "exam" });
   });
 
   it("uses the MAX multiplier across classes, never a product of several -- three imminent exams must not compound", async () => {
@@ -864,6 +892,54 @@ describe("Phase 1 #27 -- exam intensity wiring in buildTodaysSession", () => {
     );
     const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
 
-    expect(result.examIntensity).toEqual({ daysUntilExam: 1, multiplier: 3.0, assessmentName: "Exam 1", assessmentType: "exam" });
+    expect(result.examIntensity).toEqual({ classId: "c1", className: null, daysUntilExam: 1, multiplier: 3.0, assessmentName: "Exam 1", assessmentType: "exam" });
+  });
+
+  // Ayman's account: "Midterm Exam (proctored)", MATH 2418, tomorrow -- and a session of Actionable Gamification
+  // BOOK cards. The banner said "study capacity boosted 3x" though nothing in the session was for that class.
+  it("an exam for a class with no due/new items gives no boost and no banner (a book-only session)", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [{ class_id: "c1", date: "2026-09-15", type: "exam", name: "Midterm Exam (proctored)" }], // 1 day -> would be 3.0x
+      10,
+      { classesWithItems: [], classCodes: { c1: "MATH 2418" } }
+    );
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(30); // baseline, multiplier 1.0
+    expect(result.examIntensity).toBeNull();
+  });
+
+  it("an exam for a class that has items boosts the session and names that class", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [{ class_id: "c1", date: "2026-09-15", type: "exam", name: "Midterm Exam (proctored)" }],
+      10,
+      { classesWithItems: ["c1"], classCodes: { c1: "MATH 2418" } }
+    );
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(60); // 30 x 3.0 = 90, capped by the 20-minute ceiling
+    expect(result.examIntensity).toEqual({
+      classId: "c1",
+      className: "MATH 2418",
+      daysUntilExam: 1,
+      multiplier: 3.0,
+      assessmentName: "Midterm Exam (proctored)",
+      assessmentType: "exam",
+    });
+  });
+
+  it("only classes with items count toward the MAX: the nearer exam of an item-less class is ignored", async () => {
+    const { client, queueCalls } = makeSessionClient(
+      [
+        { class_id: "c1", date: "2026-09-15", type: "exam", name: "Exam 1" }, // 1 day -> 3.0x, but c1 has nothing in the session
+        { class_id: "c2", date: "2026-09-21", type: "exam", name: "Exam 2" }, // 7 days -> 2.0x, c2 has items
+      ],
+      1,
+      { classesWithItems: ["c2"], classCodes: { c2: "BIOL 1406" } }
+    );
+    const result = await buildTodaysSession(client, { userId: "u1", localDate: "2026-09-14", now: new Date("2026-09-14T12:00:00Z") });
+
+    expect(queueCalls[0]!.p_limit_due + queueCalls[0]!.p_limit_new).toBe(6); // 3 baseline x 2.0, not x 3.0
+    expect(result.examIntensity).toMatchObject({ classId: "c2", className: "BIOL 1406", multiplier: 2.0 });
   });
 });
