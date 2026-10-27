@@ -157,8 +157,8 @@ export function PageView({
   const firstWordOfBlock = new Map<number, number>();
   dw.blockIds.forEach((id, s) => firstWordOfBlock.set(id, dw.blockStarts[s]));
 
-  // Keep the current word in the middle band of the page while reading advances or after a seek elsewhere.
-  useEffect(() => {
+  // Put the current word in the middle band of the page unless it is already there.
+  function centerActive(smooth: boolean) {
     const root = scrollRef.current;
     const el = root?.querySelector<HTMLElement>('[data-active="true"]');
     if (!root || !el) return;
@@ -168,8 +168,29 @@ export function PageView({
     if (inBand) return;
     programmaticUntil.current = Date.now() + 700;
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ block: "center", behavior: playing || reduce ? "auto" : "smooth" });
+    el.scrollIntoView({ block: "center", behavior: smooth && !reduce ? "smooth" : "auto" });
+  }
+
+  // Keep the current word in the middle band while reading advances or after a seek elsewhere.
+  useEffect(() => {
+    centerActive(!playing);
   }, [index, playing]);
+
+  // The effect above runs once on mount, but the first paint is not the final layout: on a phone the toolbar, the stats
+  // bar and the book's web font all arrive afterwards, shrinking the page and pushing the start word below the fold
+  // while the effect had already judged it "in the band". So until the person scrolls it themselves, re-centre when
+  // the page or its text changes size.
+  const followLayout = useRef(true);
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (followLayout.current) centerActive(false);
+    });
+    ro.observe(root);
+    if (root.firstElementChild) ro.observe(root.firstElementChild);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => () => {
     if (settle.current) clearTimeout(settle.current);
@@ -178,7 +199,9 @@ export function PageView({
   // Reading by scrolling: once the user stops scrolling, and the current word is off screen, the position follows the
   // first paragraph on screen. Programmatic scrolls above are ignored so this never fights the auto-follow.
   function onScroll() {
-    if (playing || Date.now() < programmaticUntil.current) return;
+    if (Date.now() < programmaticUntil.current) return;
+    followLayout.current = false;
+    if (playing) return;
     if (settle.current) clearTimeout(settle.current);
     settle.current = setTimeout(() => {
       const root = scrollRef.current;
