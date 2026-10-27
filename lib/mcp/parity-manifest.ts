@@ -441,6 +441,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/mcp-token-actions.ts#revokeMcpToken": { excluded: "credential: revokes a PAT" },
   "app/(app)/settings/focus-target-actions.ts#getFocusTargetSettings": { read_only: true },
   "app/(app)/settings/focus-target-actions.ts#saveFocusTargets": { pending: "P4-26", note: "HOME-01a daily/weekend focus target (user_settings.daily_focus_target_minutes/weekend_focus_target_minutes); MCP settings write widening" },
+  "app/(app)/settings/self-mastery-actions.ts#getSelfMasterySettings": { read_only: true },
+  "app/(app)/settings/self-mastery-actions.ts#saveSelfMasterySettings": { pending: "P4-26", note: "Settings > Self-Mastery: user_settings.daily_new_limit / session_target_minutes (5-20 min); MCP settings write widening, deliberately not exposed yet" },
   "app/(app)/morning-brief-actions.ts#setMorningBriefCollapsed": { pending: "P4-26", note: "HOME-01a minimize/expand the morning brief for one brief_date (user_settings.morning_brief_collapsed_on); a UI-state preference, MCP twin optional" },
   "app/(app)/settings/wind-down-actions.ts#getWindDownSettings": { read_only: true },
   "app/(app)/settings/quran-reminder-actions.ts#saveQuranReminderWindow": { pending: "P4-26", note: "Package D Quran reminder window (user_settings.quran_reminder_start/end); MCP settings write widening" },

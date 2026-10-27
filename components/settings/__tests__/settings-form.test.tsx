@@ -41,6 +41,7 @@ describe("SettingsForm section order (matches the left tabs)", () => {
       <>
         <section id="notifications" />
         <section id="reading" />
+        <section id="self-mastery" />
         <section id="ai" />
         <section id="canvas" />
         <section id="rescuetime" />

@@ -14,6 +14,7 @@ export const SETTINGS_SECTIONS = [
   { id: "checkins", label: "Check-ins" },
   { id: "notifications", label: "Notifications" },
   { id: "reading", label: "Reading" },
+  { id: "self-mastery", label: "Self-Mastery" },
   { id: "ai", label: "AI features" },
   { id: "canvas", label: "Canvas" },
   { id: "rescuetime", label: "RescueTime" },

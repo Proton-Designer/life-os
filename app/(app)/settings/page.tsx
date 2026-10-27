@@ -8,6 +8,7 @@ import { SleepReminderSettings } from "@/components/settings/sleep-reminder-sett
 import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-settings";
 import { ReaderSettings } from "@/components/settings/reader-settings";
 import { FocusTargetSettings } from "@/components/settings/focus-target-settings";
+import { SelfMasterySettings } from "@/components/settings/self-mastery-settings";
 import { StreamedIntegrationPanels } from "@/components/settings/streamed-panels";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
@@ -15,6 +16,9 @@ import { OptInFeaturesSettings } from "@/components/settings/opt-in-features-set
 import { DeenModeSettings } from "@/components/settings/deen-mode-settings";
 import { QuranReminderSettings } from "@/components/settings/quran-reminder-settings";
 import { DEFAULT_READER_SETTINGS } from "@/lib/reader/types";
+import { getUserDomains } from "@/lib/domains/get-user-domains";
+import { hasArea } from "@/lib/domains/area-vocabulary";
+import { DEFAULT_DAILY_NEW_LIMIT, DEFAULT_SESSION_MINUTES } from "@/lib/self-mastery/session-settings";
 import { isDeenModeOn } from "@/lib/deen/deen-mode";
 import { resolveThemePreset } from "@/lib/theme-presets";
 import { sanitizeHiddenFeatures } from "@/lib/features";
@@ -40,7 +44,7 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const { data: settingsRow } = await supabase
     .from("user_settings")
-    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes, quran_reminder_start, quran_reminder_end, reader_wpm, reader_daily_word_goal, reader_focal_lines")
+    .select("weekday_baselines, wake_time, sleep_need_minutes, wind_down_minutes, daily_focus_target_minutes, weekend_focus_target_minutes, quran_reminder_start, quran_reminder_end, daily_new_limit, session_target_minutes, reader_wpm, reader_daily_word_goal, reader_focal_lines")
     .eq("user_id", user.id)
     .maybeSingle();
   const weekdayBaselines = (settingsRow?.weekday_baselines ?? null) as number[] | null;
@@ -55,6 +59,16 @@ export default async function SettingsPage() {
     wpm: settingsRow?.reader_wpm ?? DEFAULT_READER_SETTINGS.wpm,
     dailyWordGoal: settingsRow?.reader_daily_word_goal ?? null,
     focalLines: settingsRow?.reader_focal_lines ?? DEFAULT_READER_SETTINGS.focalLines,
+  };
+
+  // Self-Mastery's session knobs (066 columns, first write path: Settings > Self-Mastery). Shown only to an account
+  // that has Self-Mastery, the same test Home uses for its Self-Mastery card: the Learning area, or a legacy account
+  // (which has every module).
+  const domainsState = await getUserDomains();
+  const showSelfMastery = domainsState.mode === "legacy" || hasArea(domainsState, "learning");
+  const selfMasterySettings = {
+    dailyNewLimit: settingsRow?.daily_new_limit ?? DEFAULT_DAILY_NEW_LIMIT,
+    sessionTargetMinutes: settingsRow?.session_target_minutes ?? DEFAULT_SESSION_MINUTES,
   };
 
   // L10: same defensive-cast reasoning as components/shell/app-shell.tsx —
@@ -83,7 +97,7 @@ export default async function SettingsPage() {
             scrolling in document order. */}
         <nav className="hidden xl:block">
           <ul className="sticky top-24 flex flex-col gap-1 text-sm">
-            {SECTIONS.filter((s) => (s.id === "prayer" || s.id === "location" ? deenMode : s.id === "timezone" ? !deenMode : true)).map((s) => (
+            {SECTIONS.filter((s) => (s.id === "prayer" || s.id === "location" ? deenMode : s.id === "timezone" ? !deenMode : s.id === "self-mastery" ? showSelfMastery : true)).map((s) => (
               <li key={s.id}>
                 <a
                   href={`#${s.id}`}
@@ -151,6 +165,12 @@ export default async function SettingsPage() {
                   <Panel id="reading" className="scroll-mt-24" title="Reading">
                     <ReaderSettings initial={readerDefaults} />
                   </Panel>
+
+                  {showSelfMastery && (
+                    <Panel id="self-mastery" className="scroll-mt-24" title="Self-Mastery">
+                      <SelfMasterySettings initial={selfMasterySettings} />
+                    </Panel>
+                  )}
 
                   {/* NAV-01b: these panels read their own data and stream in, concurrently. */}
                   <StreamedIntegrationPanels />

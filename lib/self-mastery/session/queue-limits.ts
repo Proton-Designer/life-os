@@ -3,6 +3,9 @@
 // warm-up selection, and soft-delete filtering all live in get_session_queue
 // itself (071) and are never reimplemented here.
 
+/** The most a session may run, even under exam intensity: ~2x the spec's "5-10 minutes, completable every day". Also the top of the Settings range for session length. */
+export const MAX_SESSION_MINUTES_WITH_INTENSITY = 20;
+
 /** Seed used before the user has any review history. */
 export const SEED_MS_PER_CARD = 20_000;
 

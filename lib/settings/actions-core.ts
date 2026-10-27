@@ -16,18 +16,20 @@ import { FEATURE_IDS, isFeatureId, type FeatureId } from "@/lib/features";
  * weekday-baseline-actions.ts's `saveWeekdayBaselines`/
  * `clearWeekdayBaselines`).
  *
- * EVERYTHING ELSE ON `user_settings` (`daily_new_limit`,
- * `notification_enabled`, `notification_time`, `desired_retention`,
- * `ai_grading_enabled`, `session_target_minutes`) IS DELIBERATELY NOT
- * WIRED HERE — checked, not assumed: grepped every `.tsx`/`.ts` file for
- * each column name and found ZERO write paths anywhere in the app. Only
- * `build-session.ts`'s ensure-insert (defaults on first session) and
- * plain reads touch them; `weekday_baselines` is the ONE field on this
- * table an actual Settings UI lets a user edit. Wiring the rest here would
- * make MCP the FIRST place these become writable at all — not extending
- * an existing reachable-but-not-yet-MCP-exposed capability, which is a
- * materially different (and bigger) decision than the one asked for.
- * Flagged to the lead rather than guessed at.
+ * EVERYTHING ELSE ON `user_settings` (`notification_enabled`,
+ * `notification_time`, `desired_retention`, `ai_grading_enabled`) IS
+ * DELIBERATELY NOT WIRED HERE -- checked, not assumed: grepped every
+ * `.tsx`/`.ts` file for each column name and found ZERO write paths
+ * anywhere in the app. Only `build-session.ts`'s ensure-insert (defaults on
+ * first session) and plain reads touch them. `daily_new_limit` and
+ * `session_target_minutes` HAD no write path either until Settings >
+ * Self-Mastery (app/(app)/settings/self-mastery-actions.ts, via
+ * lib/self-mastery/session-settings-core.ts); they are still NOT exposed
+ * through this MCP registry -- a UI-only write path, by decision (2026-10-27).
+ * Wiring the rest here would make MCP the FIRST place these become writable
+ * at all -- not extending an existing reachable-but-not-yet-MCP-exposed
+ * capability, which is a materially different (and bigger) decision than the
+ * one asked for. Flagged to the lead rather than guessed at.
  *
  * `user_api_keys` HAS NO write action ANYWHERE in this program, and it is
  * not an oversight — see settings.api_key's own registry.ts comment: a
