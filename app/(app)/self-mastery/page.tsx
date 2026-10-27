@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { SelfMasteryLibrary } from "@/components/self-mastery/self-mastery-library";
+import { personalSelfMasteryHref } from "@/lib/self-mastery/personal-self-mastery-href";
 
 /**
  * Legacy-mode + direct-URL entry point for Self-Mastery (S6, 2026-09-14).
@@ -22,9 +24,13 @@ import { SelfMasteryLibrary } from "@/components/self-mastery/self-mastery-libra
  * sidebar-nav.tsx (legacy) and any direct link/bookmark land here;
  * domains-mode's Personal tab still goes through /personal/self_mastery
  * for its subdomain-tab chrome (Faith/Fitness/Self-Mastery switcher). A
- * domains-mode account landing here directly still sees identical content,
- * just without that chrome — not a broken state, a smaller one.
+ * domains-mode account landing here is redirected into that chrome
+ * (2026-10-26): the reader's back arrow and every other "back to
+ * Self-Mastery" link point here, and without the tabs the person was stuck
+ * with no way back to Faith or Fitness.
  */
-export default function SelfMasteryPage() {
+export default async function SelfMasteryPage() {
+  const personalHref = await personalSelfMasteryHref();
+  if (personalHref) redirect(personalHref);
   return <SelfMasteryLibrary />;
 }

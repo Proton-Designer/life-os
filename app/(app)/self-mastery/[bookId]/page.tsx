@@ -1,5 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { BookDetailView } from "@/components/self-mastery/book-detail-view";
+import { personalSelfMasteryHref } from "@/lib/self-mastery/personal-self-mastery-href";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,6 +20,10 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default async function SelfMasteryBookDetailPage({ params }: { params: Promise<{ bookId: string }> }) {
   const { bookId } = await params;
   if (!UUID_RE.test(bookId)) notFound();
+
+  // A domains-mode account gets the same page inside its Personal tabs.
+  const personalHref = await personalSelfMasteryHref(bookId);
+  if (personalHref) redirect(personalHref);
 
   return <BookDetailView bookId={bookId} />;
 }
