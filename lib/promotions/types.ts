@@ -49,6 +49,18 @@ export interface PromotableArea {
 }
 
 /**
+ * The area the "which area of your life" picker starts on. A lesson is
+ * Self-Mastery material, so: `learning` (post-115), else the pre-115
+ * `personal_growth` group that holds self_mastery, else the first area.
+ * Before this it was always the first area by position, so an account whose
+ * first area was Work or Faith filed every lesson there by default.
+ */
+export function defaultPromotionAreaId(areas: PromotableArea[]): string {
+  const byKey = (key: string) => areas.find((a) => a.key === key)?.id;
+  return byKey("learning") ?? byKey("personal_growth") ?? areas[0]?.id ?? "";
+}
+
+/**
  * Why a legacy account gets its own state rather than an empty array.
  *
  * `lesson_promotions.area_id` is NOT NULL and FKs to `user_domains(user_id,

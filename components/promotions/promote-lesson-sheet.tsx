@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { promoteLesson } from "@/lib/promotions/actions";
-import { hasAction, type PromotableAreasState } from "@/lib/promotions/types";
+import { defaultPromotionAreaId, hasAction, type PromotableAreasState } from "@/lib/promotions/types";
 
 const TEXTAREA_CLASS =
   "w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50";
@@ -79,7 +79,7 @@ export function PromoteLessonSheet({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [acceptedText, setAcceptedText] = useState(actionTemplate ?? "");
-  const [areaId, setAreaId] = useState<string>(areas.status === "ready" ? (areas.areas[0]?.id ?? "") : "");
+  const [areaId, setAreaId] = useState<string>(areas.status === "ready" ? defaultPromotionAreaId(areas.areas) : "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
