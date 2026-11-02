@@ -141,6 +141,149 @@ export type Database = {
           },
         ]
       }
+      agent_jobs: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          completed_at: string | null
+          consumed_at: string | null
+          created_at: string
+          dedupe_key: string | null
+          error: string | null
+          expires_at: string
+          id: string
+          input: NonNullable<Json>
+          input_chars: number
+          kind: string
+          lease_until: string | null
+          result: Json | null
+          status: string
+          subject_id: string | null
+          subject_type: string | null
+          user_id: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          input: NonNullable<Json>
+          input_chars: number
+          kind: string
+          lease_until?: string | null
+          result?: Json | null
+          status?: string
+          subject_id?: string | null
+          subject_type?: string | null
+          user_id?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          consumed_at?: string | null
+          created_at?: string
+          dedupe_key?: string | null
+          error?: string | null
+          expires_at?: string
+          id?: string
+          input?: NonNullable<Json>
+          input_chars?: number
+          kind?: string
+          lease_until?: string | null
+          result?: Json | null
+          status?: string
+          subject_id?: string | null
+          subject_type?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_jobs_claimed_by_same_user"
+            columns: ["user_id", "claimed_by"]
+            referencedRelation: "mcp_access_tokens"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      ai_feedback_notes: {
+        Row: {
+          agent_job_id: string | null
+          attempt_text: string
+          card_id: string | null
+          created_at: string
+          feedback_text: string
+          follow_up_questions: Json | null
+          id: string
+          kind: string
+          lesson_id: string | null
+          model: string | null
+          provider: string
+          seen_at: string | null
+          suggested_rating: number | null
+          user_id: string
+        }
+        Insert: {
+          agent_job_id?: string | null
+          attempt_text: string
+          card_id?: string | null
+          created_at?: string
+          feedback_text: string
+          follow_up_questions?: Json | null
+          id?: string
+          kind: string
+          lesson_id?: string | null
+          model?: string | null
+          provider?: string
+          seen_at?: string | null
+          suggested_rating?: number | null
+          user_id?: string
+        }
+        Update: {
+          agent_job_id?: string | null
+          attempt_text?: string
+          card_id?: string | null
+          created_at?: string
+          feedback_text?: string
+          follow_up_questions?: Json | null
+          id?: string
+          kind?: string
+          lesson_id?: string | null
+          model?: string | null
+          provider?: string
+          seen_at?: string | null
+          suggested_rating?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_feedback_notes_card_same_user"
+            columns: ["user_id", "card_id"]
+            referencedRelation: "cards"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "ai_feedback_notes_job_same_user"
+            columns: ["user_id", "agent_job_id"]
+            referencedRelation: "agent_jobs"
+            referencedColumns: ["user_id", "id"]
+          },
+          {
+            foreignKeyName: "ai_feedback_notes_lesson_same_user"
+            columns: ["user_id", "lesson_id"]
+            referencedRelation: "lessons"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
       ai_morning_briefs: {
         Row: {
           brief_date: string
@@ -533,6 +676,49 @@ export type Database = {
             foreignKeyName: "canvas_course_mappings_class_same_user"
             columns: ["user_id", "class_id"]
             referencedRelation: "classes"
+            referencedColumns: ["user_id", "id"]
+          },
+        ]
+      }
+      card_day_connections: {
+        Row: {
+          card_id: string
+          connection_date: string
+          connection_text: string
+          created_at: string
+          generated_at: string
+          id: string
+          model: string | null
+          provider: string
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          connection_date: string
+          connection_text: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          model?: string | null
+          provider?: string
+          user_id?: string
+        }
+        Update: {
+          card_id?: string
+          connection_date?: string
+          connection_text?: string
+          created_at?: string
+          generated_at?: string
+          id?: string
+          model?: string | null
+          provider?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "card_day_connections_card_same_user"
+            columns: ["user_id", "card_id"]
+            referencedRelation: "cards"
             referencedColumns: ["user_id", "id"]
           },
         ]
@@ -1766,14 +1952,17 @@ export type Database = {
       ingestion_driver_heartbeats: {
         Row: {
           id: number
+          last_kicked_at: string | null
           last_polled_at: string
         }
         Insert: {
           id: number
+          last_kicked_at?: string | null
           last_polled_at: string
         }
         Update: {
           id?: number
+          last_kicked_at?: string | null
           last_polled_at?: string
         }
         Relationships: []
@@ -1849,6 +2038,7 @@ export type Database = {
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
+          waiting_on_agent_since: string | null
         }
         Insert: {
           book_id: string
@@ -1865,6 +2055,7 @@ export type Database = {
           stage?: Database["public"]["Enums"]["ingest_stage"]
           updated_at?: string
           user_id: string
+          waiting_on_agent_since?: string | null
         }
         Update: {
           book_id?: string
@@ -1881,6 +2072,7 @@ export type Database = {
           stage?: Database["public"]["Enums"]["ingest_stage"]
           updated_at?: string
           user_id?: string
+          waiting_on_agent_since?: string | null
         }
         Relationships: [
           {
@@ -4215,6 +4407,7 @@ export type Database = {
           date: string | null
           id: string
           name: string
+          replaces_assessment_id: string | null
           source_snippet: string | null
           type: string
           user_id: string
@@ -4227,6 +4420,7 @@ export type Database = {
           date?: string | null
           id?: string
           name: string
+          replaces_assessment_id?: string | null
           source_snippet?: string | null
           type: string
           user_id?: string
@@ -4239,6 +4433,7 @@ export type Database = {
           date?: string | null
           id?: string
           name?: string
+          replaces_assessment_id?: string | null
           source_snippet?: string | null
           type?: string
           user_id?: string
@@ -4256,10 +4451,17 @@ export type Database = {
             referencedRelation: "class_assessments"
             referencedColumns: ["user_id", "id"]
           },
+          {
+            foreignKeyName: "staged_deliverables_replaces_assessment_same_user"
+            columns: ["user_id", "replaces_assessment_id"]
+            referencedRelation: "class_assessments"
+            referencedColumns: ["user_id", "id"]
+          },
         ]
       }
       staging_batches: {
         Row: {
+          agent_job_id: string | null
           canvas_announcement_id: string | null
           canvas_assignment_id: string | null
           class_id: string
@@ -4271,6 +4473,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          agent_job_id?: string | null
           canvas_announcement_id?: string | null
           canvas_assignment_id?: string | null
           class_id: string
@@ -4282,6 +4485,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          agent_job_id?: string | null
           canvas_announcement_id?: string | null
           canvas_assignment_id?: string | null
           class_id?: string
@@ -4293,6 +4497,12 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "staging_batches_agent_job_same_user"
+            columns: ["user_id", "agent_job_id"]
+            referencedRelation: "agent_jobs"
+            referencedColumns: ["user_id", "id"]
+          },
           {
             foreignKeyName: "staging_batches_class_same_user"
             columns: ["user_id", "class_id"]
@@ -4683,6 +4893,7 @@ export type Database = {
           reader_theme: string
           reader_voice_uri: string | null
           reader_wpm: number
+          self_mastery_on_home: boolean
           session_target_minutes: number
           sleep_need_minutes: number | null
           updated_at: string
@@ -4709,6 +4920,7 @@ export type Database = {
           reader_theme?: string
           reader_voice_uri?: string | null
           reader_wpm?: number
+          self_mastery_on_home?: boolean
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
@@ -4735,6 +4947,7 @@ export type Database = {
           reader_theme?: string
           reader_voice_uri?: string | null
           reader_wpm?: number
+          self_mastery_on_home?: boolean
           session_target_minutes?: number
           sleep_need_minutes?: number | null
           updated_at?: string
@@ -5285,6 +5498,7 @@ export type Database = {
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
+          waiting_on_agent_since: string | null
         }
         SetofOptions: {
           from: "*"
@@ -5293,7 +5507,39 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      apply_agent_feedback_note: {
+        Args: {
+          p_feedback: string
+          p_follow_ups: Json
+          p_job_id: string
+          p_rating: number
+        }
+        Returns: number
+      }
+      begin_agent_job_submit: {
+        Args: { p_id: string; p_token_id: string }
+        Returns: Json
+      }
       book_is_deleted: { Args: { p_book_id: string }; Returns: boolean }
+      cancel_agent_job: { Args: { p_id: string }; Returns: number }
+      cancel_book_agent_work: { Args: { p_book_id: string }; Returns: number }
+      claim_agent_jobs: {
+        Args: {
+          p_id: string
+          p_kind: string
+          p_limit: number
+          p_token_id: string
+        }
+        Returns: {
+          attempts: number
+          id: string
+          input: Json
+          kind: string
+          lease_until: string
+          subject_id: string
+          subject_type: string
+        }[]
+      }
       claim_ingestion_job: {
         Args: Record<PropertyKey, never>
         Returns: {
@@ -5311,6 +5557,7 @@ export type Database = {
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
+          waiting_on_agent_since: string | null
         }
         SetofOptions: {
           from: "*"
@@ -5344,6 +5591,19 @@ export type Database = {
         }
       }
       claim_staging_batch: { Args: { p_batch_id: string }; Returns: string }
+      clear_agent_day_connection: {
+        Args: { p_card_id: string; p_date: string }
+        Returns: number
+      }
+      clear_agent_morning_brief: { Args: { p_date: string }; Returns: number }
+      clear_agent_weekly_narrative: {
+        Args: { p_week_start: string }
+        Returns: number
+      }
+      complete_agent_job: {
+        Args: { p_id: string; p_result: Json }
+        Returns: number
+      }
       complete_session: {
         Args: { p_book_strengths?: Json; p_session_id: string }
         Returns: Json
@@ -5362,12 +5622,36 @@ export type Database = {
         }
         Returns: string
       }
+      consume_agent_job: { Args: { p_id: string }; Returns: number }
       delete_book: { Args: { p_book_id: string }; Returns: Json }
       delete_class_assessment: {
         Args: { p_assessment_id: string }
         Returns: undefined
       }
       delete_coop_target: { Args: { p_target_id: string }; Returns: undefined }
+      enqueue_agent_job: {
+        Args: {
+          p_input: Json
+          p_input_chars: number
+          p_kind: string
+          p_subject_id: string
+          p_subject_type: string
+        }
+        Returns: string
+      }
+      enqueue_book_stage_jobs: {
+        Args: {
+          p_book_id: string
+          p_stage: string
+          p_units: Json
+          p_user_id: string
+        }
+        Returns: number
+      }
+      fail_agent_job: {
+        Args: { p_id: string; p_reason: string; p_token_id: string }
+        Returns: number
+      }
       finalize_staging_batch: { Args: { p_batch_id: string }; Returns: boolean }
       get_session_queue: {
         Args: { p_limit_due: number; p_limit_new: number }
@@ -5386,6 +5670,8 @@ export type Database = {
           name: string
         }[]
       }
+      kick_ingestion_driver: { Args: { p_hop: number }; Returns: boolean }
+      mark_feedback_note_seen: { Args: { p_id: string }; Returns: number }
       match_source_chunks: {
         Args: {
           p_embedding_model: string
@@ -5452,6 +5738,37 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      park_ingestion_job: {
+        Args: {
+          p_expected_attempt: number
+          p_expected_chunk_index: number
+          p_expected_stage: Database["public"]["Enums"]["ingest_stage"]
+          p_job_id: string
+        }
+        Returns: {
+          book_id: string
+          consecutive_skipped_positions: number
+          created_at: string
+          cursor_attempt: number
+          cursor_chunk_index: number | null
+          id: string
+          last_error: string | null
+          leased_until: string | null
+          max_attempts: number
+          reingest: boolean
+          skipped_positions: number
+          stage: Database["public"]["Enums"]["ingest_stage"]
+          updated_at: string
+          user_id: string
+          waiting_on_agent_since: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ingestion_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       purge_user_data: { Args: { p_user_id: string }; Returns: undefined }
       reader_save_position: {
         Args: {
@@ -5471,6 +5788,10 @@ export type Database = {
           p_trigger_id: string
         }
         Returns: undefined
+      }
+      reject_agent_job_submit: {
+        Args: { p_error: string; p_id: string }
+        Returns: number
       }
       reorder_coop_target: {
         Args: { p_new_position: number; p_target_id: string }
@@ -5536,6 +5857,7 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      retry_book_ingestion: { Args: { p_book_id: string }; Returns: string }
       save_allocation_checkin: {
         Args: {
           p_allocations: Json
@@ -5595,6 +5917,7 @@ export type Database = {
           stage: Database["public"]["Enums"]["ingest_stage"]
           updated_at: string
           user_id: string
+          waiting_on_agent_since: string | null
         }
         SetofOptions: {
           from: "*"
@@ -5723,6 +6046,11 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      sweep_agent_jobs: { Args: Record<PropertyKey, never>; Returns: number }
+      unpark_ingestion_for_book: {
+        Args: { p_book_id: string }
+        Returns: number
+      }
       upsert_session_hour: {
         Args: {
           p_domain: string
@@ -5731,6 +6059,23 @@ export type Database = {
           p_window_start: string
         }
         Returns: string
+      }
+      write_agent_day_connection: {
+        Args: {
+          p_card_id: string
+          p_date: string
+          p_text: string
+          p_token_id?: string
+        }
+        Returns: number
+      }
+      write_agent_morning_brief: {
+        Args: { p_date: string; p_text: string; p_token_id?: string }
+        Returns: number
+      }
+      write_agent_weekly_narrative: {
+        Args: { p_text: string; p_token_id?: string; p_week_start: string }
+        Returns: number
       }
     }
     Enums: {
