@@ -66,7 +66,7 @@ A session Home's Today list starts from a plan line works on exactly ONE plan ta
 | Shares with | Work/Co-op | `work_sessions`, active-session cache, `work_session_objectives` |
 | Depended on by | Insights | Signal:Noise donut/6-week trend, sole source is `checkin_allocations` |
 | Depended on by | Distractions | Commit `bdda3f4`: distraction domain can be inferred from an active Lock-In session |
-| External | MCP connector | 2 entities: kill_list_item, weekly_goal (`fixedFilter: domain='business'`) |
+| External | MCP connector | 2 entities: kill_list_item (read; write set, set_completed, clear, toggle), weekly_goal (`fixedFilter: domain='business'`). `set_completed` / `clear` are idempotent by (date, position) and exist for the admin console sync (`kill_list` token scope, mcp-connector.md); `clear` deletes the slot row: a paired plan task keeps every field (only `kill_list_item_id` is released, migration 260's `on delete set null`), a Lock-In objective on it goes with it (existing cascade) |
 
 ## Constraints & gotchas
 
