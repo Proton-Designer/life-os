@@ -34,6 +34,8 @@ import { getInProgressBooks } from "@/lib/self-mastery/get-in-progress-books";
 import { getDueSummary, getSelfMasteryCandidateInput } from "@/app/(app)/personal/self-mastery-session-actions";
 import { SessionEntryCard } from "@/components/self-mastery/session/session-entry-card";
 import { ContinueReadingSection } from "@/components/self-mastery/continue-reading-section";
+import { getSelfMasteryOnHomeCore } from "@/lib/self-mastery/home-visibility-core";
+import { resolveSelfMasteryHome } from "@/lib/self-mastery/home-visibility";
 import { getUserDomains } from "@/lib/domains/get-user-domains";
 import { hasOptInFeature } from "@/lib/opt-in-features";
 import { getRhythmData } from "@/lib/home/rhythm-data";
@@ -151,10 +153,15 @@ export default async function HomePage() {
   const launchPromise = morningRoutineOn ? Promise.all([rhythmPromise, activeHabitsPromise, getRehearsalPlan(supabase, userId, dateStr, deenMode).catch(() => null)]) : null;
   for (const p of [snapshotsPromise, quranPromise, quranStripPromise, sectorPromise, mcpWidgetsPromise, rhythmPromise, activeHabitsPromise, faithPracticesPromise, habitCheckoffsPromise, focusTargetPromise, dayCardPromise, ...(launchPromise ? [launchPromise] : [])]) p.catch(() => undefined);
 
-  const hasSelfMastery = hasArea(domainsState, "learning");
-  // Legacy-mode accounts have no domain list, but Self-Mastery (and its reader) is in their fixed nav, so the entry shows there too.
-  const showContinueReading = hasSelfMastery || domainsState.mode === "legacy";
-  const dueSessionPromise = getDueSummary().then(async (dueSummary) => {
+  // "Show Self-Mastery on Home" (Settings > Self-Mastery, default ON): OFF means Home does no Self-Mastery work at all -- no due summary,
+  // no in-progress books, no arbiter candidate -- not just a hidden card. A failed read (e.g. migration 283 not applied yet) = ON, as before.
+  const selfMasteryOnHomePromise = getSelfMasteryOnHomeCore(supabase, userId).catch(() => true);
+  const selfMasteryHomePromise = selfMasteryOnHomePromise.then((onHome) =>
+    resolveSelfMasteryHome({ onHome, hasLearningArea: hasArea(domainsState, "learning"), legacy: domainsState.mode === "legacy" })
+  );
+  const dueSessionPromise = selfMasteryHomePromise.then(async ({ show, hasSelfMastery }) => {
+    if (!show) return { dueSummary: null, showSessionEntry: false, candidateInput: { hasCandidate: false as const, dueAt: null, decay: null, cost: null } };
+    const dueSummary = await getDueSummary();
     // showSessionEntry, not hasSelfMastery alone -- a School-only user's due questions must be able
     // to compete for the top "Now" slot too (see shouldShowSessionEntry's header).
     const showSessionEntry = shouldShowSessionEntry(hasSelfMastery, dueSummary);
@@ -163,6 +170,7 @@ export default async function HomePage() {
       : { hasCandidate: false as const, dueAt: null, decay: null, cost: null };
     return { dueSummary, showSessionEntry, candidateInput };
   });
+  const inProgressBooksPromise = selfMasteryHomePromise.then(({ show }) => (show ? getInProgressBooks() : []));
 
   // Weekly planning nudge: unlocks Saturday evening, no hard lockout -- just a nudge until it's done,
   // per spec. "This week" is the upcoming week (starts tomorrow, Sunday). Started with the rest
@@ -196,6 +204,7 @@ export default async function HomePage() {
     morningRoutineItems,
     layout,
     planItems,
+    selfMasteryHome,
   ] = await Promise.all([
       // allKillListItems: the Today list shows EVERY open Kill List line for today (the Now-era default is one, the next).
       taskDayPromise.then((taskDate) => getPriorityItems(userId, now, undefined, { allKillListItems: true, taskDate })),
@@ -216,7 +225,7 @@ export default async function HomePage() {
       // Degrades to [] rather than throwing if the Self-Mastery schema
       // isn't deployed yet (see the function's own comment) — Home must
       // never break because a feature's migration hasn't landed.
-      getInProgressBooks(),
+      inProgressBooksPromise,
       // D-003: the retrieval session's entry point. Deliberately does NOT
       // call start_session — a user glancing at Home never creates a real
       // work_sessions row just by loading the page.
@@ -245,7 +254,9 @@ export default async function HomePage() {
       getPageLayout("home"),
       // Today's committed plan (starred / domain / time / timer) for the plan list inside Now; one cheap read in the same batch.
       taskDayPromise.then((taskDate) => getTodaysPlanItems(supabase, userId, taskDate)),
+      selfMasteryHomePromise,
     ]);
+  const showContinueReading = selfMasteryHome.continueReading;
   const morningBrief = briefState.brief;
   const layoutMap = buildLayoutMap(layout);
   // WIDGET-02 exception, stated rather than silently applied: session_entry's
@@ -254,7 +265,7 @@ export default async function HomePage() {
   // Now/Focus grid, and a saved layout `position` has no way to express "only
   // sometimes first." Hiding it entirely is still fully honored (a user who
   // never wants this card can turn it off), just not its rank among the rest.
-  const sessionEntryHidden = layoutMap.get("session_entry")?.hidden ?? false;
+  const sessionEntryHidden = !selfMasteryHome.show || (layoutMap.get("session_entry")?.hidden ?? false);
 
   // Phase 1 #24 fix (Opus Lead, 2026-09-15) — see shouldShowSessionEntry's own header for the full
   // mechanism. The due summary, the show decision and the ranking candidate input all resolved inside

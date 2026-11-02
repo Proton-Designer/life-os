@@ -9,6 +9,8 @@ import { WeekdayBaselineSettings } from "@/components/settings/weekday-baseline-
 import { ReaderSettings } from "@/components/settings/reader-settings";
 import { FocusTargetSettings } from "@/components/settings/focus-target-settings";
 import { SelfMasterySettings } from "@/components/settings/self-mastery-settings";
+import { SelfMasteryHomeToggle } from "@/components/settings/self-mastery-home-toggle";
+import { getSelfMasteryOnHomeCore } from "@/lib/self-mastery/home-visibility-core";
 import { StreamedIntegrationPanels } from "@/components/settings/streamed-panels";
 import { ThemeSettings } from "@/components/settings/theme-settings";
 import { FeatureVisibilitySettings } from "@/components/settings/feature-visibility-settings";
@@ -65,7 +67,10 @@ export default async function SettingsPage() {
   // that has Self-Mastery, the same test Home uses for its Self-Mastery card: the Learning area, or a legacy account
   // (which has every module).
   const domainsState = await getUserDomains();
-  const showSelfMastery = domainsState.mode === "legacy" || hasArea(domainsState, "learning");
+  // Read on its own (not in the select above) so a database without migration 283 cannot blank every other setting; failure = ON.
+  const selfMasteryOnHome = await getSelfMasteryOnHomeCore(supabase, user.id).catch(() => true);
+  // Still shown when the person turned it off, so they can always turn it back on, even after dropping the Learning area.
+  const showSelfMastery = domainsState.mode === "legacy" || hasArea(domainsState, "learning") || !selfMasteryOnHome;
   const selfMasterySettings = {
     dailyNewLimit: settingsRow?.daily_new_limit ?? DEFAULT_DAILY_NEW_LIMIT,
     sessionTargetMinutes: settingsRow?.session_target_minutes ?? DEFAULT_SESSION_MINUTES,
@@ -168,7 +173,10 @@ export default async function SettingsPage() {
 
                   {showSelfMastery && (
                     <Panel id="self-mastery" className="scroll-mt-24" title="Self-Mastery">
-                      <SelfMasterySettings initial={selfMasterySettings} />
+                      <div className="flex flex-col gap-4">
+                        <SelfMasteryHomeToggle initial={selfMasteryOnHome} />
+                        <SelfMasterySettings initial={selfMasterySettings} />
+                      </div>
                     </Panel>
                   )}
 

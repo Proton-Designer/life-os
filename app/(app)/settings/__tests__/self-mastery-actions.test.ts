@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { saveCore, getCore, revalidateMock } = vi.hoisted(() => ({ saveCore: vi.fn(), getCore: vi.fn(), revalidateMock: vi.fn() }));
+const { saveCore, getCore, revalidateMock, setHomeCore } = vi.hoisted(() => ({ saveCore: vi.fn(), getCore: vi.fn(), revalidateMock: vi.fn(), setHomeCore: vi.fn() }));
+vi.mock("@/lib/self-mastery/home-visibility-core", () => ({ setSelfMasteryOnHomeCore: setHomeCore, getSelfMasteryOnHomeCore: vi.fn() }));
 vi.mock("@/lib/supabase/auth", () => ({ requireUser: async () => ({ supabase: { tag: "sb" }, userId: "user-1" }) }));
 vi.mock("@/lib/self-mastery/session-settings-core", () => ({ saveSelfMasterySettingsCore: saveCore, getSelfMasterySettingsCore: getCore }));
 vi.mock("next/cache", () => ({ revalidatePath: revalidateMock }));
 
-import { getSelfMasterySettings, saveSelfMasterySettings } from "../self-mastery-actions";
+import { getSelfMasterySettings, saveSelfMasterySettings, setSelfMasteryOnHome } from "../self-mastery-actions";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -37,6 +38,24 @@ describe("Self-Mastery settings actions", () => {
   it("a refused write is { ok:false, message } and revalidates nothing", async () => {
     saveCore.mockRejectedValue(new Error("No settings row."));
     expect(await saveSelfMasterySettings({ dailyNewLimit: 5, sessionTargetMinutes: 8 })).toEqual({ ok: false, message: "No settings row." });
+    expect(revalidateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setSelfMasteryOnHome", () => {
+  it("writes for the signed-in user and revalidates Home + Settings", async () => {
+    setHomeCore.mockResolvedValue(false);
+    expect(await setSelfMasteryOnHome(false)).toEqual({ ok: true });
+    expect(setHomeCore).toHaveBeenCalledWith({ tag: "sb" }, "user-1", false);
+    expect(revalidateMock).toHaveBeenCalledWith("/");
+    expect(revalidateMock).toHaveBeenCalledWith("/settings");
+  });
+
+  it("a non-boolean never reaches the database; a refused write is { ok:false } and revalidates nothing", async () => {
+    expect((await setSelfMasteryOnHome("no" as unknown as boolean)).ok).toBe(false);
+    expect(setHomeCore).not.toHaveBeenCalled();
+    setHomeCore.mockRejectedValue(new Error("No settings row."));
+    expect(await setSelfMasteryOnHome(true)).toEqual({ ok: false, message: "No settings row." });
     expect(revalidateMock).not.toHaveBeenCalled();
   });
 });
