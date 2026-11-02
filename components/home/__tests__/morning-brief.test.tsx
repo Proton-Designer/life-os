@@ -104,3 +104,53 @@ describe("morning brief minimize (HOME-01b)", () => {
     expect(screen.queryByTestId("morning-brief")).not.toBeInTheDocument();
   });
 });
+
+describe("morning brief content (agent-written briefs)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetKeyedQueuesForTests();
+  });
+  const wrap = (node: React.ReactNode) => (
+    <MorningBriefProvider briefDate="2026-10-05" hasBrief initialCollapsed={false}>
+      {node}
+    </MorningBriefProvider>
+  );
+
+  it("renders blank-line-separated paragraphs as separate paragraphs, as plain text (no HTML)", () => {
+    render(wrap(<MorningBriefPanel text={"First <b>bold</b> paragraph.\n\nSecond paragraph."} />));
+    const paragraphs = screen.getByTestId("morning-brief").querySelectorAll("p[data-brief-paragraph]");
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[0]).toHaveTextContent("First <b>bold</b> paragraph.");
+    expect(screen.getByTestId("morning-brief").querySelector("b")).toBeNull();
+  });
+
+  it("shows a source line for an agent-written brief and none for the built-in one", () => {
+    const { rerender } = render(wrap(<MorningBriefPanel text="Hi" sourceLabel="Written by Claude via your connector" />));
+    expect(screen.getByTestId("brief-source")).toHaveTextContent("Written by Claude via your connector");
+    rerender(wrap(<MorningBriefPanel text="Hi" />));
+    expect(screen.queryByTestId("brief-source")).not.toBeInTheDocument();
+  });
+
+  it("clamps a long brief behind Show more, and Show less folds it back", async () => {
+    const user = userEvent.setup();
+    render(wrap(<MorningBriefPanel text={"word ".repeat(300)} />));
+    const body = screen.getByTestId("brief-body");
+    expect(body).toHaveAttribute("data-clamped", "true");
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+    expect(body).toHaveAttribute("data-clamped", "false");
+    await user.click(screen.getByRole("button", { name: "Show less" }));
+    expect(body).toHaveAttribute("data-clamped", "true");
+  });
+
+  it("a short brief has no Show more", () => {
+    render(wrap(<MorningBriefPanel text="Short." />));
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+  });
+
+  it("minimize still works on a long agent brief", async () => {
+    const user = userEvent.setup();
+    render(wrap(<MorningBriefPanel text={"word ".repeat(300)} sourceLabel="Written by your agent via your connector" />));
+    await user.click(screen.getByTestId("brief-minimize"));
+    expect(screen.queryByTestId("morning-brief")).not.toBeInTheDocument();
+  });
+});

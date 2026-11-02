@@ -1,7 +1,7 @@
 # Life OS — AI Integration Program: Handoff Context
 
-**Written:** 2026-09-09, by an agent session at Garrison's request, from a working conversation
-with him — not yet reviewed or ruled on by Ayman (the app's actual owner).
+**Written:** 2026-09-09, by an agent session from a planning conversation — not yet reviewed
+or ruled on by Ayman (the app's actual owner).
 **Audience:** whichever dev-agent team picks this up to build it.
 **Status:** design is settled enough to build against; a few things below are explicitly flagged
 as open and need an answer before or during the build, not assumptions to fill in silently.
@@ -101,7 +101,7 @@ Exact table definitions and the fuller per-domain tool list are in
 `docs/superpowers/specs/2026-09-09-mcp-ai-connector.md` — that's the file to open when it's time
 to write the migration, not this one.
 
-**Decisions Garrison already made, that the build should not relitigate:**
+**Decisions already made, that the build should not relitigate:**
 
 - **Auth: personal access token** (with the thin Claude-only OAuth shim described above).
 - **Scope: read AND write from day one**, across every domain, no read-only phase.
@@ -124,7 +124,7 @@ polish**, and should not be descoped to save time:
 
 1. This touches Ayman's production schema and database. Whoever builds this should get his
    explicit sign-off before a migration lands, per how `AGENTS.md` says changes get ruled on here
-   — this was designed from Garrison's side of a conversation, not Ayman's.
+   — this was designed in a planning conversation, not with Ayman directly.
 2. `mcp-handler` (Vercel's package) is the assumed dependency; nobody has yet spiked it against
    this app's actual Next 16 / App Router setup. Do that spike before committing to it inside a
    migration-adjacent PR.
