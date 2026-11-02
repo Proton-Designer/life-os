@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MorningBriefSchedule, AgentOutputsSchedule } from "./morning-brief-schedule";
+import { ConsoleConnect } from "./console-connect";
 import {
   createMcpToken,
   revokeMcpToken,
@@ -214,6 +215,8 @@ export function ConnectorSettings({
         Let a tool you trust — Claude, ChatGPT, a script, a text-based assistant — read or write your Life OS data
         directly. Nothing here is required: the app works without any connection at all.
       </p>
+
+      <ConsoleConnect onCreated={(status) => setTokens((t) => [status, ...t])} />
 
       <Tabs defaultValue="mcp">
         <TabsList>

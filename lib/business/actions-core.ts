@@ -55,6 +55,60 @@ export async function setKillListItemCompletedCore(supabase: SupabaseClient, use
   return { completed };
 }
 
+/** The columns the console sync reads back after a write. */
+export interface KillListSlotRow {
+  id: string;
+  date: string;
+  position: number;
+  text: string;
+  completed: boolean;
+  completed_at: string | null;
+  updated_at: string | null;
+}
+const SLOT_COLS = "id, date, position, text, completed, completed_at, updated_at";
+
+/** One slot of a day (null when empty). */
+export async function getKillListSlotCore(supabase: SupabaseClient, userId: string, date: string, position: 0 | 1 | 2): Promise<KillListSlotRow | null> {
+  const { data, error } = await supabase.from("kill_list_items").select(SLOT_COLS).eq("user_id", userId).eq("date", date).eq("position", position).maybeSingle();
+  if (error) throw error;
+  return (data as KillListSlotRow | null) ?? null;
+}
+
+/**
+ * SETS a slot's completion by (date, position), idempotently: a value the row already has changes nothing (completed_at and updated_at are NOT re-stamped), so a
+ * retried call, or two syncs in a row, leave the row exactly as the first one did. Returns null when the slot is empty. A change is carried to the paired plan task
+ * the same way a tap in the app does (syncPlanTaskFromKillList); no task time or title is touched.
+ */
+export async function setKillListSlotCompletedCore(
+  supabase: SupabaseClient, userId: string, date: string, position: 0 | 1 | 2, completed: boolean,
+): Promise<{ row: KillListSlotRow; changed: boolean } | null> {
+  const existing = await getKillListSlotCore(supabase, userId, date, position);
+  if (!existing) return null;
+  if (existing.completed === completed) return { row: existing, changed: false };
+  const completedAt = completed ? new Date().toISOString() : null;
+  const { data, error } = await supabase
+    .from("kill_list_items")
+    .update({ completed, completed_at: completedAt })
+    .eq("id", existing.id)
+    .eq("user_id", userId)
+    .select(SLOT_COLS);
+  if (error) throw error;
+  if (!data || data.length === 0) return null;   // deleted between the read and the write
+  await syncPlanTaskFromKillList(supabase, userId, existing.id, completed, completedAt);
+  return { row: data[0] as KillListSlotRow, changed: true };
+}
+
+/**
+ * REMOVES a slot's row, idempotently (an empty slot is `cleared: false`, not an error). The plan task paired to it keeps every field (title, times, completion): only
+ * tasks.kill_list_item_id is released, by the composite FK's `on delete set null (kill_list_item_id)` (migration 260). A Lock-In objective that points at the item goes
+ * with it (the existing cascade, the same one the plan sync triggers when it deletes an unfinished item).
+ */
+export async function clearKillListSlotCore(supabase: SupabaseClient, userId: string, date: string, position: 0 | 1 | 2): Promise<{ cleared: boolean }> {
+  const { data, error } = await supabase.from("kill_list_items").delete().eq("user_id", userId).eq("date", date).eq("position", position).select("id");
+  if (error) throw error;
+  return { cleared: (data?.length ?? 0) > 0 };
+}
+
 /** Business domain's weekly-goal save — see saveBusinessWeeklyGoal's own comment (app/(app)/business/actions.ts) on why this is the minimal version, not Task 11.1's real one. */
 export async function saveBusinessWeeklyGoalCore(supabase: SupabaseClient, userId: string, weekStartDate: string, headline: string, milestones: string[]): Promise<void> {
   const { error } = await supabase

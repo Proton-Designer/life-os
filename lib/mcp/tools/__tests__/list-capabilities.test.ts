@@ -252,7 +252,7 @@ describe("listCapabilitiesTool", () => {
 
     const business = await listCapabilitiesTool("business");
     const businessByEntity = Object.fromEntries((await textPayload(business)).entities.map((e: { entity: string; actions: string[] }) => [e.entity, e.actions]));
-    expect(businessByEntity.kill_list_item.sort()).toEqual(["read", "write:set", "write:toggle"]);
+    expect(businessByEntity.kill_list_item.sort()).toEqual(["read", "write:clear", "write:set", "write:set_completed", "write:toggle"]);
     expect(businessByEntity.weekly_goal.sort()).toEqual(["read", "write:save"]);
   });
 

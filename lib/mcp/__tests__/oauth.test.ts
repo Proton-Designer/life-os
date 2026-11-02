@@ -416,3 +416,12 @@ describe("runRefreshGrant — P4-13: the whole refresh grant is one SQL call (mc
     expect((await runRefreshGrant(rpcClient({ data: { outcome: "ok" }, error: null }).client, "rt", { label: "l", expiresAt: "x" })).outcome).toBe("error");
   });
 });
+
+describe("kill_list is never an OAuth scope (TASK-80)", () => {
+  it("parseScopeParam refuses it, alone or beside a real scope, and the others still parse", async () => {
+    const { parseScopeParam } = await import("../oauth");
+    expect(parseScopeParam("kill_list")).toBeNull();
+    expect(parseScopeParam("read kill_list")).toBeNull();
+    expect(parseScopeParam("read write")).toEqual(["read", "write"]);
+  });
+});

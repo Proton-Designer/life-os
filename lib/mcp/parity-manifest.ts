@@ -433,6 +433,7 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   "app/(app)/settings/location-actions.ts#getNearestCityLabel": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#getMcpTokenStatuses": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#createMcpToken": { excluded: "credential: mints a PAT" },
+  "app/(app)/settings/mcp-token-actions.ts#createConsoleToken": { excluded: "credential: mints the MyHomeBase console's PAT, scope kill_list only" },
   "app/(app)/settings/mcp-token-actions.ts#getAuditEntriesForToken": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#getScheduledActions": { read_only: true },
   "app/(app)/settings/mcp-token-actions.ts#pauseScheduledAction": { mcp: "scheduler.scheduled_action.pause", note: "P4-33: was pending P4-cov-SCHEDULES, but scheduler_manage(\"pause\") has been live and calls the SAME pauseScheduledActionCore this action does -- the entry described shipped work as unshipped" },
@@ -513,6 +514,8 @@ export const PARITY_MANIFEST: Record<string, ParityDecision> = {
   // result from a guard is worth nothing until the guard is shown to fire.
   "deen.weekly_goal.save": { mcp: "deen.weekly_goal.save", note: "the deen half of app/(app)/actions.ts#saveWeeklyGoal, whose own entry can only name the business op" },
   "school.schedule_event.set_override": { mcp: "school.schedule_event.set_override" },
+  "business.kill_list_item.set_completed": { mcp: "business.kill_list_item.set_completed", note: "idempotent set by (date, position) for the MyHomeBase console sync (kill_list scope); the in-app twin is setKillListItemCompleted, which stays ui_scaffold" },
+  "business.kill_list_item.clear": { mcp: "business.kill_list_item.clear", note: "removes a slot by (date, position) for the console sync; the app has no delete for a Kill List slot" },
   "school.canvas_import.run_batch": { mcp: "school.canvas_import.run_batch", note: "distinct from canvas-actions.ts#importConcludedCanvasCourses, which stays pending P4-cov-P2-20" },
   "widgets.widget.create": { mcp: "widgets.widget.create", note: "via widget_manage; same tool as the already-declared widgets.widget.delete" },
   "widgets.widget.update": { mcp: "widgets.widget.update", note: "via widget_manage" },

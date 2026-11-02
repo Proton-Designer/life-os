@@ -1,7 +1,7 @@
 import "server-only";
 import { randomBytes, createHash, createHmac } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { timingSafeEqualStrings, isMcpScope, generateRawToken, hashToken, last4, type McpScope } from "./tokens";
+import { timingSafeEqualStrings, isMcpScope, OAUTH_SCOPES, generateRawToken, hashToken, last4, type McpScope } from "./tokens";
 
 /**
  * L4 (docs/ai-connector/PROGRAM-PLAN.md): the hand-rolled OAuth 2.1
@@ -165,7 +165,7 @@ export function parseScopeParam(scopeParam: string | null | undefined): McpScope
   const parts = scopeParam.trim().split(/\s+/);
   const scopes: McpScope[] = [];
   for (const part of parts) {
-    if (!isMcpScope(part)) return null;
+    if (!isMcpScope(part) || !OAUTH_SCOPES.includes(part)) return null;
     if (!scopes.includes(part)) scopes.push(part);
   }
   return scopes;

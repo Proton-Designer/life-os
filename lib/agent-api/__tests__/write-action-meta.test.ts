@@ -43,7 +43,7 @@ function parseWriteRegistrySource(): Record<string, ParsedAction> {
       const key = `${domain}.${entity}.${a}`;
       if (!out[key]) continue;
       if (/requireId\(ctx\)/.test(line)) out[key].requiresId = true;
-      if (/requireString\(patch, "date"\)/.test(line)) out[key].requiresDate = true;
+      if (/require(?:String|IsoDate)\(patch, "date"\)/.test(line)) out[key].requiresDate = true;
     }
   }
   return out;

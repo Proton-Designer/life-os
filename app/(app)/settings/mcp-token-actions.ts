@@ -14,6 +14,7 @@ import { DEFAULT_TOKEN_EXPIRY, expiresAtForChoice, isTokenExpiryChoice } from "@
 import { listScheduledActionsCore, pauseScheduledActionCore, cancelScheduledActionCore, type ScheduledActionItem } from "@/lib/scheduling/scheduler-core";
 import { createConnectCodeCore } from "@/lib/mcp/connect-codes";
 import { ToolNotFoundError } from "@/lib/mcp/tool-input-error";
+import { CONSOLE_TOKEN_LABEL, CONSOLE_TOKEN_SCOPES } from "@/lib/mcp/console-token";
 
 /**
  * MCP personal-access-token management (L2, docs/ai-connector/PROGRAM-PLAN.md).
@@ -67,6 +68,22 @@ export async function createMcpToken(label: string, scopes: string[], expiry: st
   if (result.ok) {
     revalidatePath("/settings");
   }
+  return result;
+}
+
+/**
+ * "Connect MyHomeBase console" (TASK-80): mints the token the founder pastes into the admin console's LifeOS connection. Scopes are FIXED to ['kill_list'] here (the
+ * caller picks only the expiry), so this path can never produce a broader token: that scope reads and writes the business Kill List and nothing else
+ * (lib/mcp/tokens.ts KILL_LIST_SCOPE_OPERATIONS). Like createMcpToken, the raw value is returned once, here, and never again.
+ */
+export async function createConsoleToken(expiry: string = DEFAULT_TOKEN_EXPIRY): Promise<CreateMcpTokenResult> {
+  if (!isTokenExpiryChoice(expiry)) return { ok: false, message: "Pick an expiry: 7, 30 or 90 days, or never." };
+  const { supabase, userId } = await requireUser();
+  const result = await createAccessToken(supabase, userId, CONSOLE_TOKEN_LABEL, [...CONSOLE_TOKEN_SCOPES] as McpScope[], {
+    expiresAt: expiresAtForChoice(expiry),
+    clientKind: "pat",
+  });
+  if (result.ok) revalidatePath("/settings");
   return result;
 }
 

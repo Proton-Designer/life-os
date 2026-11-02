@@ -22,8 +22,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * be a way to recover a token's plaintext from this table, even for us.
  */
 
-export const MCP_SCOPES = ["read", "write", "jobs"] as const;
+export const MCP_SCOPES = ["read", "write", "jobs", "kill_list"] as const;
 export type McpScope = (typeof MCP_SCOPES)[number];
+/** The scopes an OAuth client (Claude / ChatGPT) may request and the metadata advertises. `kill_list` is the admin console's pasted token only, never an OAuth grant. */
+export const OAUTH_SCOPES: readonly McpScope[] = MCP_SCOPES.filter((s) => s !== "kill_list");
 
 /** What minted a token (migration 215's CHECK). Descriptive only -- scopes still decide what a token may do. */
 export const MCP_CLIENT_KINDS = ["pat", "mcp_oauth", "agent"] as const;
@@ -142,13 +144,28 @@ export function tokenHasScope(scopes: McpScope[], required: McpScope): boolean {
 export const JOBS_SCOPE_OPERATIONS: ReadonlySet<string> = new Set(["agent.job.read", "agent.job.claim", "agent.job.submit", "agent.job.fail"]);
 
 /**
+ * The only operations a `kill_list` scope grants (the MyHomeBase console's token, 2026-11-02): read the business Kill List, set a slot's text, set / clear a slot's
+ * check, remove a slot, and `GET /me` (so the console can verify what the token may do). It is for ONE external system that mirrors today's Kill List, so a leaked or
+ * mistaken token can touch nothing else in the account: it is refused on every other read, write, list_capabilities, widget_manage and scheduler_manage call.
+ * `toggle` is deliberately NOT here: it flips state, so a retried call would undo itself; the console uses the idempotent `set_completed`.
+ */
+export const KILL_LIST_SCOPE_OPERATIONS: ReadonlySet<string> = new Set([
+  "discovery.me",
+  "business.kill_list_item.read",
+  "business.kill_list_item.set",
+  "business.kill_list_item.set_completed",
+  "business.kill_list_item.clear",
+]);
+
+/**
  * The dispatcher's scope gate. A token passes when it carries the scope the tool needs (`read` for reads, `write` for writes), or when
- * it carries `jobs` and the operation is one of JOBS_SCOPE_OPERATIONS. `jobs` never widens anything else: a `jobs`-only token is
+ * it carries `jobs` / `kill_list` and the operation is one of that scope's own operations. Neither ever widens anything else: a `jobs`-only token is
  * refused on every other read, write, list_capabilities, widget_manage and scheduler_manage call.
  */
 export function tokenAllowsOperation(scopes: McpScope[], required: McpScope, operation: string): boolean {
-  if (required !== "jobs" && scopes.includes(required)) return true;
-  return scopes.includes("jobs") && JOBS_SCOPE_OPERATIONS.has(operation);
+  if (required !== "jobs" && required !== "kill_list" && scopes.includes(required)) return true;
+  if (scopes.includes("jobs") && JOBS_SCOPE_OPERATIONS.has(operation)) return true;
+  return scopes.includes("kill_list") && KILL_LIST_SCOPE_OPERATIONS.has(operation);
 }
 
 interface TokenRow {

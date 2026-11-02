@@ -38,7 +38,7 @@ import { formatHHMM12 } from "@/lib/date-utils";
 import { createIdentityHabitCore, setIdentityHabitFrequencyCore, archiveIdentityHabitCore, castHabitVoteCore, retractHabitVoteCore } from "@/lib/habits/actions-core";
 import { addTargetCore, addStretchGoalCore, editTargetCore, completeTargetCore, moveTargetCore } from "@/lib/coop/targets-core";
 import { addAgendaTaskCore, editTaskCore, advanceTaskCore, retreatTaskCore, blockTaskCore, unblockTaskCore } from "@/lib/coop/tasks-core";
-import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore } from "@/lib/business/actions-core";
+import { setKillListItemCore, toggleKillListItemCore, saveBusinessWeeklyGoalCore, startWorkSessionCore, getKillListSlotCore, setKillListSlotCompletedCore, clearKillListSlotCore } from "@/lib/business/actions-core";
 import { endSessionAndBankCore } from "@/lib/night-plan/plan-work-core";
 import { addTaskCore, updateTaskCore, toggleTaskCore, updateScheduleEventCore, setScheduleEventOverrideCore, cancelScheduleOccurrenceCore } from "@/lib/tasks/actions-core";
 import {
@@ -187,6 +187,16 @@ function requireString(patch: WritePatch, field: string): string {
   const value = patch[field];
   if (typeof value !== "string" || value.length === 0) {
     throw new ToolInputError(`patch.${field} is required and must be a non-empty string.`);
+  }
+  return value;
+}
+
+/** A required `YYYY-MM-DD` that is a real calendar day (a bad one is the caller's 400, not a Postgres cast error). */
+function requireIsoDate(patch: WritePatch, field: string): string {
+  const value = requireString(patch, field);
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00Z`) : null;
+  if (!d || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) {
+    throw new ToolInputError(`patch.${field} must be a real date as YYYY-MM-DD. Got: ${JSON.stringify(value)}.`);
   }
   return value;
 }
@@ -1216,13 +1226,54 @@ export const WRITE_REGISTRY: Record<string, WriteDomainDef> = {
             idempotent: true,
             idempotencyVerification: "setKillListItemCore upserts on (user_id,date,position) with text taken verbatim from the patch -- a retry upserts the identical row.",
             handler: async (ctx, patch) => {
-              const date = requireString(patch, "date");
+              const date = requireIsoDate(patch, "date");
               const position = requireNumberEnum(patch, "position", [0, 1, 2] as const);
               const text = requireString(patch, "text");
               await setKillListItemCore(ctx.userClient, ctx.userId, date, position, text);
+              // The row it left behind (its real id / updated_at / completed state): the console sync keys on it. Falls back to the old synthetic shape if the read fails.
+              const row = await getKillListSlotCore(ctx.userClient, ctx.userId, date, position).catch(() => null);
+              const out = row
+                ? { id: row.id, updated_at: row.updated_at, date, position, text, completed: row.completed }
+                : { id: `${date}:${position}`, updated_at: null, date, position, text };
               return {
-                result: { content: [{ type: "text", text: JSON.stringify({ date, position, text }) }], structuredContent: { id: `${date}:${position}`, updated_at: null, date, position, text } },
+                result: { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out },
                 summary: `set kill-list slot ${position} on ${date}`,
+              };
+            },
+          },
+          set_completed: {
+            action: "set_completed",
+            description: "Set one kill-list slot's completion by (date, position): completed true or false. Idempotent: the value it already has changes nothing. The slot must already hold an item.",
+            patchShape: "{ date: string, position: 0|1|2, completed: boolean }",
+            idempotent: true,
+            idempotencyVerification: "setKillListSlotCompletedCore reads the slot and returns early when `completed` already equals the requested value (no write, completed_at and updated_at untouched); otherwise it writes the requested value, so a retry lands on the same row state.",
+            handler: async (ctx, patch) => {
+              const date = requireIsoDate(patch, "date");
+              const position = requireNumberEnum(patch, "position", [0, 1, 2] as const);
+              const completed = requireBoolean(patch, "completed");
+              const result = await setKillListSlotCompletedCore(ctx.userClient, ctx.userId, date, position, completed);
+              if (!result) throw new ToolNotFoundError(`No kill-list item in slot ${position} on ${date}.`);
+              const out = { ...result.row, changed: result.changed };
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out },
+                summary: `${result.changed ? "set" : "kept"} kill-list slot ${position} on ${date} ${completed ? "completed" : "not completed"}`,
+              };
+            },
+          },
+          clear: {
+            action: "clear",
+            description: "Remove the item in one kill-list slot by (date, position). Idempotent: an empty slot is success (cleared:false). A paired plan task keeps all its fields; only its link to the slot is released.",
+            patchShape: "{ date: string, position: 0|1|2 }",
+            idempotent: true,
+            idempotencyVerification: "clearKillListSlotCore deletes the row at (user,date,position); a second call finds nothing and returns cleared:false, leaving the same (empty) state.",
+            handler: async (ctx, patch) => {
+              const date = requireIsoDate(patch, "date");
+              const position = requireNumberEnum(patch, "position", [0, 1, 2] as const);
+              const { cleared } = await clearKillListSlotCore(ctx.userClient, ctx.userId, date, position);
+              const out = { date, position, cleared };
+              return {
+                result: { content: [{ type: "text", text: JSON.stringify(out) }], structuredContent: out },
+                summary: `${cleared ? "cleared" : "found empty"} kill-list slot ${position} on ${date}`,
               };
             },
           },

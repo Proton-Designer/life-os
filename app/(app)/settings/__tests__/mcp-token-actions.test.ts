@@ -179,3 +179,51 @@ describe("revokeMcpToken", () => {
     expect(chain.eq).toHaveBeenCalledWith("user_id", "user-1");
   });
 });
+
+describe("createConsoleToken (Connect MyHomeBase console, TASK-80)", () => {
+  beforeEach(() => {
+    getClaimsMock.mockClear();
+    fromMock.mockClear();
+  });
+
+  function successChain() {
+    const chain = makeChain({ data: ROW({ label: "MyHomeBase console", scopes: ["kill_list"] }), error: null });
+    (chain as unknown as { then: unknown }).then = (resolve: (v: unknown) => void) => resolve({ data: [], error: null });
+    fromImpl = () => chain;
+    return chain;
+  }
+
+  it("mints exactly one scope, kill_list, labelled MyHomeBase console, as a personal token; the raw value comes back once and only its hash is stored", async () => {
+    const chain = successChain();
+    const { createConsoleToken } = await import("../mcp-token-actions");
+    const result = await createConsoleToken();
+    expect(result.ok).toBe(true);
+    expect(result.token).toMatch(/^lifeos_pat_/);
+    const insert = chain.insert.mock.calls[0][0] as Record<string, unknown>;
+    expect(insert.scopes).toEqual(["kill_list"]);
+    expect(insert.label).toBe("MyHomeBase console");
+    expect(insert.client_kind).toBe("pat");
+    expect(insert.token_hash).toBe(hashToken(result.token!));
+    expect(JSON.stringify(insert)).not.toContain(result.token);
+  });
+
+  it("takes no scope argument from the caller: a second argument cannot widen it", async () => {
+    const chain = successChain();
+    const { createConsoleToken } = await import("../mcp-token-actions");
+    await (createConsoleToken as unknown as (e: string, extra: string[]) => Promise<unknown>)("30", ["read", "write"]);
+    expect((chain.insert.mock.calls[0][0] as Record<string, unknown>).scopes).toEqual(["kill_list"]);
+  });
+
+  it("applies the chosen expiry, and refuses an unknown one before authenticating", async () => {
+    const chain = successChain();
+    const { createConsoleToken } = await import("../mcp-token-actions");
+    await createConsoleToken("30");
+    const days = (Date.parse((chain.insert.mock.calls[0][0] as Record<string, unknown>).expires_at as string) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(29.9);
+    expect(days).toBeLessThan(30.1);
+    fromMock.mockClear();
+    const bad = await createConsoleToken("365");
+    expect(bad.ok).toBe(false);
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+});

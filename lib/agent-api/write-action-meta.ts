@@ -115,6 +115,8 @@ export const DATE_NEVER_DEFAULTED: Readonly<Record<string, string>> = {
   "school.class_assessment.edit": "omitting it would overwrite the stored assessment date with today",
   "school.schedule_event.set_override": "names which class occurrence to move; a guess could move the wrong one",
   "school.schedule_event.cancel_occurrence": "names which class occurrence to cancel; a guess could cancel the wrong one",
+  "business.kill_list_item.set_completed": "names which day's slot to check off; a guess could check the wrong day's item",
+  "business.kill_list_item.clear": "names which day's slot to remove; a guess could remove the wrong day's item",
 };
 
 export function writeActionKey(domain: string, entity: string, action: string): string {
